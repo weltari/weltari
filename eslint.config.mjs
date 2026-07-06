@@ -223,7 +223,9 @@ export default defineConfig([
   /* ---- A13: frontend — browser globals, react-hooks, no reaching into the server ---- */
   {
     files: ['apps/web/**/*.{ts,tsx}'],
-    extends: [reactHooks.configs.recommended],
+    /* Plugin v7 ships flat configs under .flat; .recommended is legacy format
+       (one-line correction to the promoted config — recorded in docs/repo.md). */
+    extends: [reactHooks.configs.flat['recommended-latest']],
     languageOptions: { globals: globalsPkg.browser },
     rules: {
       ...restricted(ALL_FENCES, [
