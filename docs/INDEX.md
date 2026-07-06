@@ -13,4 +13,5 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [engine.md](engine.md) — ContextAssembler (byte-stable prefix + tail, B14 wrappers), fixture world.
 - [llm.md](llm.md) — LlmClient seam, ModelRegistry pinning, OpenRouter client (cached_tokens observability), FakeLLM, scripted scene turn.
 - [tools.md](tools.md) — kill harness (I4, 25/PR + 100/nightly) and offline consistency verifier.
+- [web.md](web.md) — apps/web: bare React 19 + Vite 8 stream renderer (render-only client).
 - [dependencies.md](dependencies.md) — the dependency ledger (one `##` heading per package; CI keys on headings).

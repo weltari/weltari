@@ -253,3 +253,57 @@ Every dependency gets one `## <package>` heading (CI keys on the heading — Gui
 - Maintenance: release within last 12 months, checked 2026-07-06.
 - Pinned: 21.2.0
 - Swap documented: n/a
+
+## react
+
+- What: the frontend framework (FINAL item 5) — deepest AI-editability track record (UI Spec §1.13).
+- Why not stdlib / an existing dep: settled by the stack session (Svelte/Lit rejected there).
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 19.2.7
+- Swap documented: n/a (plugin boundary is framework-neutral custom elements)
+
+## react-dom
+
+- What: React's DOM renderer.
+- Why not stdlib / an existing dep: companion to react.
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 19.2.7
+- Swap documented: n/a
+
+## @types/react
+
+- What: React 19 types.
+- Why not stdlib / an existing dep: DefinitelyTyped only source.
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 19.2.17
+- Swap documented: n/a
+
+## @types/react-dom
+
+- What: react-dom types.
+- Why not stdlib / an existing dep: DefinitelyTyped only source.
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 19.2.3
+- Swap documented: n/a
+
+## vite
+
+- What: frontend build tool + dev server (FINAL item 5, Vite 8 per fact-check).
+- Why not stdlib / an existing dep: standard, fast, actively maintained static build served by Fastify later.
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 8.1.3
+- Swap documented: n/a
+
+## @vitejs/plugin-react
+
+- What: React fast-refresh/JSX plugin for Vite.
+- Why not stdlib / an existing dep: the official React integration.
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 6.0.3
+- Swap documented: n/a
