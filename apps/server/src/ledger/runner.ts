@@ -142,6 +142,7 @@ export function createRunner(options: RunnerOptions): Runner {
         await handler(job);
         storage.ledger.markCommitted(job.id);
       } catch (thrown) {
+        // CATCH-OK: the C7 catch site — settleFailure maps kind -> retry/park/fatal.
         settleFailure(job, toAppError(thrown));
       }
       return true;
