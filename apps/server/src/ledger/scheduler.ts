@@ -2,6 +2,7 @@
 // works inline (FINAL item 8) — so a kill -9 between "cron fired" and "work
 // done" loses nothing: the row either exists or the next tick recreates it.
 import { Cron } from 'croner';
+import { BugError } from '../errors.js';
 import type { Storage } from '../storage/db.js';
 
 export interface CronDefinition {
@@ -20,6 +21,43 @@ export interface Scheduler {
    * restarting — startup IS recovery) never duplicates a row.
    */
   tick(): void;
+}
+
+/** Pure fictional-time arithmetic for the engine's WorldClock (A16: the engine
+ * itself may not construct Dates — it calls this instead). */
+export function addMinutesIso(iso: string, minutes: number): string {
+  return new Date(new Date(iso).getTime() + minutes * 60_000).toISOString();
+}
+
+/**
+ * Every occurrence of `pattern` in (fromIso, toIso], ascending. Used by the
+ * time-skip replay: these are FICTIONAL datetimes — croner only does calendar
+ * math here, never reads the wall clock. Throws past `cap` occurrences so a
+ * runaway pattern cannot flood the ledger.
+ */
+export function occurrencesBetween(
+  pattern: string,
+  fromIso: string,
+  toIso: string,
+  cap = 10000,
+): string[] {
+  const cron = new Cron(pattern, { timezone: 'UTC' });
+  const to = new Date(toIso).getTime();
+  const occurrences: string[] = [];
+  let cursor = new Date(fromIso);
+  for (;;) {
+    const next = cron.nextRun(cursor);
+    if (next === null || next.getTime() > to) break;
+    occurrences.push(next.toISOString());
+    if (occurrences.length > cap) {
+      throw new BugError(
+        'cron_occurrence_cap',
+        `pattern "${pattern}" produced more than ${String(cap)} occurrences in one skip`,
+      );
+    }
+    cursor = next;
+  }
+  return occurrences;
 }
 
 export function createScheduler(

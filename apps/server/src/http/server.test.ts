@@ -134,6 +134,15 @@ describe('HTTP layer (SSE + commands)', () => {
         command.scene_id === 'blocked'
           ? err(new OperationalError('blocked_on_pending_jobs', 'busy'))
           : ok({ opened: true }),
+      advanceTime: (command) =>
+        command.minutes > 500000
+          ? err(new OperationalError('skip_too_large', 'too big'))
+          : ok({
+              worldTime: '2000-01-02T06:00:00.000Z',
+              codeEnqueued: 1,
+              llmEnqueued: 1,
+              llmSkipped: 0,
+            }),
       heartbeatMs: 60000,
     });
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -287,6 +296,28 @@ describe('HTTP layer (SSE + commands)', () => {
     expect(body).toMatchObject({
       accepted: false,
       error: 'blocked_on_pending_jobs',
+    });
+  });
+
+  it('advance-time -> 202 with the new world time and enqueue counts', async () => {
+    const ctx = await setup();
+    const res = await fetch(`${ctx.baseUrl}/v1/commands/advance-time`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        minutes: 1440,
+      }),
+    });
+    expect(res.status).toBe(202);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      accepted: true,
+      world_time: '2000-01-02T06:00:00.000Z',
+      code_enqueued: 1,
+      llm_enqueued: 1,
+      llm_skipped: 0,
     });
   });
 

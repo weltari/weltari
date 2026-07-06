@@ -8,6 +8,8 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod';
 import {
+  AdvanceTimeAcceptedSchema,
+  AdvanceTimeCommandSchema,
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
@@ -16,6 +18,8 @@ import {
   PROTOCOL_VERSION,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
+  type AdvanceTimeAccepted,
+  type AdvanceTimeCommand,
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,
@@ -41,6 +45,13 @@ export interface HttpDeps {
   /** Scene lifecycle seams (Milestone 2): atomic fan-out + scoped open blocking. */
   endScene: (command: EndSceneCommand) => Result<{ jobsEnqueued: number }>;
   openScene: (command: OpenSceneCommand) => Result<{ opened: true }>;
+  /** WorldClock seam: fictional time skip + world-cron replay (Brief §4). */
+  advanceTime: (command: AdvanceTimeCommand) => Result<{
+    worldTime: string;
+    codeEnqueued: number;
+    llmEnqueued: number;
+    llmSkipped: number;
+  }>;
   heartbeatMs?: number;
 }
 
@@ -152,6 +163,40 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
       }
       reply.code(202);
       const accepted: OpenSceneAccepted = { accepted: true };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/advance-time',
+    {
+      schema: {
+        body: AdvanceTimeCommandSchema,
+        response: {
+          202: AdvanceTimeAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.advanceTime(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'advance-time rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: AdvanceTimeAccepted = {
+        accepted: true,
+        world_time: result.value.worldTime,
+        code_enqueued: result.value.codeEnqueued,
+        llm_enqueued: result.value.llmEnqueued,
+        llm_skipped: result.value.llmSkipped,
+      };
       return accepted;
     },
   );
