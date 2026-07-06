@@ -21,3 +21,10 @@ export const StartTurnAcceptedSchema = z.strictObject({
   turn_id: z.string().min(1),
 });
 export type StartTurnAccepted = z.infer<typeof StartTurnAcceptedSchema>;
+
+/** 4xx response for a schema-valid command the engine refused (e.g. busy scene). */
+export const CommandRejectedSchema = z.strictObject({
+  accepted: z.literal(false),
+  error: z.string().min(1),
+});
+export type CommandRejected = z.infer<typeof CommandRejectedSchema>;

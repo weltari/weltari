@@ -11,6 +11,42 @@ Every dependency gets one `## <package>` heading (CI keys on the heading — Gui
 - Pinned: 4.4.3
 - Swap documented: n/a (load-bearing by owner decision)
 
+## fastify
+
+- What: HTTP framework serving the SSE stream, command routes, and (later) the built frontend from one process (FINAL item 2).
+- Why not stdlib / an existing dep: per-route schema validation is the B-http trust boundary; node:http alone would mean hand-rolling it.
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 5.10.0
+- Swap documented: n/a
+
+## fastify-type-provider-zod
+
+- What: makes Zod v4 schemas the route validator/serializer — route validation and trust-boundary validation become one mechanism (Guide B9, §0.1).
+- Why not stdlib / an existing dep: the only maintained Zod v4 type provider (peer zod >= 4.1.5, fastify ^5.5).
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 7.0.0
+- Swap documented: n/a
+
+## pino
+
+- What: structured NDJSON logging to stdout — the one diagnostics stream (Guide C8).
+- Why not stdlib / an existing dep: stdlib has no structured logger with redaction paths and child loggers.
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 10.3.1
+- Swap documented: n/a
+
+## pino-pretty
+
+- What: dev-only CLI pipe for humans reading NDJSON locally (`node dist/main.js | pino-pretty`).
+- Why not stdlib / an existing dep: companion to pino; never a production transport (C8).
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 13.1.3 (devDependencies only — CI checks placement)
+- Swap documented: n/a
+
 ## croner
 
 - What: computes cron occurrence times for the scheduler; always writes ledger rows, never works inline (FINAL item 8).

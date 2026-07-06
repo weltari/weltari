@@ -28,8 +28,10 @@ export {
   type StreamSentence,
 } from './stream.js';
 export {
+  CommandRejectedSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
+  type CommandRejected,
   type StartTurnAccepted,
   type StartTurnCommand,
 } from './commands.js';
