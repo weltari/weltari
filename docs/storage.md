@@ -15,7 +15,9 @@ Purpose: one WAL SQLite file behind hand-written repositories; the import fence 
 | --- | --- |
 | `db.ts` | Opens the connection (WAL, `synchronous=NORMAL`, `busy_timeout=5000`, `foreign_keys=ON`), runs the hash-locked migration runner (`PRAGMA user_version` + `manifest.json` sha256 per file), exposes `transact()` (WriteGate) and the repositories. |
 | `repositories/event-log.ts` | Sole write path into `events`: `append` / `readSince` / `lastId`. Rows are validated against `@weltari/protocol` on read — a failing row is `CorruptStateError`, never silently skipped (Guide C2). |
+| `repositories/gateway.ts` | Sole write path into `gateway_inbound` (B7 exactly-once): `recordInbound` — UNIQUE(connector_id, external_msg_id) `ON CONFLICT DO NOTHING`, false = duplicate. |
 | `../migrations/0001_events.sql` | events table + `RAISE(ABORT)` triggers on UPDATE/DELETE (I1) + replay index. |
+| `../migrations/0003_gateway.sql` | `gateway_inbound` dedup table (B7: messengers redeliver; the UNIQUE pair makes replay a no-op). |
 | `../migrations/manifest.json` | `{file: sha256}` — append-only history lock; runner refuses tampered or unlisted files and numbering gaps. |
 
 ## Events consumed/emitted

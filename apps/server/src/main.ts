@@ -19,6 +19,8 @@ import {
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { createTurnEngine } from './engine/scene-turn.js';
 import { createWorldClock } from './engine/world-clock.js';
+import { createGatewayHost } from './gateway/host.js';
+import { createTelegramConnector } from './gateway/telegram/connector.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
 import { createPainterHandler } from './ledger/handlers/painter.js';
@@ -143,6 +145,55 @@ async function startTurn(
   return { ok: true, value: { turnId: started.value.turnId } };
 }
 
+/** Gateway seam: run one fixture-scene turn for inbound messenger text and
+ * resolve with the committed transcript (the echo body). */
+async function runGatewayTurn(
+  _conversationId: string,
+  text: string,
+): Promise<Result<string>> {
+  const started = await engine.startTurn({
+    world_id: FIXTURE_WORLD_ID,
+    actor_id: 'gateway:telegram',
+    scene_id: FIXTURE_SCENE_ID,
+    text,
+  });
+  if (!started.ok) return started;
+  const turnId = started.value.turnId;
+  await started.value.completion;
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (event.type === 'turn.committed' && event.payload.turn_id === turnId) {
+      return {
+        ok: true,
+        value: event.payload.steps
+          .map((step) => `${step.speaker}: ${step.text}`)
+          .join('\n\n'),
+      };
+    }
+  }
+  return {
+    ok: false,
+    error: new OperationalError('turn_voided', 'turn did not commit'),
+  };
+}
+
+const gatewayHost = createGatewayHost({
+  storage,
+  logger,
+  connectors:
+    env.telegramBotToken === undefined
+      ? []
+      : [
+          {
+            connector: createTelegramConnector({
+              token: env.telegramBotToken,
+              logger,
+            }),
+            boundary: 'telegram',
+          },
+        ],
+  runTurn: runGatewayTurn,
+});
+
 const runner = createRunner({
   storage,
   handlers: {
@@ -236,6 +287,7 @@ function drain(signal: string): void {
   );
   clearInterval(runnerInterval);
   stopGauges();
+  catchAndLog(gatewayHost.stop(), logger, 'gateway.stop');
   catchAndLog(app.close(), logger, 'app.close');
   process.exitCode = 0;
 }
@@ -252,3 +304,7 @@ try {
 } catch (thrown) {
   fatal(logger, thrown);
 }
+
+// Outbound-only long-polling (Brief §7c) — after listen so a bad token can
+// never block the HTTP surface. No token = zero connectors = instant no-op.
+catchAndLog(gatewayHost.start(), logger, 'gateway.start');
