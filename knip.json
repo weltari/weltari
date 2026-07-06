@@ -4,6 +4,7 @@
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": {
+      "ignoreBinaries": ["powershell", "ps"],
       "entry": [
         "tests/**/*.test.ts",
         "tests/helpers/**/*.ts",

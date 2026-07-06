@@ -16,7 +16,10 @@ import {
   type TurnLine,
 } from './context-assembler.js';
 import type { EventSink } from './event-sink.js';
-import { buildEliasProfile, NARRATOR_PROFILE } from './fixture/rainy-inn.js';
+import {
+  buildEliasProfile,
+  buildNarratorProfile,
+} from './fixture/rainy-inn.js';
 import { createSentenceSplitter } from './sentences.js';
 
 /** Kill-harness hooks (I4). Names are the contract with tools/kill-harness.mjs. */
@@ -68,6 +71,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
   } = options;
 
   const elias = buildEliasProfile(stablePrefixTokens);
+  const narrator = buildNarratorProfile(stablePrefixTokens);
 
   function recentTurns(sceneId: string, limit = 4): TurnLine[] {
     const lines: TurnLine[] = [];
@@ -161,7 +165,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       const plans: CallPlan[] = [
         {
           kind: 'narrator',
-          profile: NARRATOR_PROFILE,
+          profile: narrator,
           instruction:
             'Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias.',
         },
@@ -173,7 +177,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         },
         {
           kind: 'narration',
-          profile: NARRATOR_PROFILE,
+          profile: narrator,
           instruction:
             'Close the beat in 1-2 sentences of narration reacting to what was just said.',
         },

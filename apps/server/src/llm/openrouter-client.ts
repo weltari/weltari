@@ -49,7 +49,14 @@ export function createOpenRouterClient(
       const route = options.registry.routeFor(call.characterId, call.kind);
       const startedAt = performance.now();
       try {
+        // v6 streamText does NOT throw on mid-stream provider errors — it ends
+        // the stream and calls onError (default: console.error). Capture it so
+        // an errored stream can never become a committed turn (B6).
+        let streamError: unknown;
         const result = streamText({
+          onError: ({ error }): void => {
+            streamError = error;
+          },
           model: openrouter.chat(route.model, {
             usage: { include: true },
             ...(route.providerOrder === undefined
@@ -74,6 +81,17 @@ export function createOpenRouterClient(
         for await (const delta of result.textStream) {
           text += delta;
           call.onTextDelta(delta);
+        }
+        if (streamError !== undefined) {
+          return err(
+            new OperationalError(
+              'llm_stream_error',
+              streamError instanceof Error
+                ? streamError.message
+                : JSON.stringify(streamError),
+              { cause: streamError },
+            ),
+          );
         }
 
         const usage = usageSchema.safeParse(await result.usage);
