@@ -1,0 +1,18 @@
+{
+  "name": "@weltari/protocol",
+  "version": "0.1.0",
+  "description": "Weltari wire protocol — Zod v4 event/command schemas + emitted JSON Schemas (MIT edge package)",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "LICENSE"
+  ]
+}

@@ -1,0 +1,11 @@
+#!/bin/sh
+# Guide B15: local secret scan blocks every commit. CI runs gitleaks-action@v3 too.
+if command -v gitleaks >/dev/null 2>&1; then
+  exec gitleaks dir . --redact --no-banner
+fi
+GL=$(find "$LOCALAPPDATA/Microsoft/WinGet/Packages" -name gitleaks.exe 2>/dev/null | head -1)
+if [ -n "$GL" ]; then
+  exec "$GL" dir . --redact --no-banner
+fi
+echo "pre-commit: gitleaks not found. Install it: winget install Gitleaks.Gitleaks (Windows) / brew install gitleaks (macOS)."
+exit 1
