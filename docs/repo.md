@@ -32,6 +32,6 @@ Purpose: everything at the repo root that makes the gate run: compiler config, l
 
 ## Deviations recorded
 
-- `packages/plugin-sdk` is in the canonical layout but not created yet — Week 1 scope is the naked hot path; it lands at the plugin/gateway milestone. The solution `tsconfig.json` gains its reference then.
+- `packages/plugin-sdk` created at the gateway milestone (M2 step 4) as planned — MIT, referenced from the solution `tsconfig.json` and `apps/server`.
 - Root `typecheck` is `tsc -b` only until `apps/web` exists (then `tsc -b && tsc -p apps/web`, Guide §7).
 - `vitest.config` is `.mjs`, not `.ts`, so the config file needs no tsconfig project membership for type-aware lint (keeps the promoted eslint config unmodified).
