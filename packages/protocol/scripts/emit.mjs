@@ -7,6 +7,10 @@ import { z } from 'zod';
 import {
   CommandRejectedSchema,
   DevEventSchema,
+  EndSceneAcceptedSchema,
+  EndSceneCommandSchema,
+  OpenSceneAcceptedSchema,
+  OpenSceneCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
   StreamHelloSchema,
@@ -24,6 +28,10 @@ const files = {
   'dev-event.json': DevEventSchema,
   'start-turn-command.json': StartTurnCommandSchema,
   'start-turn-accepted.json': StartTurnAcceptedSchema,
+  'end-scene-command.json': EndSceneCommandSchema,
+  'end-scene-accepted.json': EndSceneAcceptedSchema,
+  'open-scene-command.json': OpenSceneCommandSchema,
+  'open-scene-accepted.json': OpenSceneAcceptedSchema,
   'command-rejected.json': CommandRejectedSchema,
 };
 

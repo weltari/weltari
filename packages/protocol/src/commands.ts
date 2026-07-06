@@ -22,6 +22,46 @@ export const StartTurnAcceptedSchema = z.strictObject({
 });
 export type StartTurnAccepted = z.infer<typeof StartTurnAcceptedSchema>;
 
+/**
+ * POST /v1/commands/end-scene — close the scene and fan out reflections: one
+ * ledger job per participating character plus one World Agent job, enqueued
+ * atomically with the scene.ended event (Brief §2.4).
+ */
+export const EndSceneCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  scene_id: z.string().min(1),
+});
+export type EndSceneCommand = z.infer<typeof EndSceneCommandSchema>;
+
+/** 202 response: scene closed; reflection/World-Agent jobs are on the ledger. */
+export const EndSceneAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  jobs_enqueued: z.int().nonnegative(),
+});
+export type EndSceneAccepted = z.infer<typeof EndSceneAcceptedSchema>;
+
+/**
+ * POST /v1/commands/open-scene — open a new scene. Blocks (409) only while
+ * jobs for THIS world or THIS scene's participants are still pending (Brief
+ * §4: new-scene opens block only on that world + involved characters' jobs).
+ */
+export const OpenSceneCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  scene_id: z.string().min(1),
+  title: z.string().min(1).max(200),
+  /** Character ids involved in the new scene. */
+  participants: z.array(z.string().min(1)).max(50),
+});
+export type OpenSceneCommand = z.infer<typeof OpenSceneCommandSchema>;
+
+/** 202 response: the scene opened; scene.started is on the stream. */
+export const OpenSceneAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+});
+export type OpenSceneAccepted = z.infer<typeof OpenSceneAcceptedSchema>;
+
 /** 4xx response for a schema-valid command the engine refused (e.g. busy scene). */
 export const CommandRejectedSchema = z.strictObject({
   accepted: z.literal(false),

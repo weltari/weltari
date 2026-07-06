@@ -67,6 +67,51 @@ export const TurnCommittedEventSchema = z.strictObject({
   }),
 });
 
+/**
+ * Scene closed — appended atomically with the reflection fan-out jobs (one per
+ * participant + one World Agent job, Brief §2.4: one WriteGate transaction).
+ * Emitted by: scene lifecycle. Consumed by: clients (scene header), recovery
+ * reasoning (a scene.ended always has its ledger rows — the harness verifies).
+ */
+export const SceneEndedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('scene.ended'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    /** Character ids whose reflections were enqueued at close. */
+    participants: z.array(z.string().min(1)),
+  }),
+});
+
+/**
+ * A character's scene reflection became durable — the only durable output of a
+ * reflection job (LLM text passes the B6 double gate first). Emitted by: the
+ * reflection job handler. Consumed by: clients, future memory projections.
+ */
+export const ReflectionCommittedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('reflection.committed'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    character_id: z.string().min(1),
+    summary: z.string().min(1),
+  }),
+});
+
+/**
+ * The per-world World Agent finished its scene-end pass (serialized: at most
+ * one running per world via serial_group). Emitted by: the world_agent job
+ * handler. Consumed by: clients, future world projections.
+ */
+export const WorldAgentCommittedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('world_agent.committed'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    note: z.string().min(1),
+  }),
+});
+
 /** Truncated error surface for the UI — never prompt content (Guide C7/C12). */
 export const JobErrorSchema = z.strictObject({
   kind: z.enum(['operational', 'bug', 'corrupt_state']),
@@ -107,8 +152,11 @@ export const JobParkedEventSchema = z.strictObject({
 /** The closed union of durable event shapes on the wire. */
 export const WeltariEventSchema = z.discriminatedUnion('type', [
   SceneStartedEventSchema,
+  SceneEndedEventSchema,
   TurnStartedEventSchema,
   TurnCommittedEventSchema,
+  ReflectionCommittedEventSchema,
+  WorldAgentCommittedEventSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,
 ]);
