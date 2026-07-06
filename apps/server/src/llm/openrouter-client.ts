@@ -70,11 +70,27 @@ export function createOpenRouterClient(
                   },
                 }),
           }),
-          system: call.system,
-          prompt: call.prompt,
+          // The stable prefix is the system message, sent first and byte-identical
+          // every turn (I5). The cache_control breakpoint makes Anthropic-style
+          // caching explicit and deterministic; OpenRouter drops it harmlessly
+          // for providers with automatic prefix caching (OpenAI, Gemini, …).
+          messages: [
+            {
+              role: 'system',
+              content: call.system,
+              providerOptions: {
+                openrouter: { cacheControl: { type: 'ephemeral' } },
+              },
+            },
+            { role: 'user', content: call.prompt },
+          ],
           temperature: route.temperature,
           maxOutputTokens: route.maxOutputTokens,
           abortSignal: AbortSignal.timeout(timeoutMs),
+          // Our system message MUST live in messages[] to carry the
+          // cache_control breakpoint; its content is the engine-owned stable
+          // prefix, never user input, so the injection warning does not apply.
+          allowSystemInMessages: true,
         });
 
         let text = '';

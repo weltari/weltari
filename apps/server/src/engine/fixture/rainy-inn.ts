@@ -37,10 +37,12 @@ export function generateLore(sentenceCount: number): string[] {
 /**
  * The fixture character. targetPrefixTokens sizes the memory core so the
  * stable prefix approximates the Week-1 success-criteria fixture (~50K tokens
- * on turn one; token estimate: ~29 tokens per generated sentence incl. bullet).
+ * on turn one). ~40 provider tokens per generated sentence — calibrated
+ * against gpt-4.1-mini usage accounting on 2026-07-06 (the earlier /29
+ * estimate produced 68K real tokens for a 50K target).
  */
 export function buildEliasProfile(targetPrefixTokens = 800): CharacterProfile {
-  const sentenceCount = Math.max(4, Math.round(targetPrefixTokens / 29));
+  const sentenceCount = Math.max(4, Math.round(targetPrefixTokens / 40));
   return {
     character_id: 'char:elias',
     name: 'Elias the Clockmender',
@@ -67,7 +69,7 @@ export function buildEliasProfile(targetPrefixTokens = 800): CharacterProfile {
 export function buildNarratorProfile(
   targetPrefixTokens = 800,
 ): CharacterProfile {
-  const sentenceCount = Math.max(2, Math.round(targetPrefixTokens / 29));
+  const sentenceCount = Math.max(2, Math.round(targetPrefixTokens / 40));
   return {
     character_id: 'char:narrator',
     name: 'Narrator',

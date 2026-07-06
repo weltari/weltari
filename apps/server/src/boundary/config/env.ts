@@ -16,8 +16,9 @@ const envSchema = z.object({
   WELTARI_FAKE_LLM: z.string().optional(),
   /** '1' prints FAULT_POINT:<name> lines the kill harness targets. */
   WELTARI_EMIT_FAULT_POINTS: z.string().optional(),
-  /** OpenRouter model id for all Week-1 calls (256K-class recommended). */
-  WELTARI_MODEL: z.string().min(1).default('google/gemini-2.5-flash'),
+  /** OpenRouter model id for all Week-1 calls. Default = the configuration that
+   * passed all Week-1 criteria (deterministic cache_control, fast prefill). */
+  WELTARI_MODEL: z.string().min(1).default('anthropic/claude-sonnet-4.5'),
   /** Comma-separated OpenRouter provider.order pin (cache stability, FINAL risk #1). */
   WELTARI_PROVIDER_ORDER: z.string().optional(),
   /** Stable-prefix size for the fixture profile (success criterion a: ~50000). */
