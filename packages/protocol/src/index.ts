@@ -7,3 +7,26 @@
  * changes; CI blocks schema removals without one (Invariant I7).
  */
 export const PROTOCOL_VERSION = '0.1.0';
+
+export {
+  SceneStartedEventSchema,
+  TurnCommittedEventSchema,
+  TurnStartedEventSchema,
+  TurnStepSchema,
+  WeltariEventSchema,
+  type TurnStep,
+  type WeltariEvent,
+  type WeltariEventType,
+} from './events.js';
+export {
+  StreamHelloSchema,
+  StreamSentenceSchema,
+  type StreamHello,
+  type StreamSentence,
+} from './stream.js';
+export {
+  StartTurnAcceptedSchema,
+  StartTurnCommandSchema,
+  type StartTurnAccepted,
+  type StartTurnCommand,
+} from './commands.js';

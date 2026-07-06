@@ -16,6 +16,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run gate
+      # I7: committed JSON Schemas must match the Zod source exactly
+      - run: npm run protocol:emit && git diff --exit-code -- packages/protocol/schemas
 
   secrets-scan:
     runs-on: ubuntu-latest

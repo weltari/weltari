@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turn_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "call": {
+      "type": "string",
+      "enum": [
+        "narrator",
+        "character",
+        "narration"
+      ]
+    },
+    "speaker": {
+      "type": "string",
+      "minLength": 1
+    },
+    "text": {
+      "type": "string"
+    },
+    "index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "turn_id",
+    "call",
+    "speaker",
+    "text",
+    "index"
+  ],
+  "additionalProperties": false
+}

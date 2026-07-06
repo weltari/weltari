@@ -2,6 +2,15 @@
 
 Every dependency gets one `## <package>` heading (CI keys on the heading — Guide D8). Entries follow the template in `Coding Guide/Task Completion Checklist.md`. Versions are exact pins; bumps happen only in the monthly `chore(deps):` PR.
 
+## zod
+
+- What: the one schema language — wire schemas in `@weltari/protocol`, `safeParse` at every trust boundary (Guide §0.1, B1).
+- Why not stdlib / an existing dep: no stdlib runtime validation; TypeBox dropped by Guide §0.1 (Zod v4 emits JSON Schema natively).
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 4.4.3
+- Swap documented: n/a (load-bearing by owner decision)
+
 ## typescript
 
 - What: the compiler — the one reviewer that reads every line every time (Guide §A).
