@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { StartTurnAcceptedSchema, StartTurnCommandSchema } from './commands.js';
+import {
+  EndSceneCommandSchema,
+  OpenSceneCommandSchema,
+  StartTurnAcceptedSchema,
+  StartTurnCommandSchema,
+} from './commands.js';
 import { StreamHelloSchema, StreamSentenceSchema } from './stream.js';
 
 describe('StartTurnCommandSchema', () => {
@@ -38,6 +43,44 @@ describe('StartTurnCommandSchema', () => {
       text: 'x'.repeat(8193),
     };
     expect(StartTurnCommandSchema.safeParse(oversized).success).toBe(false);
+  });
+});
+
+describe('scene lifecycle commands', () => {
+  it('end-scene accepts a valid body and rejects an extra key (B5)', () => {
+    const valid: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's1',
+    };
+    expect(EndSceneCommandSchema.safeParse(valid).success).toBe(true);
+    const extra: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's1',
+      force: true,
+    };
+    expect(EndSceneCommandSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('open-scene requires a title and a participants array', () => {
+    const valid: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's2',
+      title: 'The Morning After',
+      participants: ['char:elias'],
+    };
+    expect(OpenSceneCommandSchema.safeParse(valid).success).toBe(true);
+    const noParticipants: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's2',
+      title: 'The Morning After',
+    };
+    expect(OpenSceneCommandSchema.safeParse(noParticipants).success).toBe(
+      false,
+    );
   });
 });
 

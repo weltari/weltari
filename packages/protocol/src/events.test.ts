@@ -23,6 +23,58 @@ const validCommitted: unknown = {
 };
 
 describe('WeltariEventSchema', () => {
+  it('accepts a valid scene.ended event with participants', () => {
+    const ended: unknown = {
+      id: 7,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-06T12:00:00.000Z',
+      type: 'scene.ended',
+      payload: { scene_id: 's1', participants: ['char:elias'] },
+    };
+    expect(WeltariEventSchema.safeParse(ended).success).toBe(true);
+  });
+
+  it('accepts a valid reflection.committed event', () => {
+    const reflection: unknown = {
+      id: 8,
+      world_id: 'w1',
+      actor_id: 'char:elias',
+      ts: '2026-07-06T12:00:00.000Z',
+      type: 'reflection.committed',
+      payload: {
+        scene_id: 's1',
+        character_id: 'char:elias',
+        summary: 'The storm kept the regulars in; Marta owes nothing new.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(reflection).success).toBe(true);
+  });
+
+  it('rejects a reflection.committed with an empty summary', () => {
+    const empty: unknown = {
+      id: 8,
+      world_id: 'w1',
+      actor_id: 'char:elias',
+      ts: '2026-07-06T12:00:00.000Z',
+      type: 'reflection.committed',
+      payload: { scene_id: 's1', character_id: 'char:elias', summary: '' },
+    };
+    expect(WeltariEventSchema.safeParse(empty).success).toBe(false);
+  });
+
+  it('rejects a world_agent.committed with an extra payload key (B5)', () => {
+    const extra: unknown = {
+      id: 9,
+      world_id: 'w1',
+      actor_id: 'system:world_agent',
+      ts: '2026-07-06T12:00:00.000Z',
+      type: 'world_agent.committed',
+      payload: { scene_id: 's1', note: 'ok', smuggled: true },
+    };
+    expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
+  });
+
   it('accepts a valid turn.committed event', () => {
     const r = WeltariEventSchema.safeParse(validCommitted);
     expect(r.success).toBe(true);
