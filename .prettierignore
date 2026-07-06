@@ -3,6 +3,7 @@ node_modules
 dist
 coverage
 package-lock.json
+packages/protocol/schemas/
 
 # Owner spec/session documents — never modified by agents (Kickoff process rules)
 docs/
