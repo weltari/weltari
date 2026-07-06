@@ -55,7 +55,9 @@ function setup(llmOverride?: LlmClient): Ctx {
     streamBus,
     llm: recording,
     logger,
-    faultPoint: (p) => faults.push(p),
+    faultPoint: (p): void => {
+      faults.push(p);
+    },
   });
   return { storage, streamFrames, faults, engine, llmCalls };
 }

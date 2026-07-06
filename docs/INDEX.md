@@ -12,4 +12,5 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [http.md](http.md) — SSE stream (Last-Event-ID replay), Zod-validated commands, buses, main.ts composition root.
 - [engine.md](engine.md) — ContextAssembler (byte-stable prefix + tail, B14 wrappers), fixture world.
 - [llm.md](llm.md) — LlmClient seam, ModelRegistry pinning, OpenRouter client (cached_tokens observability), FakeLLM, scripted scene turn.
+- [tools.md](tools.md) — kill harness (I4, 25/PR + 100/nightly) and offline consistency verifier.
 - [dependencies.md](dependencies.md) — the dependency ledger (one `##` heading per package; CI keys on headings).
