@@ -1,6 +1,6 @@
 # Weltari — agent index (keep ~1 page; depth lives in docs/)
 
-Single-process, self-hosted AI-RP world engine. TypeScript strict, Node 24 LTS, ESM only, npm workspaces. AGPL-3.0-only core; `packages/protocol` (and later `packages/plugin-sdk`) are MIT and must never import from `apps/*`.
+Single-process, self-hosted AI-RP world engine. TypeScript strict, Node 24 LTS, ESM only, npm workspaces. AGPL-3.0-only core; `packages/protocol` and `packages/plugin-sdk` are MIT and must never import from `apps/*`.
 
 ## Commands
 

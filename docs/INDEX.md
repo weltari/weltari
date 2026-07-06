@@ -6,6 +6,7 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 
 - [repo.md](repo.md) — repo root: toolchain, workspaces, gate scripts, CI.
 - [protocol.md](protocol.md) — @weltari/protocol: Zod v4 wire schemas, emitted JSON Schemas, SSE frame conventions.
+- [plugin-sdk.md](plugin-sdk.md) — @weltari/plugin-sdk: GatewayConnector interface + framework-free conformance suite (MIT edge).
 - [storage.md](storage.md) — apps/server/src/storage: WAL SQLite, WriteGate, hash-locked migrations, event-log repository.
 - [ledger.md](ledger.md) — job ledger: states/leases/idempotency, runner (the C7 catch site), croner scheduler.
 - [observability.md](observability.md) — root logger + redaction, fatal(), catchAndLog, validateAt, env boundary.
