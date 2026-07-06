@@ -59,20 +59,31 @@ export function buildEliasProfile(targetPrefixTokens = 800): CharacterProfile {
   };
 }
 
-export const NARRATOR_PROFILE: CharacterProfile = {
-  character_id: 'char:narrator',
-  name: 'Narrator',
-  skills: [
-    'Scene-setting: establishes place, weather and mood in two sentences.',
-    'Pacing: ends every beat on a hook that invites a reply.',
-  ],
-  personality:
-    'Third-person, present tense, concrete sensory detail. Never speaks for player characters.',
-  memory_core: [
-    'The Rainy Inn sits where the north road meets the river ferry.',
-    'Storm season has just begun; the common room smells of wet wool.',
-  ],
-  goals: [
-    'Keep the scene moving; hand the spotlight to a character each turn.',
-  ],
-};
+/**
+ * The narrator makes the FIRST call of every turn, so its prefix carries the
+ * ~50K-token load in the success-criteria run (criterion a measures a real
+ * big-prefix prefill, not a small warm-up call).
+ */
+export function buildNarratorProfile(
+  targetPrefixTokens = 800,
+): CharacterProfile {
+  const sentenceCount = Math.max(2, Math.round(targetPrefixTokens / 29));
+  return {
+    character_id: 'char:narrator',
+    name: 'Narrator',
+    skills: [
+      'Scene-setting: establishes place, weather and mood in two sentences.',
+      'Pacing: ends every beat on a hook that invites a reply.',
+    ],
+    personality:
+      'Third-person, present tense, concrete sensory detail. Never speaks for player characters.',
+    memory_core: [
+      'The Rainy Inn sits where the north road meets the river ferry.',
+      'Storm season has just begun; the common room smells of wet wool.',
+      ...generateLore(sentenceCount),
+    ],
+    goals: [
+      'Keep the scene moving; hand the spotlight to a character each turn.',
+    ],
+  };
+}
