@@ -11,6 +11,24 @@ Every dependency gets one `## <package>` heading (CI keys on the heading — Gui
 - Pinned: 4.4.3
 - Swap documented: n/a (load-bearing by owner decision)
 
+## better-sqlite3
+
+- What: synchronous SQLite driver — WAL, one write connection, transactions that a throw rolls back (FINAL item 7).
+- Why not stdlib / an existing dep: `node:sqlite` is still experimental in Node 24 and lacks the maturity/prebuilds record; a synchronous driver makes single-writer discipline structural (Brief §2.3).
+- License: MIT
+- Maintenance: release within last 12 months (Node 24 prebuilds since 12.0.0), checked 2026-07-06.
+- Pinned: 12.11.1
+- Swap documented: repository layer caps the future Postgres swap at "write a driver" (Brief §2.7).
+
+## @types/better-sqlite3
+
+- What: TypeScript types for better-sqlite3 (driver ships none).
+- Why not stdlib / an existing dep: DefinitelyTyped is the only source.
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 7.6.13
+- Swap documented: n/a
+
 ## typescript
 
 - What: the compiler — the one reviewer that reads every line every time (Guide §A).
