@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import {
   CommandRejectedSchema,
+  DevEventSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
   StreamHelloSchema,
@@ -20,6 +21,7 @@ const files = {
   'weltari-event.json': WeltariEventSchema,
   'stream-hello.json': StreamHelloSchema,
   'stream-sentence.json': StreamSentenceSchema,
+  'dev-event.json': DevEventSchema,
   'start-turn-command.json': StartTurnCommandSchema,
   'start-turn-accepted.json': StartTurnAcceptedSchema,
   'command-rejected.json': CommandRejectedSchema,
