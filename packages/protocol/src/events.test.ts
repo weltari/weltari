@@ -123,6 +123,38 @@ describe('WeltariEventSchema', () => {
     expect(WeltariEventSchema.safeParse(bad).success).toBe(false);
   });
 
+  it('accepts a valid painter.completed and rejects a short sha256', () => {
+    const base = {
+      id: 12,
+      world_id: 'w1',
+      actor_id: 'system:painter',
+      ts: '2026-07-06T12:00:00.000Z',
+      type: 'painter.completed',
+    };
+    const valid: unknown = {
+      ...base,
+      payload: {
+        image_id: 'map:w1',
+        region: { x: 10, y: 20, width: 64, height: 64 },
+        path: 'map-w1/ab12cd34.png',
+        sha256: 'a'.repeat(64),
+        job_key: 'painter:map:w1:r1',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const shortHash: unknown = {
+      ...base,
+      payload: {
+        image_id: 'map:w1',
+        region: { x: 10, y: 20, width: 64, height: 64 },
+        path: 'map-w1/ab12cd34.png',
+        sha256: 'abc',
+        job_key: 'painter:map:w1:r1',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(shortHash).success).toBe(false);
+  });
+
   it('accepts a valid turn.committed event', () => {
     const r = WeltariEventSchema.safeParse(validCommitted);
     expect(r.success).toBe(true);

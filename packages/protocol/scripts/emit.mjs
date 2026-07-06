@@ -13,6 +13,8 @@ import {
   EndSceneCommandSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
+  PaintRegionAcceptedSchema,
+  PaintRegionCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
   StreamHelloSchema,
@@ -36,6 +38,8 @@ const files = {
   'open-scene-accepted.json': OpenSceneAcceptedSchema,
   'advance-time-command.json': AdvanceTimeCommandSchema,
   'advance-time-accepted.json': AdvanceTimeAcceptedSchema,
+  'paint-region-command.json': PaintRegionCommandSchema,
+  'paint-region-accepted.json': PaintRegionAcceptedSchema,
   'command-rejected.json': CommandRejectedSchema,
 };
 

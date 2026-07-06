@@ -150,6 +150,37 @@ export const WorldCronCompletedEventSchema = z.strictObject({
   }),
 });
 
+/** A rectangular image region in pixels (painter jobs, map crops). */
+export const ImageRegionSchema = z.strictObject({
+  x: z.int().nonnegative(),
+  y: z.int().nonnegative(),
+  width: z.int().positive(),
+  height: z.int().positive(),
+});
+export type ImageRegion = z.infer<typeof ImageRegionSchema>;
+
+/**
+ * A painter composite became durable. The EVENT is the truth about which file
+ * is current (rendered artifacts are never truth, Brief §2.1): `path` +
+ * `sha256` name the composited output written via temp-file + atomic rename —
+ * composite-on-success, so a kill mid-job leaves the previous image intact.
+ * Emitted by: the painter job handler. Consumed by: clients (map refresh),
+ * the consistency verifier (hash check).
+ */
+export const PainterCompletedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('painter.completed'),
+  payload: z.strictObject({
+    image_id: z.string().min(1),
+    region: ImageRegionSchema,
+    /** Path relative to the images directory. */
+    path: z.string().min(1),
+    sha256: z.string().length(64),
+    /** The ledger idempotency key — ties the event to its job row. */
+    job_key: z.string().min(1),
+  }),
+});
+
 /** Truncated error surface for the UI — never prompt content (Guide C7/C12). */
 export const JobErrorSchema = z.strictObject({
   kind: z.enum(['operational', 'bug', 'corrupt_state']),
@@ -197,6 +228,7 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   WorldAgentCommittedEventSchema,
   WorldTimeAdvancedEventSchema,
   WorldCronCompletedEventSchema,
+  PainterCompletedEventSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,
 ]);
