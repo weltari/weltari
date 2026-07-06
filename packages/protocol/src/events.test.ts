@@ -75,6 +75,54 @@ describe('WeltariEventSchema', () => {
     expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
   });
 
+  it('accepts world.time_advanced and world_cron.completed events', () => {
+    const advanced: unknown = {
+      id: 10,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-06T12:00:00.000Z',
+      type: 'world.time_advanced',
+      payload: {
+        from: '2000-01-01T06:00:00.000Z',
+        to: '2000-01-03T06:00:00.000Z',
+        code_enqueued: 2,
+        llm_enqueued: 2,
+        llm_skipped: 0,
+      },
+    };
+    expect(WeltariEventSchema.safeParse(advanced).success).toBe(true);
+
+    const completed: unknown = {
+      id: 11,
+      world_id: 'w1',
+      actor_id: 'system:world_cron',
+      ts: '2026-07-06T12:00:00.000Z',
+      type: 'world_cron.completed',
+      payload: {
+        cron_type: 'lamplighter',
+        scheduled_for: '2000-01-02T06:00:00.000Z',
+        job_class: 'code',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(completed).success).toBe(true);
+  });
+
+  it('rejects a world_cron.completed with an unknown job_class', () => {
+    const bad: unknown = {
+      id: 11,
+      world_id: 'w1',
+      actor_id: 'system:world_cron',
+      ts: '2026-07-06T12:00:00.000Z',
+      type: 'world_cron.completed',
+      payload: {
+        cron_type: 'lamplighter',
+        scheduled_for: '2000-01-02T06:00:00.000Z',
+        job_class: 'quantum',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(bad).success).toBe(false);
+  });
+
   it('accepts a valid turn.committed event', () => {
     const r = WeltariEventSchema.safeParse(validCommitted);
     expect(r.success).toBe(true);

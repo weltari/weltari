@@ -5,6 +5,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import {
+  AdvanceTimeAcceptedSchema,
+  AdvanceTimeCommandSchema,
   CommandRejectedSchema,
   DevEventSchema,
   EndSceneAcceptedSchema,
@@ -32,6 +34,8 @@ const files = {
   'end-scene-accepted.json': EndSceneAcceptedSchema,
   'open-scene-command.json': OpenSceneCommandSchema,
   'open-scene-accepted.json': OpenSceneAcceptedSchema,
+  'advance-time-command.json': AdvanceTimeCommandSchema,
+  'advance-time-accepted.json': AdvanceTimeAcceptedSchema,
   'command-rejected.json': CommandRejectedSchema,
 };
 

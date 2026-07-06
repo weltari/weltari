@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AdvanceTimeCommandSchema,
   EndSceneCommandSchema,
   OpenSceneCommandSchema,
   StartTurnAcceptedSchema,
@@ -81,6 +82,20 @@ describe('scene lifecycle commands', () => {
     expect(OpenSceneCommandSchema.safeParse(noParticipants).success).toBe(
       false,
     );
+  });
+});
+
+describe('advance-time command', () => {
+  it('accepts positive minutes and rejects zero, negative and over-cap', () => {
+    const base = { world_id: 'w1', actor_id: 'user:owner' };
+    const valid: unknown = { ...base, minutes: 4320 };
+    expect(AdvanceTimeCommandSchema.safeParse(valid).success).toBe(true);
+    const zero: unknown = { ...base, minutes: 0 };
+    expect(AdvanceTimeCommandSchema.safeParse(zero).success).toBe(false);
+    const negative: unknown = { ...base, minutes: -5 };
+    expect(AdvanceTimeCommandSchema.safeParse(negative).success).toBe(false);
+    const overCap: unknown = { ...base, minutes: 527041 };
+    expect(AdvanceTimeCommandSchema.safeParse(overCap).success).toBe(false);
   });
 });
 
