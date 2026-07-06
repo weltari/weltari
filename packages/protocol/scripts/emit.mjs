@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import {
+  CommandRejectedSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
   StreamHelloSchema,
@@ -21,6 +22,7 @@ const files = {
   'stream-sentence.json': StreamSentenceSchema,
   'start-turn-command.json': StartTurnCommandSchema,
   'start-turn-accepted.json': StartTurnAcceptedSchema,
+  'command-rejected.json': CommandRejectedSchema,
 };
 
 for (const [name, schema] of Object.entries(files)) {

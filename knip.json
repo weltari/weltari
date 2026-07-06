@@ -17,7 +17,8 @@
     },
     "apps/server": {
       "entry": ["src/main.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"]
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["pino-pretty"]
     }
   }
 }
