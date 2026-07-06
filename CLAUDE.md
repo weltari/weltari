@@ -11,7 +11,7 @@ Single-process, self-hosted AI-RP world engine. TypeScript strict, Node 24 LTS, 
 ## Layout (canonical — Guide §0.6; new top-level dirs are a CI failure)
 
 - `packages/protocol/` — MIT. Zod v4 wire schemas; emitted `schemas/*.json`.
-- `apps/server/src/` — `storage/` (only SQLite site) · `llm/` (only AI-SDK site) · `engine/` (no wall-clock reads) · `ledger/` · `gateway/` · `boundary/` · `http/` · `observability/` · `main.ts`.
+- `apps/server/src/` — `storage/` (only SQLite site) · `llm/` (only AI-SDK site) · `engine/` (no wall-clock reads) · `ledger/` · `painter/` (only sharp site — M2 addition, docs/painter.md) · `gateway/` · `boundary/` · `http/` · `observability/` · `main.ts`.
 - `apps/web/` — React 19 + Vite 8; imports `@weltari/protocol` only, never server code.
 - `tests/` (`invariants/`, `helpers/`, `fakes/`) · `tools/` (kill harness) · `scripts/` (CI checks) · `fixtures/`.
 

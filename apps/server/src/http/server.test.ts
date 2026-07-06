@@ -143,6 +143,8 @@ describe('HTTP layer (SSE + commands)', () => {
               llmEnqueued: 1,
               llmSkipped: 0,
             }),
+      paintRegion: (command) =>
+        ok({ jobKey: `painter:${command.image_id}:${command.request_id}` }),
       heartbeatMs: 60000,
     });
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -318,6 +320,27 @@ describe('HTTP layer (SSE + commands)', () => {
       code_enqueued: 1,
       llm_enqueued: 1,
       llm_skipped: 0,
+    });
+  });
+
+  it('paint-region -> 202 echoing the job key', async () => {
+    const ctx = await setup();
+    const res = await fetch(`${ctx.baseUrl}/v1/commands/paint-region`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        image_id: 'map:w1',
+        region: { x: 0, y: 0, width: 64, height: 64 },
+        request_id: 'r1',
+      }),
+    });
+    expect(res.status).toBe(202);
+    const body: unknown = await res.json();
+    expect(body).toMatchObject({
+      accepted: true,
+      job_key: 'painter:map:w1:r1',
     });
   });
 
