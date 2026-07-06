@@ -4,18 +4,18 @@ Build the Week-1 walking skeleton for Weltari in this repository (`D:\devproj\we
 
 ## Read first, in this order
 
-1. `Coding Guide/AI Coding Guide.md` — your binding rulebook; also `Coding Guide/Task Completion Checklist.md` (the definition of done for every task).
-2. `Stack Session/FINAL - Stack Decision.md` — the decided 14-item stack.
-3. `Stack Session/Owner Decisions (2026-07-06).md` + `Stack Session/Fact-check Addendum (Context7 + web, 2026-07-06).md` — owner overrides (WeChat = official claw bots; Zod v4 everywhere — TypeBox dropped; AI SDK pinned to v6) and verified versions.
-4. `Stack Requirements Brief.md` and `UI Spec (skeleton).md` — the requirements.
-5. `builder.md` — documentation rules (structure.md per module, docs updated same-commit).
-6. `Weltari V1 - Architecture & Structure (Rev 4).md` — reference only; on conflict the Brief and FINAL decision win.
+1. `docs/Coding Guide/AI Coding Guide.md` — your binding rulebook; also `docs/Coding Guide/Task Completion Checklist.md` (the definition of done for every task).
+2. `docs/Stack Session/FINAL - Stack Decision.md` — the decided 14-item stack.
+3. `docs/Stack Session/Owner Decisions (2026-07-06).md` + `docs/Stack Session/Fact-check Addendum (Context7 + web, 2026-07-06).md` — owner overrides (WeChat = official claw bots; Zod v4 everywhere — TypeBox dropped; AI SDK pinned to v6) and verified versions.
+4. `docs/Stack Requirements Brief.md` and `docs/UI Spec (skeleton).md` — the requirements.
+5. `docs/builder.md` — documentation rules (structure.md per module, docs updated same-commit).
+6. `docs/Weltari V1 - Architecture & Structure (Rev 4).md` — reference only; on conflict the Brief and FINAL decision win.
 
 ## What to build (the de-risk plan's "naked hot path, tortured")
 
 The smallest real vertical slice, in the final repo structure (this is the product's first commit series, not a throwaway):
 
-- Repo skeleton per the Coding Guide's canonical layout; commit #1 promotes `Coding Guide/tsconfig.json` and `Coding Guide/eslint.config.mjs` into place, plus package.json (Node 24 LTS, ESM, exact pins), Vitest 4, Prettier, CI workflow.
+- Repo skeleton per the Coding Guide's canonical layout; commit #1 promotes `docs/Coding Guide/tsconfig.json` and `docs/Coding Guide/eslint.config.mjs` into place, plus package.json (Node 24 LTS, ESM, exact pins), Vitest 4, Prettier, CI workflow.
 - Fastify 5 serving: SSE event stream (`GET /v1/events`, event id = event-log seq, `Last-Event-ID` replay) + schema-validated POST command routes (Zod v4; protocol schemas live in the MIT-side protocol package).
 - better-sqlite3 (WAL) behind hand-written repositories (import fence enforced); append-only event log; the hand-rolled job-ledger tables (idempotency keys, leases, states) + croner.
 - ContextAssembler with byte-stable stable-first prefix + dynamic tail (unit-tested byte stability).
@@ -34,5 +34,5 @@ If (b) fails with pinned providers → revisit the LLM-layer choice before build
 ## Process rules
 
 - Small commits (one logical change each), pushed to GitHub as you go; follow the Task Completion Checklist before calling anything done.
-- Never modify the spec/session documents (`Stack Requirements Brief.md`, `UI Spec (skeleton).md`, `Stack Session/`, Rev 3/Rev 4).
+- Never modify the spec/session documents in `docs/` (`Stack Requirements Brief.md`, `UI Spec (skeleton).md`, `Stack Session/`, Rev 3/Rev 4).
 - Work is "vibe coding" with the owner supervising: after each milestone-sized step, summarize plainly what exists and what's next.
