@@ -10,6 +10,10 @@ import {
   createEventLogRepository,
   type EventLogRepository,
 } from './repositories/event-log.js';
+import {
+  createLedgerRepository,
+  type LedgerRepository,
+} from './repositories/ledger.js';
 
 export interface StorageOptions {
   /** Path to the SQLite file; ':memory:' allowed in tests. */
@@ -22,6 +26,7 @@ export interface StorageOptions {
 
 export interface Storage {
   readonly eventLog: EventLogRepository;
+  readonly ledger: LedgerRepository;
   /**
    * The WriteGate: every multi-statement durable write goes through here so it
    * commits or vanishes atomically (crash-only design, Brief §2.4). better-sqlite3
@@ -110,9 +115,11 @@ export function openStorage(options: StorageOptions): Storage {
 
   const nowIso = options.nowIso ?? ((): string => new Date().toISOString());
   const eventLog = createEventLogRepository(db, nowIso);
+  const ledger = createLedgerRepository(db, nowIso);
 
   return {
     eventLog,
+    ledger,
     transact<T>(fn: () => T): T {
       const run = db.transaction(fn);
       return run();
