@@ -3,10 +3,22 @@
 // built from it is byte-identical across process restarts (Invariant I5 and
 // the real-provider cache-hit check both depend on this).
 import type { CharacterProfile } from '../context-assembler.js';
+import type { WorldCronDefinition } from '../world-clock.js';
 
 export const FIXTURE_WORLD_ID = 'w1';
 export const FIXTURE_SCENE_ID = 's1';
 export const FIXTURE_SCENE_TITLE = 'The Rainy Inn';
+
+/**
+ * Fixture world-cron table (fictional time): the lamplighter rounds are a pure
+ * code projection every fictional dawn; the evening rumor is an LLM-class
+ * narration every fictional dusk — the pair exercises both replay classes of
+ * the time-skip table (Brief §4).
+ */
+export const FIXTURE_WORLD_CRON: readonly WorldCronDefinition[] = [
+  { pattern: '0 6 * * *', cronType: 'lamplighter', jobClass: 'code' },
+  { pattern: '0 18 * * *', cronType: 'evening_rumor', jobClass: 'llm' },
+];
 
 const TOPICS = [
   'the flooded cellar of the Rainy Inn and the casks that float there',

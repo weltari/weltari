@@ -13,14 +13,20 @@ import {
   buildNarratorProfile,
   FIXTURE_SCENE_ID,
   FIXTURE_SCENE_TITLE,
+  FIXTURE_WORLD_CRON,
   FIXTURE_WORLD_ID,
 } from './engine/fixture/rainy-inn.js';
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { createTurnEngine } from './engine/scene-turn.js';
+import { createWorldClock } from './engine/world-clock.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
 import { createWorldAgentHandler } from './ledger/handlers/world-agent.js';
+import {
+  createWorldCronCodeHandler,
+  createWorldCronLlmHandler,
+} from './ledger/handlers/world-cron.js';
 import { createRunner } from './ledger/runner.js';
 import { createFakeLlmClient } from './llm/fake-client.js';
 import { createModelRegistry } from './llm/model-registry.js';
@@ -153,6 +159,20 @@ const runner = createRunner({
       narrator,
       logger,
     }),
+    'world_cron.code': createWorldCronCodeHandler({
+      storage,
+      sink,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
+    'world_cron.llm': createWorldCronLlmHandler({
+      storage,
+      sink,
+      llm,
+      narrator,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
   },
   nowIso: (): string => new Date().toISOString(),
   workerId: `worker-${String(process.pid)}`,
@@ -166,6 +186,24 @@ const runnerInterval = setInterval(() => {
   catchAndLog(runner.tick(), logger, 'runner.tick');
 }, 1000);
 
+/** Drain every due job now — time skips use this so code-class occurrences
+ * run instantly instead of waiting out the 1 s poll (Brief §4). */
+async function drainLedger(): Promise<void> {
+  while (await runner.tick()) {
+    // keep claiming until the ledger has nothing due
+  }
+}
+
+const worldClock = createWorldClock({
+  storage,
+  eventBus,
+  logger,
+  definitions: FIXTURE_WORLD_CRON,
+  kick: (): void => {
+    catchAndLog(drainLedger(), logger, 'ledger.drain');
+  },
+});
+
 const app = createHttpServer({
   eventLog: storage.eventLog,
   eventBus,
@@ -175,6 +213,7 @@ const app = createHttpServer({
   startTurn,
   endScene: (command) => lifecycle.endScene(command),
   openScene: (command) => lifecycle.openScene(command),
+  advanceTime: (command) => worldClock.advanceTime(command),
 });
 
 let draining = false;
