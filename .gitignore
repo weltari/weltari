@@ -1,0 +1,16 @@
+# Dependencies & build output (for the coming Week-1 skeleton)
+node_modules/
+dist/
+coverage/
+
+# Secrets & local config — never commit
+.env
+.env.*
+*.local
+
+# OS / editor noise
+Thumbs.db
+.DS_Store
+
+# Backup files
+*.backup
