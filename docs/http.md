@@ -14,7 +14,7 @@ Purpose: the engine's one public face (Brief §1): a server-pushed SSE event str
 | --- | --- |
 | `bus.ts` | Generic in-process `Bus<T>`; `EventBus` (durable) + `StreamBus` (ephemeral) + `DevBus` (log-only trail, Guide C11). Listener throws are contained per-socket. |
 | `sse.ts` | `attachSseClient`: hello frame → subscribe-then-replay with a shared cursor (exactly-once, no gap: replay is synchronous) → live tail + heartbeat comments. `Last-Event-ID` header or `?last_event_id=` query. Dev-channel frames (`event: dev`, no id) reach only clients that connected with `?dev=1`. |
-| `server.ts` | Fastify 5 instance; `fastify-type-provider-zod` validator+serializer set once (B9); `GET /v1/events`; `POST /v1/commands/start-turn` → injected `startTurn` seam (202 / 409). |
+| `server.ts` | Fastify 5 instance; `fastify-type-provider-zod` validator+serializer set once (B9); `GET /v1/events`; `POST /v1/commands/start-turn` → injected `startTurn` seam (202 / 409); `POST /v1/commands/end-scene` (202 + jobs_enqueued / 409) and `POST /v1/commands/open-scene` (202 / 409 `blocked_on_pending_jobs`) → scene-lifecycle seams. |
 | `../engine/event-sink.ts` | `append` = repository write then bus publish, in that order (crash-only: durable before visible). |
 | `../main.ts` | Composition root: env → logger → C6 process handlers (the only two) → storage → fixture-world seed → runner loop → HTTP listen. SIGTERM/SIGINT drain is an optimization only. Contains the placeholder canned turn until the LLM scripted turn lands. |
 

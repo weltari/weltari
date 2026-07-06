@@ -11,7 +11,8 @@ import type { LlmCall, LlmCallResult, LlmClient } from '../llm/types.js';
 import { createRootLogger } from '../observability/logger.js';
 import { openStorage, type Storage } from '../storage/db.js';
 import { createEventSink } from './event-sink.js';
-import { createTurnEngine, type FaultPoint } from './scene-turn.js';
+import type { FaultPoint } from './fault-points.js';
+import { createTurnEngine } from './scene-turn.js';
 
 function quietLogger(): ReturnType<typeof createRootLogger> {
   const sinkStream = new Writable({

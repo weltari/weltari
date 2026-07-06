@@ -12,7 +12,7 @@ Purpose: normalize provider streaming/usage quirks behind one owned seam (`LlmCl
 
 | File | What it does / talks to |
 | --- | --- |
-| `types.ts` | The seam: `LlmClient`, `LlmCall`, `LlmUsage`. Everything outside this dir imports only this. |
+| `types.ts` | The seam: `LlmClient`, `LlmCall`, `LlmUsage`. Everything outside this dir imports only this. `CallKind` covers the scripted turn (`narrator`/`character`/`narration`) plus the cold-path kinds `reflection` and `world_agent`. |
 | `model-registry.ts` | character/function → model+provider order+params; per-character pinning keeps prompt caches warm (owner decision #3). Config from env (`WELTARI_MODEL`, `WELTARI_PROVIDER_ORDER`). |
 | `openrouter-client.ts` | `streamText` against OpenRouter; provider pinning via `extraBody.provider.order` (`allow_fallbacks:false`); usage accounting on (`usage.include`); `cached_tokens` extracted defensively from SDK usage or OpenRouter metadata; per-call `debug` log = the cache-hit observability (risk register #1). 120 s abort. |
 | `fake-client.ts` | Deterministic scripted double, selected by `WELTARI_FAKE_LLM=1`. Lives in src because the kill harness runs the real binary against it (I4). |

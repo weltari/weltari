@@ -8,7 +8,7 @@ import type { StartTurnCommand, TurnStep } from '@weltari/protocol';
 import { ok, type AppError, type Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
 import type { StreamBus } from '../http/bus.js';
-import type { LlmClient, CallKind } from '../llm/types.js';
+import type { LlmClient } from '../llm/types.js';
 import type { Storage } from '../storage/db.js';
 import {
   assembleContext,
@@ -20,10 +20,8 @@ import {
   buildEliasProfile,
   buildNarratorProfile,
 } from './fixture/rainy-inn.js';
+import type { FaultPointHook } from './fault-points.js';
 import { createSentenceSplitter } from './sentences.js';
-
-/** Kill-harness hooks (I4). Names are the contract with tools/kill-harness.mjs. */
-export type FaultPoint = 'mid_stream' | 'between_calls' | 'pre_commit';
 
 export interface TurnEngineOptions {
   storage: Storage;
@@ -33,10 +31,9 @@ export interface TurnEngineOptions {
   logger: Logger;
   /**
    * Emits FAULT_POINT lines when the harness env flag is set; no-op otherwise.
-   * May pause (return a promise) so the harness SIGKILL lands inside the window;
-   * awaited at between_calls/pre_commit (mid_stream fires from a sync callback).
+   * Awaited at between_calls/pre_commit (mid_stream fires from a sync callback).
    */
-  faultPoint?: (point: FaultPoint) => void | Promise<void>;
+  faultPoint?: FaultPointHook;
   /** Fixture world clock — engine-owned fictional time, injected (A16). */
   worldClockText?: string;
   stablePrefixTokens?: number;
@@ -53,7 +50,8 @@ export interface TurnEngine {
 }
 
 interface CallPlan {
-  kind: CallKind;
+  /** The scripted-turn subset of CallKind — the only calls that stream to clients. */
+  kind: TurnStep['call'];
   profile: CharacterProfile;
   instruction: string;
 }

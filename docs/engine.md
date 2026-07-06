@@ -13,6 +13,8 @@ Purpose: engine-owned truth and prompt assembly. No wall-clock reads here (lint-
 | File | What it does / talks to |
 | --- | --- |
 | `context-assembler.ts` | `assembleContext(profile, scene)` — stable-first order (skills → personality → memory core → goals), dynamic tail last; external text (wiki/transcript/player) tail-only inside `<external source=…>` wrappers with angle brackets neutralized so it cannot close its own wrapper. |
+| `scene-lifecycle.ts` | `endScene`: scene.ended + one reflection job per participating character (derived from the scene's committed turns) + one World Agent job (`serial_group world_agent:<world>`), all in ONE WriteGate transaction (Brief §2.4); bus publish after commit. `openScene`: blocks (409) only on this world's World-Agent jobs + this scene's participants' reflections (Brief §4, criterion b). |
+| `fault-points.ts` | The `FaultPoint` union — the kill-harness contract (I4): Week-1 three + M2's `mid_reflection`/`mid_painter`/`mid_cron`. |
 | `fixture/rainy-inn.ts` | Deterministic Week-1 fixture world: Elias profile (`buildEliasProfile(targetPrefixTokens)` — sizes the memory core up to the ~50K-token success-criteria prefix), Narrator profile, lore generator (pure function, no randomness). |
 | `event-sink.ts` | Documented under [http.md](http.md) (append-then-publish). |
 
