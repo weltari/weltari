@@ -87,6 +87,34 @@ export const AdvanceTimeAcceptedSchema = z.strictObject({
 });
 export type AdvanceTimeAccepted = z.infer<typeof AdvanceTimeAcceptedSchema>;
 
+/**
+ * POST /v1/commands/paint-region — enqueue one painter job: crop →
+ * feather-mask composite → resize under a region lease (FINAL item 10).
+ * `request_id` makes the enqueue idempotent (client retries are no-ops).
+ */
+export const PaintRegionCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  image_id: z.string().min(1).max(100),
+  region: z.strictObject({
+    x: z.int().nonnegative(),
+    y: z.int().nonnegative(),
+    width: z.int().positive().max(4096),
+    height: z.int().positive().max(4096),
+  }),
+  /** Client-chosen idempotency token for this paint request. */
+  request_id: z.string().min(1).max(100),
+});
+export type PaintRegionCommand = z.infer<typeof PaintRegionCommandSchema>;
+
+/** 202 response: the painter job is on the ledger; results arrive as events. */
+export const PaintRegionAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  /** The ledger idempotency key (also echoed in painter.completed). */
+  job_key: z.string().min(1),
+});
+export type PaintRegionAccepted = z.infer<typeof PaintRegionAcceptedSchema>;
+
 /** 4xx response for a schema-valid command the engine refused (e.g. busy scene). */
 export const CommandRejectedSchema = z.strictObject({
   accepted: z.literal(false),

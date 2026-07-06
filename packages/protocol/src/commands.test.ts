@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AdvanceTimeCommandSchema,
   EndSceneCommandSchema,
+  PaintRegionCommandSchema,
   OpenSceneCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
@@ -96,6 +97,32 @@ describe('advance-time command', () => {
     expect(AdvanceTimeCommandSchema.safeParse(negative).success).toBe(false);
     const overCap: unknown = { ...base, minutes: 527041 };
     expect(AdvanceTimeCommandSchema.safeParse(overCap).success).toBe(false);
+  });
+});
+
+describe('paint-region command', () => {
+  it('accepts a valid request and rejects zero-size or oversized regions', () => {
+    const base = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      image_id: 'map:w1',
+      request_id: 'r1',
+    };
+    const valid: unknown = {
+      ...base,
+      region: { x: 0, y: 0, width: 64, height: 64 },
+    };
+    expect(PaintRegionCommandSchema.safeParse(valid).success).toBe(true);
+    const zeroSize: unknown = {
+      ...base,
+      region: { x: 0, y: 0, width: 0, height: 64 },
+    };
+    expect(PaintRegionCommandSchema.safeParse(zeroSize).success).toBe(false);
+    const oversized: unknown = {
+      ...base,
+      region: { x: 0, y: 0, width: 5000, height: 64 },
+    };
+    expect(PaintRegionCommandSchema.safeParse(oversized).success).toBe(false);
   });
 });
 

@@ -9,9 +9,11 @@
 export const PROTOCOL_VERSION = '0.1.0';
 
 export {
+  ImageRegionSchema,
   JobErrorSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,
+  PainterCompletedEventSchema,
   ReflectionCommittedEventSchema,
   SceneEndedEventSchema,
   SceneStartedEventSchema,
@@ -22,6 +24,7 @@ export {
   WorldAgentCommittedEventSchema,
   WorldCronCompletedEventSchema,
   WorldTimeAdvancedEventSchema,
+  type ImageRegion,
   type TurnStep,
   type WeltariEvent,
   type WeltariEventType,
@@ -46,6 +49,8 @@ export {
   EndSceneCommandSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
+  PaintRegionAcceptedSchema,
+  PaintRegionCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
   type AdvanceTimeAccepted,
@@ -55,6 +60,8 @@ export {
   type EndSceneCommand,
   type OpenSceneAccepted,
   type OpenSceneCommand,
+  type PaintRegionAccepted,
+  type PaintRegionCommand,
   type StartTurnAccepted,
   type StartTurnCommand,
 } from './commands.js';
