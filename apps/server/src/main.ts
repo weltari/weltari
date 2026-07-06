@@ -21,6 +21,7 @@ import { createTurnEngine } from './engine/scene-turn.js';
 import { createWorldClock } from './engine/world-clock.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
+import { createPainterHandler } from './ledger/handlers/painter.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
 import { createWorldAgentHandler } from './ledger/handlers/world-agent.js';
 import {
@@ -28,6 +29,7 @@ import {
   createWorldCronLlmHandler,
 } from './ledger/handlers/world-cron.js';
 import { createRunner } from './ledger/runner.js';
+import { createPaintRegionCommand } from './painter/commands.js';
 import { createFakeLlmClient } from './llm/fake-client.js';
 import { createModelRegistry } from './llm/model-registry.js';
 import { createOpenRouterClient } from './llm/openrouter-client.js';
@@ -173,6 +175,13 @@ const runner = createRunner({
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
+    painter: createPainterHandler({
+      storage,
+      sink,
+      imagesDir: env.imagesDir,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
   },
   nowIso: (): string => new Date().toISOString(),
   workerId: `worker-${String(process.pid)}`,
@@ -214,6 +223,7 @@ const app = createHttpServer({
   endScene: (command) => lifecycle.endScene(command),
   openScene: (command) => lifecycle.openScene(command),
   advanceTime: (command) => worldClock.advanceTime(command),
+  paintRegion: createPaintRegionCommand(storage),
 });
 
 let draining = false;

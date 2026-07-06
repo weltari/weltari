@@ -92,6 +92,15 @@ Every dependency gets one `## <package>` heading (CI keys on the heading — Gui
 - Pinned: 7.6.13
 - Swap documented: n/a
 
+## sharp
+
+- What: libvips image pipeline for painter jobs — crop, feather-mask composite, resize at ~1024² inside the RAM envelope (FINAL item 10).
+- Why not stdlib / an existing dep: Node has no stdlib image processing; sharp ships prebuilt binaries on all four target platforms.
+- License: Apache-2.0 (AGPLv3-compatible; never copied into MIT packages).
+- Maintenance: release within last 12 months, checked 2026-07-07.
+- Pinned: 0.35.3
+- Swap documented: `jimp` (pure-JS, slower — acceptable for the stub-source milestone if native addons ever block a platform).
+
 ## typescript
 
 - What: the compiler — the one reviewer that reads every line every time (Guide §A).

@@ -47,7 +47,21 @@ const TYPEBOX = ['typebox', '@sinclair/typebox'].map((name) => ({
   name,
   message: 'Protocol is unified on Zod v4 (Guide §0.1); TypeBox is dropped.',
 }));
-const ALL_FENCES = [...SQLITE, ...AI_SDK, ...GRAMMY, ...MULTIPART, ...TYPEBOX];
+const SHARP = [
+  {
+    name: 'sharp',
+    message:
+      'Only apps/server/src/painter may touch sharp (A11; tests may read images).',
+  },
+];
+const ALL_FENCES = [
+  ...SQLITE,
+  ...AI_SDK,
+  ...GRAMMY,
+  ...MULTIPART,
+  ...TYPEBOX,
+  ...SHARP,
+];
 const restricted = (paths, patterns = []) => ({
   '@typescript-eslint/no-restricted-imports': ['error', { paths, patterns }],
 });
@@ -161,19 +175,39 @@ export default defineConfig([
   /* ---- A11 fence re-openings (each keeps every OTHER fence closed) ---- */
   {
     files: ['apps/server/src/storage/**/*.ts'],
-    rules: { ...restricted([...AI_SDK, ...GRAMMY, ...MULTIPART, ...TYPEBOX]) },
+    rules: {
+      ...restricted([...AI_SDK, ...GRAMMY, ...MULTIPART, ...TYPEBOX, ...SHARP]),
+    },
   },
   {
     files: ['apps/server/src/llm/**/*.ts'],
-    rules: { ...restricted([...SQLITE, ...GRAMMY, ...MULTIPART, ...TYPEBOX]) },
+    rules: {
+      ...restricted([...SQLITE, ...GRAMMY, ...MULTIPART, ...TYPEBOX, ...SHARP]),
+    },
   },
   {
     files: ['apps/server/src/gateway/telegram/**/*.ts'],
-    rules: { ...restricted([...SQLITE, ...AI_SDK, ...MULTIPART, ...TYPEBOX]) },
+    rules: {
+      ...restricted([...SQLITE, ...AI_SDK, ...MULTIPART, ...TYPEBOX, ...SHARP]),
+    },
   },
   {
     files: ['apps/server/src/boundary/uploads/**/*.ts'],
-    rules: { ...restricted([...SQLITE, ...AI_SDK, ...GRAMMY, ...TYPEBOX]) },
+    rules: {
+      ...restricted([...SQLITE, ...AI_SDK, ...GRAMMY, ...TYPEBOX, ...SHARP]),
+    },
+  },
+  {
+    files: ['apps/server/src/painter/**/*.ts'],
+    rules: {
+      ...restricted([
+        ...SQLITE,
+        ...AI_SDK,
+        ...GRAMMY,
+        ...MULTIPART,
+        ...TYPEBOX,
+      ]),
+    },
   },
 
   /* ---- A16: no wall-clock reads in the engine (injected clocks only) ---- */

@@ -15,6 +15,8 @@ import {
   EndSceneCommandSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
+  PaintRegionAcceptedSchema,
+  PaintRegionCommandSchema,
   PROTOCOL_VERSION,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
@@ -25,6 +27,8 @@ import {
   type EndSceneCommand,
   type OpenSceneAccepted,
   type OpenSceneCommand,
+  type PaintRegionAccepted,
+  type PaintRegionCommand,
   type StartTurnCommand,
 } from '@weltari/protocol';
 import { z } from 'zod';
@@ -52,6 +56,8 @@ export interface HttpDeps {
     llmEnqueued: number;
     llmSkipped: number;
   }>;
+  /** Painter seam: enqueue one region composite job (FINAL item 10). */
+  paintRegion: (command: PaintRegionCommand) => Result<{ jobKey: string }>;
   heartbeatMs?: number;
 }
 
@@ -196,6 +202,37 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         code_enqueued: result.value.codeEnqueued,
         llm_enqueued: result.value.llmEnqueued,
         llm_skipped: result.value.llmSkipped,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/paint-region',
+    {
+      schema: {
+        body: PaintRegionCommandSchema,
+        response: {
+          202: PaintRegionAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.paintRegion(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'paint-region rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: PaintRegionAccepted = {
+        accepted: true,
+        job_key: result.value.jobKey,
       };
       return accepted;
     },
