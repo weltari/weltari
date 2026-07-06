@@ -1,12 +1,20 @@
 // Post-crash consistency verifier (Invariant I4). Exits 1 with reasons on any
 // violation. Raw driver access is sanctioned under tools/ (Guide A11) — this
 // runs OFFLINE against the database file, after the process was SIGKILLed.
-// Usage: node tools/verify-consistency.mjs <db-path>
+// Usage: node tools/verify-consistency.mjs <db-path> [<images-dir>]
+//   <images-dir> enables the M2 painter hash check (criterion a: zero
+//   corrupted images) — required when painter.completed events exist.
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import Database from 'better-sqlite3';
 
 const dbPath = process.argv[2];
+const imagesDir = process.argv[3] ?? process.env.WELTARI_IMAGES_DIR;
 if (!dbPath) {
-  console.error('usage: node tools/verify-consistency.mjs <db-path>');
+  console.error(
+    'usage: node tools/verify-consistency.mjs <db-path> [<images-dir>]',
+  );
   process.exit(2);
 }
 
@@ -61,6 +69,116 @@ for (const [turnId, count] of committed) {
     failures.push(`turn ${turnId} committed ${count} times (duplicate)`);
   if (!started.has(turnId))
     failures.push(`turn ${turnId} committed without turn.started`);
+}
+
+// 4b. Scene-end fan-out atomicity (M2, Brief §2.4): a scene.ended event can
+//     only exist alongside ALL of its jobs — one WriteGate transaction wrote
+//     them, so a kill can never leave the event without the rows.
+const jobKeyExists = db.prepare(
+  'SELECT COUNT(*) AS n FROM ledger_jobs WHERE idempotency_key = ?',
+);
+for (const event of events) {
+  if (event.type !== 'scene.ended') continue;
+  const payload = JSON.parse(event.payload);
+  for (const participant of payload.participants) {
+    const key = `reflection:${participant}:${payload.scene_id}`;
+    if (jobKeyExists.get(key).n !== 1) {
+      failures.push(`scene.ended ${payload.scene_id}: missing job ${key}`);
+    }
+  }
+  const worldAgentKey = `world_agent:${payload.scene_id}`;
+  if (jobKeyExists.get(worldAgentKey).n !== 1) {
+    failures.push(
+      `scene.ended ${payload.scene_id}: missing job ${worldAgentKey}`,
+    );
+  }
+}
+
+// 4c. Idempotent projections stayed idempotent under kill-retry (M2): every
+//     cold-path outcome event is unique per its natural key.
+const seenOnce = new Map();
+const dupCheck = (kind, key, eventId) => {
+  const mapKey = `${kind}|${key}`;
+  if (seenOnce.has(mapKey)) {
+    failures.push(
+      `duplicate ${kind} for ${key} (events ${seenOnce.get(mapKey)} and ${eventId})`,
+    );
+  } else {
+    seenOnce.set(mapKey, eventId);
+  }
+};
+for (const event of events) {
+  const payload = JSON.parse(event.payload);
+  if (event.type === 'reflection.committed') {
+    dupCheck(
+      'reflection.committed',
+      `${payload.scene_id}:${payload.character_id}`,
+      event.id,
+    );
+  }
+  if (event.type === 'world_agent.committed') {
+    dupCheck('world_agent.committed', payload.scene_id, event.id);
+  }
+  if (event.type === 'world_cron.completed') {
+    dupCheck(
+      'world_cron.completed',
+      `${payload.cron_type}:${payload.scheduled_for}`,
+      event.id,
+    );
+  }
+  if (event.type === 'painter.completed') {
+    dupCheck('painter.completed', payload.job_key, event.id);
+  }
+}
+
+// 4d. World clock is monotonic per world (M2): each skip starts exactly where
+//     the previous one ended.
+const clockByWorld = new Map();
+const eventWorlds = db
+  .prepare('SELECT id, world_id, type, payload FROM events ORDER BY id')
+  .all();
+for (const event of eventWorlds) {
+  if (event.type !== 'world.time_advanced') continue;
+  const payload = JSON.parse(event.payload);
+  const previous = clockByWorld.get(event.world_id);
+  if (previous !== undefined && payload.from !== previous) {
+    failures.push(
+      `world clock gap in ${event.world_id}: skip starts at ${payload.from}, previous ended ${previous}`,
+    );
+  }
+  if (!(payload.to > payload.from)) {
+    failures.push(`world clock not monotonic at event ${event.id}`);
+  }
+  clockByWorld.set(event.world_id, payload.to);
+}
+
+// 4e. Zero corrupted images (M2 criterion a): every painter.completed names a
+//     file whose bytes match its recorded sha256 — composite-on-success proven.
+const painterEvents = events.filter((e) => e.type === 'painter.completed');
+if (painterEvents.length > 0 && !imagesDir) {
+  failures.push(
+    `${painterEvents.length} painter.completed event(s) but no images dir given — cannot hash-verify`,
+  );
+}
+if (imagesDir) {
+  for (const event of painterEvents) {
+    const payload = JSON.parse(event.payload);
+    const filePath = join(imagesDir, payload.path);
+    if (!existsSync(filePath)) {
+      failures.push(
+        `painter.completed ${payload.job_key}: file missing (${payload.path})`,
+      );
+      continue;
+    }
+    const hash = createHash('sha256')
+      .update(readFileSync(filePath))
+      .digest('hex');
+    if (hash !== payload.sha256) {
+      failures.push(
+        `painter.completed ${payload.job_key}: hash mismatch — image corrupted`,
+      );
+    }
+  }
 }
 
 // 5. Ledger rows are in legal states with legal shapes

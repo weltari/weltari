@@ -19,6 +19,8 @@ jobs:
       - run: node tools/kill-harness.mjs
         env:
           CYCLES: 100
+      # M2 criterion (c): peak RSS < 256 MB during fan-out + painter + time-skip
+      - run: node tools/m2-rss-check.mjs
   # The real-provider cache-hit check (20 turns, cached_tokens >= 80% of the
   # stable prefix — Guide §0.14) joins this workflow once the Week-1 criteria
   # runner (tools/cache-hit-check.mjs) lands. It spends real tokens nightly;

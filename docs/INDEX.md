@@ -18,4 +18,5 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [tools.md](tools.md) — kill harness (I4, 25/PR + 100/nightly) and offline consistency verifier.
 - [web.md](web.md) — apps/web: bare React 19 + Vite 8 stream renderer (render-only client).
 - [week1-results.md](week1-results.md) — Week-1 success-criteria measurements, model shootout, cost.
+- [week2-results.md](week2-results.md) — Milestone 2 success-criteria results (extended kill table, RSS, time-skip).
 - [dependencies.md](dependencies.md) — the dependency ledger (one `##` heading per package; CI keys on headings).

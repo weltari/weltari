@@ -32,6 +32,8 @@ const envSchema = z.object({
   WELTARI_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
   /** Image pixels live as files here; rows/events hold path + hash (Brief §1). */
   WELTARI_IMAGES_DIR: z.string().min(1).default('data/images'),
+  /** Gauge cadence (C13). Default 15 s; the RSS criteria runner shortens it. */
+  WELTARI_GAUGE_INTERVAL_MS: z.coerce.number().int().positive().default(15000),
 });
 
 export interface Env {
@@ -48,6 +50,7 @@ export interface Env {
   faultPauseMs: number;
   leaseSeconds: number;
   imagesDir: string;
+  gaugeIntervalMs: number;
 }
 
 export type EnvResult =
@@ -91,6 +94,7 @@ export function readEnv(
       faultPauseMs: parsed.data.WELTARI_FAULT_PAUSE_MS,
       leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
+      gaugeIntervalMs: parsed.data.WELTARI_GAUGE_INTERVAL_MS,
     },
   };
 }
