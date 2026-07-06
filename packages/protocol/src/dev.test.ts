@@ -12,7 +12,7 @@ describe('DevEventSchema', () => {
   it('accepts a valid dev.gauges frame', () => {
     const r = DevEventSchema.safeParse(valid);
     expect(r.success).toBe(true);
-    if (r.success && r.data.type === 'dev.gauges') {
+    if (r.success) {
       expect(r.data.degraded).toBe(false);
     }
   });

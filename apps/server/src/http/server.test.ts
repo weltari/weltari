@@ -9,7 +9,7 @@ import type { StartTurnCommand } from '@weltari/protocol';
 import { ok, type Result } from '../errors.js';
 import { createRootLogger } from '../observability/logger.js';
 import { openStorage, type Storage } from '../storage/db.js';
-import { Bus, type EventBus, type StreamBus } from './bus.js';
+import { Bus, type DevBus, type EventBus, type StreamBus } from './bus.js';
 import { createHttpServer } from './server.js';
 
 interface Frame {
@@ -74,6 +74,7 @@ describe('HTTP layer (SSE + commands)', () => {
     storage: Storage;
     eventBus: EventBus;
     streamBus: StreamBus;
+    devBus: DevBus;
   }
 
   async function setup(): Promise<Setup> {
@@ -82,6 +83,7 @@ describe('HTTP layer (SSE + commands)', () => {
     storage = openStorage({ dbPath: join(dir, 'w.sqlite') });
     const eventBus: EventBus = new Bus(logger);
     const streamBus: StreamBus = new Bus(logger);
+    const devBus: DevBus = new Bus(logger);
     const localStorage = storage;
 
     async function startTurn(
@@ -120,6 +122,7 @@ describe('HTTP layer (SSE + commands)', () => {
       eventLog: localStorage.eventLog,
       eventBus,
       streamBus,
+      devBus,
       logger,
       startTurn,
       heartbeatMs: 60000,
@@ -133,6 +136,7 @@ describe('HTTP layer (SSE + commands)', () => {
       storage: localStorage,
       eventBus,
       streamBus,
+      devBus,
     };
   }
 
@@ -189,6 +193,31 @@ describe('HTTP layer (SSE + commands)', () => {
     const res = await fetch(`${ctx.baseUrl}/v1/events?last_event_id=2`);
     const frames = await readFrames(res, 2);
     expect(frames.slice(1).map((f) => f.id)).toEqual([3]);
+  });
+
+  it('dev frames reach only clients that opted in with ?dev=1 (Guide C11)', async () => {
+    const ctx = await setup();
+    const optedIn = await fetch(`${ctx.baseUrl}/v1/events?dev=1`);
+    const optedOut = await fetch(`${ctx.baseUrl}/v1/events`);
+    const devFramesPromise = readFrames(optedIn, 2); // hello + dev
+    const plainFramesPromise = readFrames(optedOut, 2); // hello + the durable event below
+
+    ctx.devBus.publish({
+      type: 'dev.gauges',
+      loop_p99_ms: 12.3,
+      rss_mb: 104,
+      degraded: false,
+    });
+    seed(ctx.storage, ctx.eventBus, 1); // lets the opted-out reader terminate
+
+    const devFrames = await devFramesPromise;
+    expect(devFrames.map((f) => f.event)).toEqual(['hello', 'dev']);
+    expect(devFrames[1]?.id).toBeUndefined(); // ephemeral: no SSE id
+    const gauge: unknown = JSON.parse(devFrames[1]?.data ?? '');
+    expect(gauge).toMatchObject({ type: 'dev.gauges', degraded: false });
+
+    const plainFrames = await plainFramesPromise;
+    expect(plainFrames.map((f) => f.event)).toEqual(['hello', 'event']);
   });
 
   it('malformed command body -> 400 and nothing appended (B-http)', async () => {

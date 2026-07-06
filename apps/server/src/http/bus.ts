@@ -1,7 +1,8 @@
 // In-process fan-out from writers to connected SSE clients. Durable events ride
-// eventBus (with SSE ids); display-only sentences ride streamBus (no ids, B6).
+// eventBus (with SSE ids); display-only sentences ride streamBus (no ids, B6);
+// log-only trail frames ride devBus (dev mode, Guide C11).
 // Publish AFTER the row is durable — the bus is a mirror, never the truth.
-import type { StreamSentence, WeltariEvent } from '@weltari/protocol';
+import type { DevEvent, StreamSentence, WeltariEvent } from '@weltari/protocol';
 import type { Logger } from '../observability/logger.js';
 
 export type Unsubscribe = () => void;
@@ -33,3 +34,4 @@ export class Bus<T> {
 
 export type EventBus = Bus<WeltariEvent>;
 export type StreamBus = Bus<StreamSentence>;
+export type DevBus = Bus<DevEvent>;

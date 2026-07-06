@@ -18,13 +18,14 @@ import { z } from 'zod';
 import type { Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
 import type { EventLogRepository } from '../storage/repositories/event-log.js';
-import type { EventBus, StreamBus } from './bus.js';
+import type { DevBus, EventBus, StreamBus } from './bus.js';
 import { attachSseClient } from './sse.js';
 
 export interface HttpDeps {
   eventLog: EventLogRepository;
   eventBus: EventBus;
   streamBus: StreamBus;
+  devBus: DevBus;
   logger: Logger;
   /** The scene engine seam: opens the turn envelope durably before returning. */
   startTurn: (command: StartTurnCommand) => Promise<Result<{ turnId: string }>>;
@@ -34,6 +35,8 @@ export interface HttpDeps {
 const sseQuerySchema = z.object({
   /** curl-friendly alternative to the Last-Event-ID header. */
   last_event_id: z.coerce.number().int().nonnegative().optional(),
+  /** '1' opts this client into the dev channel (log-only trail, UI Spec §2.8). */
+  dev: z.string().optional(),
 });
 
 export function createHttpServer(deps: HttpDeps): FastifyInstance {
@@ -56,6 +59,8 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         eventLog: deps.eventLog,
         eventBus: deps.eventBus,
         streamBus: deps.streamBus,
+        devBus: deps.devBus,
+        devChannel: request.query.dev === '1',
         protocolVersion: PROTOCOL_VERSION,
         ...(deps.heartbeatMs === undefined
           ? {}
