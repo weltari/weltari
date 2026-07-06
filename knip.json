@@ -1,13 +1,14 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignore": ["docs/**", "apps/server/src/errors.ts"],
+  "ignore": ["docs/**"],
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": {
       "entry": [
         "tests/**/*.test.ts",
         "tests/helpers/**/*.ts",
-        "tests/fakes/**/*.ts"
+        "tests/fakes/**/*.ts",
+        "tools/**/*.mjs"
       ],
       "project": ["tests/**/*.ts", "scripts/**/*.mjs", "tools/**/*.mjs"]
     },

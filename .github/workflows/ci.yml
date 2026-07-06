@@ -19,6 +19,22 @@ jobs:
       # I7: committed JSON Schemas must match the Zod source exactly
       - run: npm run protocol:emit && git diff --exit-code -- packages/protocol/schemas
 
+  kill-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npx tsc -b
+      # I4: SIGKILL at mid_stream / between_calls / pre_commit, restart, verify —
+      # zero duplicate or lost events, Last-Event-ID resume exact. 25 cycles per PR.
+      - run: node tools/kill-harness.mjs
+        env:
+          CYCLES: 25
+
   secrets-scan:
     runs-on: ubuntu-latest
     steps:

@@ -22,6 +22,8 @@ const envSchema = z.object({
   WELTARI_PROVIDER_ORDER: z.string().optional(),
   /** Stable-prefix size for the fixture profile (success criterion a: ~50000). */
   WELTARI_PREFIX_TOKENS: z.coerce.number().int().positive().default(800),
+  /** Harness only: hold at between_calls/pre_commit so SIGKILL lands inside the window. */
+  WELTARI_FAULT_PAUSE_MS: z.coerce.number().int().nonnegative().default(0),
 });
 
 export interface Env {
@@ -34,6 +36,7 @@ export interface Env {
   model: string;
   providerOrder: readonly string[] | undefined;
   prefixTokens: number;
+  faultPauseMs: number;
 }
 
 export type EnvResult =
@@ -73,6 +76,7 @@ export function readEnv(
               .map((p) => p.trim())
               .filter((p) => p.length > 0),
       prefixTokens: parsed.data.WELTARI_PREFIX_TOKENS,
+      faultPauseMs: parsed.data.WELTARI_FAULT_PAUSE_MS,
     },
   };
 }

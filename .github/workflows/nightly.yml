@@ -1,0 +1,25 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '30 3 * * *' # 03:30 UTC daily
+  workflow_dispatch:
+
+jobs:
+  kill-harness-100:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npx tsc -b
+      - run: node tools/kill-harness.mjs
+        env:
+          CYCLES: 100
+  # The real-provider cache-hit check (20 turns, cached_tokens >= 80% of the
+  # stable prefix — Guide §0.14) joins this workflow once the Week-1 criteria
+  # runner (tools/cache-hit-check.mjs) lands. It spends real tokens nightly;
+  # the owner may downgrade to weekly by editing the cron above.

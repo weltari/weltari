@@ -28,8 +28,12 @@ export interface TurnEngineOptions {
   streamBus: StreamBus;
   llm: LlmClient;
   logger: Logger;
-  /** Emits FAULT_POINT lines when the harness env flag is set; no-op otherwise. */
-  faultPoint?: (point: FaultPoint) => void;
+  /**
+   * Emits FAULT_POINT lines when the harness env flag is set; no-op otherwise.
+   * May pause (return a promise) so the harness SIGKILL lands inside the window;
+   * awaited at between_calls/pre_commit (mid_stream fires from a sync callback).
+   */
+  faultPoint?: (point: FaultPoint) => void | Promise<void>;
   /** Fixture world clock — engine-owned fictional time, injected (A16). */
   worldClockText?: string;
   stablePrefixTokens?: number;
@@ -112,7 +116,14 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       sentenceIndex += 1;
       if (!firstSentenceSeen) {
         firstSentenceSeen = true;
-        if (plan.kind === 'narrator') faultPoint('mid_stream');
+        if (plan.kind === 'narrator') {
+          const emitted = faultPoint('mid_stream');
+          if (emitted instanceof Promise) {
+            emitted.catch((thrown: unknown) => {
+              logger.warn({ err: thrown }, 'fault-point hook failed');
+            });
+          }
+        }
       }
     });
 
@@ -183,9 +194,9 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
             return;
           }
           steps.push(step.value);
-          if (index === 0) faultPoint('between_calls');
+          if (index === 0) await faultPoint('between_calls');
         }
-        faultPoint('pre_commit');
+        await faultPoint('pre_commit');
         sink.append({
           world_id: command.world_id,
           actor_id: command.actor_id,

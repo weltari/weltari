@@ -86,9 +86,15 @@ const engine = createTurnEngine({
   stablePrefixTokens: env.prefixTokens,
   ...(env.emitFaultPoints
     ? {
-        faultPoint: (point: FaultPoint): void => {
-          // The kill harness greps stdout for this marker (I4).
+        faultPoint: async (point: FaultPoint): Promise<void> => {
+          // The kill harness greps stdout for this marker (I4)…
           logger.info({ fault_point: point }, `FAULT_POINT:${point}`);
+          // …and this hold gives its SIGKILL time to land inside the window.
+          if (env.faultPauseMs > 0 && point !== 'mid_stream') {
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, env.faultPauseMs);
+            });
+          }
         },
       }
     : {}),
