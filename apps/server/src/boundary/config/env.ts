@@ -16,6 +16,12 @@ const envSchema = z.object({
   WELTARI_FAKE_LLM: z.string().optional(),
   /** '1' prints FAULT_POINT:<name> lines the kill harness targets. */
   WELTARI_EMIT_FAULT_POINTS: z.string().optional(),
+  /** OpenRouter model id for all Week-1 calls (256K-class recommended). */
+  WELTARI_MODEL: z.string().min(1).default('google/gemini-2.5-flash'),
+  /** Comma-separated OpenRouter provider.order pin (cache stability, FINAL risk #1). */
+  WELTARI_PROVIDER_ORDER: z.string().optional(),
+  /** Stable-prefix size for the fixture profile (success criterion a: ~50000). */
+  WELTARI_PREFIX_TOKENS: z.coerce.number().int().positive().default(800),
 });
 
 export interface Env {
@@ -25,6 +31,9 @@ export interface Env {
   openrouterApiKey: string | undefined;
   fakeLlm: boolean;
   emitFaultPoints: boolean;
+  model: string;
+  providerOrder: readonly string[] | undefined;
+  prefixTokens: number;
 }
 
 export type EnvResult =
@@ -56,6 +65,14 @@ export function readEnv(
       openrouterApiKey: parsed.data.OPENROUTER_API_KEY,
       fakeLlm,
       emitFaultPoints: parsed.data.WELTARI_EMIT_FAULT_POINTS === '1',
+      model: parsed.data.WELTARI_MODEL,
+      providerOrder:
+        parsed.data.WELTARI_PROVIDER_ORDER === undefined
+          ? undefined
+          : parsed.data.WELTARI_PROVIDER_ORDER.split(',')
+              .map((p) => p.trim())
+              .filter((p) => p.length > 0),
+      prefixTokens: parsed.data.WELTARI_PREFIX_TOKENS,
     },
   };
 }

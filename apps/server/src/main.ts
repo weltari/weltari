@@ -1,16 +1,24 @@
 // Composition root. Startup IS recovery (Brief §2.4): open storage (runs
-// migrations + implicitly the lease sweep on the first runner tick), seed the
-// fixture world if the log is empty, start HTTP + runner loops.
+// migrations; the runner's first tick sweeps expired leases), seed the fixture
+// world if the log is empty, start HTTP + runner loops.
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import type { StartTurnCommand } from '@weltari/protocol';
 import { readEnvOrExplain } from './boundary/config/env.js';
-import { ok, OperationalError, type Result } from './errors.js';
+import { OperationalError, type Result } from './errors.js';
 import { createEventSink, type EventSink } from './engine/event-sink.js';
+import {
+  FIXTURE_SCENE_ID,
+  FIXTURE_SCENE_TITLE,
+  FIXTURE_WORLD_ID,
+} from './engine/fixture/rainy-inn.js';
+import { createTurnEngine, type FaultPoint } from './engine/scene-turn.js';
 import { Bus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
 import { createRunner } from './ledger/runner.js';
+import { createFakeLlmClient } from './llm/fake-client.js';
+import { createModelRegistry } from './llm/model-registry.js';
+import { createOpenRouterClient } from './llm/openrouter-client.js';
 import { catchAndLog } from './observability/catch-and-log.js';
 import { fatal } from './observability/fatal.js';
 import { createRootLogger } from './observability/logger.js';
@@ -46,53 +54,53 @@ const sink: EventSink = createEventSink(storage, eventBus);
 // Fixture world seed (builder.md §4.3): an empty log gets one scene to play in.
 if (storage.eventLog.lastId() === 0) {
   sink.append({
-    world_id: 'w1',
+    world_id: FIXTURE_WORLD_ID,
     actor_id: 'system:engine',
     type: 'scene.started',
-    payload: { scene_id: 's1', title: 'The Rainy Inn' },
+    payload: { scene_id: FIXTURE_SCENE_ID, title: FIXTURE_SCENE_TITLE },
   });
-  logger.info({ world_id: 'w1' }, 'seeded fixture world');
+  logger.info({ world_id: FIXTURE_WORLD_ID }, 'seeded fixture world');
 }
 
-// Placeholder turn engine: opens the envelope durably, streams three canned
-// sentences, commits. Replaced by the real Narrator→character→narration
-// scripted turn when the LLM layer lands (Week-1 task 7) — the HTTP seam
-// (startTurn) is already final.
+const registry = createModelRegistry({
+  defaultModel: env.model,
+  ...(env.providerOrder === undefined
+    ? {}
+    : { providerOrder: env.providerOrder }),
+});
+const llm =
+  env.fakeLlm || env.openrouterApiKey === undefined
+    ? createFakeLlmClient()
+    : createOpenRouterClient({
+        apiKey: env.openrouterApiKey,
+        registry,
+        logger,
+      });
+
+const engine = createTurnEngine({
+  storage,
+  sink,
+  streamBus,
+  llm,
+  logger,
+  stablePrefixTokens: env.prefixTokens,
+  ...(env.emitFaultPoints
+    ? {
+        faultPoint: (point: FaultPoint): void => {
+          // The kill harness greps stdout for this marker (I4).
+          logger.info({ fault_point: point }, `FAULT_POINT:${point}`);
+        },
+      }
+    : {}),
+});
+
 async function startTurn(
   command: StartTurnCommand,
 ): Promise<Result<{ turnId: string }>> {
-  const turnId = randomUUID();
-  sink.append({
-    world_id: command.world_id,
-    actor_id: command.actor_id,
-    type: 'turn.started',
-    payload: { scene_id: command.scene_id, turn_id: turnId },
-  });
-  const steps = [
-    { call: 'narrator', speaker: 'Narrator', text: 'Rain taps the window.' },
-    { call: 'character', speaker: 'Elias', text: '"Late again," he mutters.' },
-    {
-      call: 'narration',
-      speaker: 'Narrator',
-      text: 'He turns back to the fire.',
-    },
-  ] as const;
-  steps.forEach((step, index) => {
-    streamBus.publish({
-      turn_id: turnId,
-      call: step.call,
-      speaker: step.speaker,
-      text: step.text,
-      index,
-    });
-  });
-  sink.append({
-    world_id: command.world_id,
-    actor_id: command.actor_id,
-    type: 'turn.committed',
-    payload: { scene_id: command.scene_id, turn_id: turnId, steps: [...steps] },
-  });
-  return Promise.resolve(ok({ turnId }));
+  const started = await engine.startTurn(command);
+  if (!started.ok) return started;
+  catchAndLog(started.value.completion, logger, 'scene-turn');
+  return { ok: true, value: { turnId: started.value.turnId } };
 }
 
 const runner = createRunner({

@@ -11,6 +11,24 @@ Every dependency gets one `## <package>` heading (CI keys on the heading — Gui
 - Pinned: 4.4.3
 - Swap documented: n/a (load-bearing by owner decision)
 
+## ai
+
+- What: Vercel AI SDK v6 — normalizes provider streaming/usage/tool quirks behind our LlmClient seam (FINAL item 9).
+- Why not stdlib / an existing dep: hand-rolling SSE parsing + usage accounting per provider is exactly the drift this SDK absorbs; prompt assembly stays 100% ours.
+- License: Apache-2.0 (AGPLv3-compatible; never copied into MIT packages).
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 6.0.219 (v7 exists; intentional v6 pin — the OpenRouter provider peer-depends on ai@^6; re-evaluate monthly, Guide §0.7)
+- Swap documented: direct per-provider clients behind the same ModelRegistry seam (Week-1 decision trigger b).
+
+## @openrouter/ai-sdk-provider
+
+- What: OpenRouter provider for the AI SDK — one key, many models, provider.order pinning for cache stability.
+- Why not stdlib / an existing dep: OpenRouter-style plug-and-play endpoints are a Brief §3 requirement.
+- License: Apache-2.0 (AGPLv3-compatible; never copied into MIT packages).
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 2.10.0
+- Swap documented: `@ai-sdk/openai-compatible` against OpenRouter's OpenAI endpoint (Fact-check Addendum escape hatch).
+
 ## fastify
 
 - What: HTTP framework serving the SSE stream, command routes, and (later) the built frontend from one process (FINAL item 2).
