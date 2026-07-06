@@ -66,6 +66,12 @@ export interface LedgerRepository {
   sweepExpiredLeases(): number;
   get(id: number): LedgerJob | null;
   countByKey(idempotencyKey: string): number;
+  /**
+   * Jobs still owed to a world (pending/running/failed — not terminal). The
+   * scene-open blocking rule reads this (Brief §4: block only on that world +
+   * involved characters' pending jobs).
+   */
+  listActive(worldId: string): LedgerJob[];
 }
 
 const rowSchema = z.object({
@@ -185,6 +191,11 @@ export function createLedgerRepository(
   const selectCountByKey = db.prepare(
     'SELECT COUNT(*) AS n FROM ledger_jobs WHERE idempotency_key = ?',
   );
+  const selectActiveByWorld = db.prepare(
+    `SELECT * FROM ledger_jobs
+     WHERE world_id = ? AND state IN ('pending','running','failed')
+     ORDER BY id ASC`,
+  );
 
   const claimTransaction = db.transaction(
     (workerId: string, leaseSeconds: number) => {
@@ -236,6 +247,9 @@ export function createLedgerRepository(
     get(id: number): LedgerJob | null {
       const raw = selectById.get(id);
       return raw === undefined ? null : rowToJob(raw);
+    },
+    listActive(worldId: string): LedgerJob[] {
+      return selectActiveByWorld.all(worldId).map(rowToJob);
     },
     countByKey(idempotencyKey: string): number {
       const row = z

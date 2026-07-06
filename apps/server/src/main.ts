@@ -7,14 +7,20 @@ import type { StartTurnCommand } from '@weltari/protocol';
 import { readEnvOrExplain } from './boundary/config/env.js';
 import { OperationalError, type Result } from './errors.js';
 import { createEventSink, type EventSink } from './engine/event-sink.js';
+import type { FaultPointHook } from './engine/fault-points.js';
 import {
+  buildEliasProfile,
+  buildNarratorProfile,
   FIXTURE_SCENE_ID,
   FIXTURE_SCENE_TITLE,
   FIXTURE_WORLD_ID,
 } from './engine/fixture/rainy-inn.js';
-import { createTurnEngine, type FaultPoint } from './engine/scene-turn.js';
+import { createSceneLifecycle } from './engine/scene-lifecycle.js';
+import { createTurnEngine } from './engine/scene-turn.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
+import { createReflectionHandler } from './ledger/handlers/reflection.js';
+import { createWorldAgentHandler } from './ledger/handlers/world-agent.js';
 import { createRunner } from './ledger/runner.js';
 import { createFakeLlmClient } from './llm/fake-client.js';
 import { createModelRegistry } from './llm/model-registry.js';
@@ -87,6 +93,19 @@ const llm =
         logger,
       });
 
+const faultPoint: FaultPointHook | undefined = env.emitFaultPoints
+  ? async (point): Promise<void> => {
+      // The kill harness greps stdout for this marker (I4)…
+      logger.info({ fault_point: point }, `FAULT_POINT:${point}`);
+      // …and this hold gives its SIGKILL time to land inside the window.
+      if (env.faultPauseMs > 0 && point !== 'mid_stream') {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, env.faultPauseMs);
+        });
+      }
+    }
+  : undefined;
+
 const engine = createTurnEngine({
   storage,
   sink,
@@ -94,20 +113,17 @@ const engine = createTurnEngine({
   llm,
   logger,
   stablePrefixTokens: env.prefixTokens,
-  ...(env.emitFaultPoints
-    ? {
-        faultPoint: async (point: FaultPoint): Promise<void> => {
-          // The kill harness greps stdout for this marker (I4)…
-          logger.info({ fault_point: point }, `FAULT_POINT:${point}`);
-          // …and this hold gives its SIGKILL time to land inside the window.
-          if (env.faultPauseMs > 0 && point !== 'mid_stream') {
-            await new Promise<void>((resolve) => {
-              setTimeout(resolve, env.faultPauseMs);
-            });
-          }
-        },
-      }
-    : {}),
+  ...(faultPoint === undefined ? {} : { faultPoint }),
+});
+
+const elias = buildEliasProfile(env.prefixTokens);
+const narrator = buildNarratorProfile(env.prefixTokens);
+
+const lifecycle = createSceneLifecycle({
+  storage,
+  eventBus,
+  logger,
+  knownCharacters: [{ character_id: elias.character_id, name: elias.name }],
 });
 
 async function startTurn(
@@ -121,9 +137,26 @@ async function startTurn(
 
 const runner = createRunner({
   storage,
-  handlers: {},
+  handlers: {
+    reflection: createReflectionHandler({
+      storage,
+      sink,
+      llm,
+      profiles: [elias],
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
+    world_agent: createWorldAgentHandler({
+      storage,
+      sink,
+      llm,
+      narrator,
+      logger,
+    }),
+  },
   nowIso: (): string => new Date().toISOString(),
   workerId: `worker-${String(process.pid)}`,
+  leaseSeconds: env.leaseSeconds,
   onFatal: (error): void => {
     fatal(logger, error);
   },
@@ -140,6 +173,8 @@ const app = createHttpServer({
   devBus,
   logger,
   startTurn,
+  endScene: (command) => lifecycle.endScene(command),
+  openScene: (command) => lifecycle.openScene(command),
 });
 
 let draining = false;

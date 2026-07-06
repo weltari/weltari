@@ -9,9 +9,18 @@ import {
 } from 'fastify-type-provider-zod';
 import {
   CommandRejectedSchema,
+  EndSceneAcceptedSchema,
+  EndSceneCommandSchema,
+  OpenSceneAcceptedSchema,
+  OpenSceneCommandSchema,
   PROTOCOL_VERSION,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
+  type CommandRejected,
+  type EndSceneAccepted,
+  type EndSceneCommand,
+  type OpenSceneAccepted,
+  type OpenSceneCommand,
   type StartTurnCommand,
 } from '@weltari/protocol';
 import { z } from 'zod';
@@ -29,6 +38,9 @@ export interface HttpDeps {
   logger: Logger;
   /** The scene engine seam: opens the turn envelope durably before returning. */
   startTurn: (command: StartTurnCommand) => Promise<Result<{ turnId: string }>>;
+  /** Scene lifecycle seams (Milestone 2): atomic fan-out + scoped open blocking. */
+  endScene: (command: EndSceneCommand) => Result<{ jobsEnqueued: number }>;
+  openScene: (command: OpenSceneCommand) => Result<{ opened: true }>;
   heartbeatMs?: number;
 }
 
@@ -88,6 +100,59 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
       return reply
         .code(202)
         .send({ accepted: true, turn_id: result.value.turnId });
+    },
+  );
+
+  app.post(
+    '/v1/commands/end-scene',
+    {
+      schema: {
+        body: EndSceneCommandSchema,
+        response: { 202: EndSceneAcceptedSchema, 409: CommandRejectedSchema },
+      },
+    },
+    (request, reply) => {
+      const result = deps.endScene(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'end-scene rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: EndSceneAccepted = {
+        accepted: true,
+        jobs_enqueued: result.value.jobsEnqueued,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/open-scene',
+    {
+      schema: {
+        body: OpenSceneCommandSchema,
+        response: { 202: OpenSceneAcceptedSchema, 409: CommandRejectedSchema },
+      },
+    },
+    (request, reply) => {
+      const result = deps.openScene(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'open-scene rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: OpenSceneAccepted = { accepted: true };
+      return accepted;
     },
   );
 

@@ -25,6 +25,9 @@ const envSchema = z.object({
   WELTARI_PREFIX_TOKENS: z.coerce.number().int().positive().default(800),
   /** Harness only: hold at between_calls/pre_commit so SIGKILL lands inside the window. */
   WELTARI_FAULT_PAUSE_MS: z.coerce.number().int().nonnegative().default(0),
+  /** Job lease length. The kill harness shortens it so a killed-mid-job lease
+   * expires (and the sweep reclaims the job) within one harness cycle. */
+  WELTARI_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
 });
 
 export interface Env {
@@ -38,6 +41,7 @@ export interface Env {
   providerOrder: readonly string[] | undefined;
   prefixTokens: number;
   faultPauseMs: number;
+  leaseSeconds: number;
 }
 
 export type EnvResult =
@@ -78,6 +82,7 @@ export function readEnv(
               .filter((p) => p.length > 0),
       prefixTokens: parsed.data.WELTARI_PREFIX_TOKENS,
       faultPauseMs: parsed.data.WELTARI_FAULT_PAUSE_MS,
+      leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
     },
   };
 }

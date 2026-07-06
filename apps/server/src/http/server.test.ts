@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { StartTurnCommand } from '@weltari/protocol';
-import { ok, type Result } from '../errors.js';
+import { err, ok, OperationalError, type Result } from '../errors.js';
 import { createRootLogger } from '../observability/logger.js';
 import { openStorage, type Storage } from '../storage/db.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './bus.js';
@@ -125,6 +125,15 @@ describe('HTTP layer (SSE + commands)', () => {
       devBus,
       logger,
       startTurn,
+      // Scene lifecycle stubs: 'blocked' scene id exercises the 409 path.
+      endScene: (command) =>
+        command.scene_id === 'blocked'
+          ? err(new OperationalError('scene_not_found', 'no such scene'))
+          : ok({ jobsEnqueued: 2 }),
+      openScene: (command) =>
+        command.scene_id === 'blocked'
+          ? err(new OperationalError('blocked_on_pending_jobs', 'busy'))
+          : ok({ opened: true }),
       heartbeatMs: 60000,
     });
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -218,6 +227,67 @@ describe('HTTP layer (SSE + commands)', () => {
 
     const plainFrames = await plainFramesPromise;
     expect(plainFrames.map((f) => f.event)).toEqual(['hello', 'event']);
+  });
+
+  it('end-scene -> 202 with jobs_enqueued; engine refusal -> 409', async () => {
+    const ctx = await setup();
+    const accepted = await fetch(`${ctx.baseUrl}/v1/commands/end-scene`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: 's1',
+      }),
+    });
+    expect(accepted.status).toBe(202);
+    const body: unknown = await accepted.json();
+    expect(body).toMatchObject({ accepted: true, jobs_enqueued: 2 });
+
+    const refused = await fetch(`${ctx.baseUrl}/v1/commands/end-scene`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: 'blocked',
+      }),
+    });
+    expect(refused.status).toBe(409);
+  });
+
+  it('open-scene -> 202; blocked scene -> 409 with the error code', async () => {
+    const ctx = await setup();
+    const accepted = await fetch(`${ctx.baseUrl}/v1/commands/open-scene`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: 's2',
+        title: 'Morning After',
+        participants: ['char:elias'],
+      }),
+    });
+    expect(accepted.status).toBe(202);
+
+    const blocked = await fetch(`${ctx.baseUrl}/v1/commands/open-scene`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: 'blocked',
+        title: 'Nope',
+        participants: [],
+      }),
+    });
+    expect(blocked.status).toBe(409);
+    const body: unknown = await blocked.json();
+    expect(body).toMatchObject({
+      accepted: false,
+      error: 'blocked_on_pending_jobs',
+    });
   });
 
   it('malformed command body -> 400 and nothing appended (B-http)', async () => {

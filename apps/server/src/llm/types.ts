@@ -3,7 +3,8 @@
 // engine. Tests plug a FakeLlmClient in at the same seam (Guide E4).
 import type { Result } from '../errors.js';
 
-export type CallKind = 'narrator' | 'character' | 'narration';
+export type CallKind =
+  'narrator' | 'character' | 'narration' | 'reflection' | 'world_agent';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */
