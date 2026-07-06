@@ -12,6 +12,8 @@ const envSchema = z.object({
     .default('info'),
   /** Secret. Required only when the real provider is used (WELTARI_FAKE_LLM unset). */
   OPENROUTER_API_KEY: z.string().min(1).optional(),
+  /** Secret. Optional: absent = the Telegram connector stays stopped. */
+  TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
   /** '1' routes all LLM calls to the deterministic fake (kill harness, CI). */
   WELTARI_FAKE_LLM: z.string().optional(),
   /** '1' prints FAULT_POINT:<name> lines the kill harness targets. */
@@ -37,6 +39,7 @@ export interface Env {
   dbPath: string;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
   openrouterApiKey: string | undefined;
+  telegramBotToken: string | undefined;
   fakeLlm: boolean;
   emitFaultPoints: boolean;
   model: string;
@@ -74,6 +77,7 @@ export function readEnv(
       dbPath: parsed.data.WELTARI_DB_PATH,
       logLevel: parsed.data.LOG_LEVEL,
       openrouterApiKey: parsed.data.OPENROUTER_API_KEY,
+      telegramBotToken: parsed.data.TELEGRAM_BOT_TOKEN,
       fakeLlm,
       emitFaultPoints: parsed.data.WELTARI_EMIT_FAULT_POINTS === '1',
       model: parsed.data.WELTARI_MODEL,

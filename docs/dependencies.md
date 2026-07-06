@@ -92,6 +92,15 @@ Every dependency gets one `## <package>` heading (CI keys on the heading — Gui
 - Pinned: 7.6.13
 - Swap documented: n/a
 
+## grammy
+
+- What: Telegram bot framework — built-in long-polling (NAT-first, Brief §7c) behind the GatewayConnector fence.
+- Why not stdlib / an existing dep: hand-rolling getUpdates polling, rate limits and update types is exactly the drift grammY absorbs; the runner package was dropped by FINAL (unmaintained).
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-07.
+- Pinned: 1.44.0
+- Swap documented: any connector implementing @weltari/plugin-sdk's GatewayConnector + conformance suite (the fence keeps grammY in one directory).
+
 ## sharp
 
 - What: libvips image pipeline for painter jobs — crop, feather-mask composite, resize at ~1024² inside the RAM envelope (FINAL item 10).
