@@ -11,6 +11,8 @@ Purpose: the permanent crash-torture rig (Invariant I4; owner mandate: Week-1 ch
 
 | `tools/cache-hit-check.mjs` | The success-criteria / nightly real-provider runner (Guide §0.14): spawns the real server (`LOG_LEVEL=debug`, `WELTARI_PREFIX_TOKENS` default 50000), plays `TURNS` (default 20) consecutive turns over the live SSE stream, measures time-to-first-sentence per turn, reads per-call `cached_tokens` from the debug log, samples idle RSS at the end. Voided turns (provider 429/5xx) are retried after a backoff. Requires `OPENROUTER_API_KEY` (env only). Exit 0 = criteria a, b, e all pass. |
 
+| `tools/check-tests-accompany.mjs` | E2 gate: `git diff` against the PR base — a new `apps/server/src` or `packages/*/src` file with no test file added/modified in the same range exits 1. Runs in the PR-only `tests-accompany` CI job. |
+
 ## CI wiring
 
 - `.github/workflows/ci.yml` → `kill-harness` job, `CYCLES=25`, every push/PR.

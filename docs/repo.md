@@ -23,7 +23,11 @@ Purpose: everything at the repo root that makes the gate run: compiler config, l
 | `vitest.config.mjs` | Two projects: `unit` (colocated `src/**/*.test.ts`) and `invariants` (`tests/invariants/**`); v8 coverage with per-glob branch thresholds (Guide E3). |
 | `knip.json` | Knip workspace map: entries per package so unused deps/exports fail the gate. |
 | `commitlint.config.mjs` | Conventional-commit checking (Guide D6). |
-| `.github/workflows/ci.yml` | CI: `npm ci` → `npm run gate` → gitleaks secret scan; commitlint on PRs. Steps grow as tools land (kill harness, coverage, protocol emit diff). |
+| `.github/workflows/ci.yml` | CI: `npm ci` → structural checks (`scripts/*.mjs`) → `npm run gate` → protocol emit diff; kill harness; gitleaks secret scan; commitlint + tests-accompany on PRs. |
+| `scripts/check-dep-ledger.mjs` | D8: every declared dep has a `## <name>` heading in `docs/dependencies.md` and an exact pin (no `^`/`~`). |
+| `scripts/check-licenses.mjs` | A12/D8: AGPL core + MIT edges license fields, MIT packages free of AGPL workspace deps, direct deps on the approved license list. |
+| `scripts/check-c6-handlers.mjs` | C6: `uncaughtException`/`unhandledRejection` registered exactly once each, both in `main.ts`. |
+| `scripts/check-catch-audit.mjs` | C3 (crude by design): every `catch` in server src shows rethrow / `return err` / `fatal` / warn+ log / `CATCH-OK` marker nearby. |
 | `CLAUDE.md` | The ~1-page agent index (builder.md §1). |
 
 ## Deviations recorded

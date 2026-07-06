@@ -15,6 +15,11 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
+      # Cheap structural checks first (Guide D8/A12/C6/C3)
+      - run: node scripts/check-dep-ledger.mjs
+      - run: node scripts/check-licenses.mjs
+      - run: node scripts/check-c6-handlers.mjs
+      - run: node scripts/check-catch-audit.mjs
       - run: npm run gate
       # I7: committed JSON Schemas must match the Zod source exactly
       - run: npm run protocol:emit && git diff --exit-code -- packages/protocol/schemas
@@ -60,3 +65,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to HEAD
+
+  tests-accompany:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # E2: a new src file with no test touched in the same PR fails
+      - run: node tools/check-tests-accompany.mjs ${{ github.event.pull_request.base.sha }}
