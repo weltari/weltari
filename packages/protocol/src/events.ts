@@ -112,6 +112,44 @@ export const WorldAgentCommittedEventSchema = z.strictObject({
   }),
 });
 
+/**
+ * The engine-owned fictional clock moved forward (a time skip). Appended
+ * atomically with every world-cron occurrence row the skip made due (code-class
+ * all enqueued; LLM-class capped by the per-skip budget — Brief §4). The
+ * current world clock is a projection: the latest event's `to`.
+ */
+export const WorldTimeAdvancedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('world.time_advanced'),
+  payload: z.strictObject({
+    /** Fictional ISO datetimes — never wall time. */
+    from: z.iso.datetime(),
+    to: z.iso.datetime(),
+    code_enqueued: z.int().nonnegative(),
+    llm_enqueued: z.int().nonnegative(),
+    /** LLM-class occurrences dropped by the per-skip budget. */
+    llm_skipped: z.int().nonnegative(),
+  }),
+});
+
+/**
+ * One world-cron occurrence finished (idempotent per cron_type +
+ * scheduled_for). Emitted by: the world-cron job handlers. Consumed by:
+ * clients (world activity feed), future projections.
+ */
+export const WorldCronCompletedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('world_cron.completed'),
+  payload: z.strictObject({
+    cron_type: z.string().min(1),
+    /** The fictional occurrence timestamp this row replayed. */
+    scheduled_for: z.iso.datetime(),
+    job_class: z.enum(['code', 'llm']),
+    /** LLM-class only: the generated note (B6-gated before it lands here). */
+    note: z.string().min(1).optional(),
+  }),
+});
+
 /** Truncated error surface for the UI — never prompt content (Guide C7/C12). */
 export const JobErrorSchema = z.strictObject({
   kind: z.enum(['operational', 'bug', 'corrupt_state']),
@@ -157,6 +195,8 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   TurnCommittedEventSchema,
   ReflectionCommittedEventSchema,
   WorldAgentCommittedEventSchema,
+  WorldTimeAdvancedEventSchema,
+  WorldCronCompletedEventSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,
 ]);

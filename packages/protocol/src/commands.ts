@@ -62,6 +62,31 @@ export const OpenSceneAcceptedSchema = z.strictObject({
 });
 export type OpenSceneAccepted = z.infer<typeof OpenSceneAcceptedSchema>;
 
+/**
+ * POST /v1/commands/advance-time — move the fictional world clock forward
+ * (a time skip). Due world-cron occurrences replay in scheduled-game-timestamp
+ * order: code-class instantly, LLM-class in background under the per-skip
+ * budget (Brief §4).
+ */
+export const AdvanceTimeCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  /** Fictional minutes to skip; capped at one fictional year. */
+  minutes: z.int().positive().max(527040),
+});
+export type AdvanceTimeCommand = z.infer<typeof AdvanceTimeCommandSchema>;
+
+/** 202 response: the clock moved; occurrence jobs are on the ledger. */
+export const AdvanceTimeAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  /** The new fictional world time. */
+  world_time: z.iso.datetime(),
+  code_enqueued: z.int().nonnegative(),
+  llm_enqueued: z.int().nonnegative(),
+  llm_skipped: z.int().nonnegative(),
+});
+export type AdvanceTimeAccepted = z.infer<typeof AdvanceTimeAcceptedSchema>;
+
 /** 4xx response for a schema-valid command the engine refused (e.g. busy scene). */
 export const CommandRejectedSchema = z.strictObject({
   accepted: z.literal(false),

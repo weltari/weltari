@@ -20,6 +20,8 @@ export {
   TurnStepSchema,
   WeltariEventSchema,
   WorldAgentCommittedEventSchema,
+  WorldCronCompletedEventSchema,
+  WorldTimeAdvancedEventSchema,
   type TurnStep,
   type WeltariEvent,
   type WeltariEventType,
@@ -37,6 +39,8 @@ export {
   type DevGauges,
 } from './dev.js';
 export {
+  AdvanceTimeAcceptedSchema,
+  AdvanceTimeCommandSchema,
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
@@ -44,6 +48,8 @@ export {
   OpenSceneCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
+  type AdvanceTimeAccepted,
+  type AdvanceTimeCommand,
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,
