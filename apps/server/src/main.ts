@@ -72,6 +72,7 @@ const sink: EventSink = createEventSink(storage, eventBus);
 // Self-watch, unconditional (the I14 structural guard — Guide C13).
 const stopGauges = startGauges({
   logger,
+  intervalMs: env.gaugeIntervalMs,
   publish: (frame) => {
     devBus.publish(frame);
   },
