@@ -14,3 +14,6 @@ Thumbs.db
 
 # Backup files
 *.backup
+
+# Stale root copy kept alive by a file watcher (real one lives in docs/); delete after closing Obsidian
+/Stack Session/
