@@ -1,0 +1,8 @@
+# Weltari docs index
+
+One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, Stack Session, Brief, UI Spec, Rev 3/4) are owner documents — agents read, never modify.
+
+## Module wiki (grows with the code, same-commit rule)
+
+- [repo.md](repo.md) — repo root: toolchain, workspaces, gate scripts, CI.
+- [dependencies.md](dependencies.md) — the dependency ledger (one `##` heading per package; CI keys on headings).

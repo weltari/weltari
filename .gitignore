@@ -1,12 +1,23 @@
-# Dependencies & build output (for the coming Week-1 skeleton)
+# Dependencies & build output
 node_modules/
 dist/
 coverage/
+*.tsbuildinfo
 
-# Secrets & local config — never commit
+# Secrets & local config — never commit (Guide B15, §8.5)
 .env
 .env.*
 *.local
+openrouter_api.txt
+
+# Runtime data (SQLite lives outside the repo in production; test DBs are temp)
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
 
 # OS / editor noise
 Thumbs.db
@@ -15,5 +26,7 @@ Thumbs.db
 # Backup files
 *.backup
 
-# Stale root copy kept alive by a file watcher (real one lives in docs/); delete after closing Obsidian
+# Stale root copies kept alive by a file watcher (real ones live in docs/); delete after closing Obsidian
 /Stack Session/
+/UI Spec (skeleton).md
+/stack.md

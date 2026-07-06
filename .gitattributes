@@ -1,0 +1,7 @@
+# LF everywhere: Prettier enforces LF, and a Windows clone with CRLF would fail
+# `npm run format:check` on a clean checkout (gate step 1).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
+*.zip binary
