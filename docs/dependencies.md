@@ -11,6 +11,15 @@ Every dependency gets one `## <package>` heading (CI keys on the heading — Gui
 - Pinned: 4.4.3
 - Swap documented: n/a (load-bearing by owner decision)
 
+## croner
+
+- What: computes cron occurrence times for the scheduler; always writes ledger rows, never works inline (FINAL item 8).
+- Why not stdlib / an existing dep: no stdlib cron parser; croner is dependency-free and TypeScript-native.
+- License: MIT
+- Maintenance: release within last 12 months, checked 2026-07-06.
+- Pinned: 10.0.1
+- Swap documented: n/a (usage confined to ledger/scheduler.ts)
+
 ## better-sqlite3
 
 - What: synchronous SQLite driver — WAL, one write connection, transactions that a throw rolls back (FINAL item 7).

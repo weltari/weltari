@@ -67,11 +67,50 @@ export const TurnCommittedEventSchema = z.strictObject({
   }),
 });
 
+/** Truncated error surface for the UI — never prompt content (Guide C7/C12). */
+export const JobErrorSchema = z.strictObject({
+  kind: z.enum(['operational', 'bug', 'corrupt_state']),
+  code: z.string(),
+  message: z.string(),
+});
+
+/**
+ * A job failed an attempt and awaits its backoff retry. Emitted by: job runner
+ * (the one catch site, Guide C7). Consumed by: clients (job status UI).
+ */
+export const JobFailedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('job.failed'),
+  payload: z.strictObject({
+    job_id: z.int().positive(),
+    job_type: z.string().min(1),
+    attempts: z.int().positive(),
+    error: JobErrorSchema,
+  }),
+});
+
+/**
+ * A job entered the dead-letter lane — never auto-retried (Brief §2.2).
+ * Emitted by: job runner. Consumed by: clients (owner should look, Guide C9).
+ */
+export const JobParkedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('job.parked'),
+  payload: z.strictObject({
+    job_id: z.int().positive(),
+    job_type: z.string().min(1),
+    attempts: z.int().positive(),
+    error: JobErrorSchema,
+  }),
+});
+
 /** The closed union of durable event shapes on the wire. */
 export const WeltariEventSchema = z.discriminatedUnion('type', [
   SceneStartedEventSchema,
   TurnStartedEventSchema,
   TurnCommittedEventSchema,
+  JobFailedEventSchema,
+  JobParkedEventSchema,
 ]);
 export type WeltariEvent = z.infer<typeof WeltariEventSchema>;
 export type WeltariEventType = WeltariEvent['type'];
