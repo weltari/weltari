@@ -1,15 +1,20 @@
 // GET /v1/events — the one server-pushed stream (Brief §2.5). Durable events
 // carry `id:` = event-log seq so browser-native Last-Event-ID replay works;
 // ephemeral sentence frames carry no id and are lost on disconnect by design.
+// Dev-channel frames (`event: dev`) are gated per client (?dev=1) — the same
+// stream carries the log-only trail when enabled (UI Spec §2.8).
 import type { ServerResponse } from 'node:http';
-import type { StreamSentence, WeltariEvent } from '@weltari/protocol';
+import type { DevEvent, StreamSentence, WeltariEvent } from '@weltari/protocol';
 import type { EventLogRepository } from '../storage/repositories/event-log.js';
-import type { EventBus, StreamBus } from './bus.js';
+import type { DevBus, EventBus, StreamBus } from './bus.js';
 
 export interface SseDeps {
   eventLog: EventLogRepository;
   eventBus: EventBus;
   streamBus: StreamBus;
+  devBus: DevBus;
+  /** True when this client asked for the dev channel (?dev=1). */
+  devChannel: boolean;
   protocolVersion: string;
   heartbeatMs?: number;
 }
@@ -22,6 +27,10 @@ function writeDurable(raw: ServerResponse, event: WeltariEvent): void {
 
 function writeSentence(raw: ServerResponse, frame: StreamSentence): void {
   raw.write(`event: stream\ndata: ${JSON.stringify(frame)}\n\n`);
+}
+
+function writeDev(raw: ServerResponse, frame: DevEvent): void {
+  raw.write(`event: dev\ndata: ${JSON.stringify(frame)}\n\n`);
 }
 
 /**
@@ -59,6 +68,11 @@ export function attachSseClient(
   const unsubscribeStream = deps.streamBus.subscribe((frame) => {
     writeSentence(raw, frame);
   });
+  const unsubscribeDev = deps.devChannel
+    ? deps.devBus.subscribe((frame) => {
+        writeDev(raw, frame);
+      })
+    : (): void => undefined;
 
   for (const event of deps.eventLog.readSince(lastEventId)) {
     writeDurable(raw, event);
@@ -74,5 +88,6 @@ export function attachSseClient(
     clearInterval(heartbeat);
     unsubscribeEvents();
     unsubscribeStream();
+    unsubscribeDev();
   });
 }

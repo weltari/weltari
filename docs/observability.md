@@ -15,6 +15,7 @@ Purpose: one structured NDJSON diagnostics stream (pino v10), one sanctioned exi
 | `logger.ts` | `createRootLogger` — level, structural redaction of `apiKey/token/secret/authorization` at every depth (C12/I12), injectable stream for tests. |
 | `fatal.ts` | `fatal(logger, err)` — the only `process.exit` site (C5): sync log, exit 1 / exit 3 for corrupt_state. |
 | `catch-and-log.ts` | `catchAndLog(promise, logger, what)` — the A8-sanctioned way to detach work. |
+| `gauges.ts` | Self-watch (C13/I14): every 15 s samples `monitorEventLoopDelay()` p99 + RSS, logs at `debug`, escalates to `warn` past 200 ms / 220 MB, mirrors each sample as a `dev.gauges` frame on the dev bus. Started unconditionally in `main.ts`; injectable sampler for unit tests. |
 
 ## boundary — apps/server/src/boundary
 
@@ -26,4 +27,5 @@ Purpose: one structured NDJSON diagnostics stream (pino v10), one sanctioned exi
 ## Tests
 
 - I12 invariant: planted apiKey/token/authorization → `[Redacted]`, value absent.
-- Unit: env defaults/name-only errors/key requirement; validateAt ok/reject logging shape without payload.
+- I13 + I14 invariant: `tests/invariants/self-watch.test.ts` boots the built server once — gauge line within 30 s (I14), one idle minute under the fixed info-line budget (I13).
+- Unit: env defaults/name-only errors/key requirement; validateAt ok/reject logging shape without payload; gauges debug/warn thresholds + dev.gauges mirror on a scripted sampler.

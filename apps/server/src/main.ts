@@ -13,7 +13,7 @@ import {
   FIXTURE_WORLD_ID,
 } from './engine/fixture/rainy-inn.js';
 import { createTurnEngine, type FaultPoint } from './engine/scene-turn.js';
-import { Bus, type EventBus, type StreamBus } from './http/bus.js';
+import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
 import { createRunner } from './ledger/runner.js';
 import { createFakeLlmClient } from './llm/fake-client.js';
@@ -21,6 +21,7 @@ import { createModelRegistry } from './llm/model-registry.js';
 import { createOpenRouterClient } from './llm/openrouter-client.js';
 import { catchAndLog } from './observability/catch-and-log.js';
 import { fatal } from './observability/fatal.js';
+import { startGauges } from './observability/gauges.js';
 import { createRootLogger } from './observability/logger.js';
 import { openStorage } from './storage/db.js';
 
@@ -49,7 +50,16 @@ const storage = openStorage({ dbPath: env.dbPath });
 
 const eventBus: EventBus = new Bus(logger);
 const streamBus: StreamBus = new Bus(logger);
+const devBus: DevBus = new Bus(logger);
 const sink: EventSink = createEventSink(storage, eventBus);
+
+// Self-watch, unconditional (the I14 structural guard — Guide C13).
+const stopGauges = startGauges({
+  logger,
+  publish: (frame) => {
+    devBus.publish(frame);
+  },
+});
 
 // Fixture world seed (builder.md §4.3): an empty log gets one scene to play in.
 if (storage.eventLog.lastId() === 0) {
@@ -127,6 +137,7 @@ const app = createHttpServer({
   eventLog: storage.eventLog,
   eventBus,
   streamBus,
+  devBus,
   logger,
   startTurn,
 });
@@ -140,6 +151,7 @@ function drain(signal: string): void {
     'draining (optimization only — kill -9 is always safe)',
   );
   clearInterval(runnerInterval);
+  stopGauges();
   catchAndLog(app.close(), logger, 'app.close');
   process.exitCode = 0;
 }
