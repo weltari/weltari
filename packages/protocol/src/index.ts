@@ -28,6 +28,12 @@ export {
   type StreamSentence,
 } from './stream.js';
 export {
+  DevEventSchema,
+  DevGaugesSchema,
+  type DevEvent,
+  type DevGauges,
+} from './dev.js';
+export {
   CommandRejectedSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
