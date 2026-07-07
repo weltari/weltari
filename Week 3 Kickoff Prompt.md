@@ -19,6 +19,12 @@ The owner designed the Scene page in Figma before this session. Exported screens
 
 **1. The real VN Scene page** (`apps/web`) — replaces the bare Week-1 stream dump: sentence-by-sentence pacing with click / Auto-Advance, interrupt-anywhere (closes the turn envelope at the interruption point — needs an `interrupt-turn` command in `@weltari/protocol`), streaming narration from the SSE `stream` frames, the committed transcript from durable events. zustand lands now (the recorded M3 deferral): stores writable ONLY by the SSE reducer — the frontend stays render-only (Brief §2.5). Dedicated mobile layout per the Phase-2 decision.
 
+**1b. Scene Engine tool surface (first slice)** — build the B6 two-gate tool pipeline once (AI-SDK Zod `inputSchema` gate → engine-state gate; invalid calls rejected as trail events with ZERO rows written — Invariant I8 finally gets real subjects; FakeLLM scripts tool calls so tests and the harness cover them), then the important Narrator tools in priority order:
+  1. `end_scene{type}` — the scene's real closer (replaces the bare end-scene HTTP command as the in-fiction path); its type drives the soft-close button set (Stay / Jump / Open map — UI Spec §1.7).
+  2. `change_sublocation{sublocation_id}` — drives the backdrop slide transition (UI Spec §1.6); fixture world gains 2–3 sublocations with placeholder backdrops.
+  3. `switch_art{character_id, art_id}` — a normal function among the others: character profiles gain a small fixture art set (named poses, placeholder images); valid calls append a durable `art.switched` event the VN line-up renders.
+  Each tool = schema + engine-state validation + durable event + Scene-page rendering + I8 rejection tests.
+
 **2. Plugin loader (backend + frontend halves)** — a plugin is a folder in `plugins/` (FINAL item 13): `plugin.json` manifest (name, semver, engine range, capabilities, provenance `{source_url, sha256}`), hash verified at install AND at every load (B10 — tampered byte ⇒ refused + `plugin.rejected` event, app boots without it); `frontend/*.mjs` custom elements served zero-build; `theme.css` custom-property overrides. The B-plugin boundary home is `apps/server/src/boundary/plugins/`.
 
 **3. The default `<wl-map>` plugin** — Canvas 2D tiles + DOM overlay pins, written ONLY against documented map connector events (it dogfoods the plugin contract; lint must prove no private imports). Map events go into `@weltari/protocol`; the painter's `painter.completed` images are the tile source we already have.
