@@ -70,6 +70,16 @@
   --wl-slide-duration: 700ms;
   --wl-rise-duration: 260ms;
   --wl-sentence-fade: 220ms;
+  /* The masking cover: continuously animated for the whole 5–10 s window. */
+  --wl-cover-fade-duration: 450ms;
+  --wl-cover-min-duration: 900ms;
+  --wl-cover-slide-duration: 600ms;
+  --wl-cover-spin-duration: 2.8s;
+  --wl-cover-minute-duration: 9s;
+  --wl-cover-dot-duration: 1.15s;
+  --wl-cover-drift-duration: 7s;
+  --wl-cover-veil: rgba(12, 13, 17, 0.86);
+  --wl-cover-veil-edge: rgba(24, 26, 34, 0.94);
 
   /* ---- layout ---- */
   --wl-stage-min-height: 46vh;
@@ -625,5 +635,152 @@ body {
   .wl-dev {
     width: calc(100vw - 1.6rem);
     max-height: 32vh;
+  }
+}
+
+/* ================== §1.14 masking cover (SceneCover.tsx) ================== */
+/* Covers the stage from a scene-open / map-jump click until the destination's
+   opening narration streams. Everything here animates on an infinite loop —
+   a 5–10 s generation window must never read as a frozen screen. */
+
+.wl-scene-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: linear-gradient(
+    115deg,
+    var(--wl-cover-veil-edge),
+    var(--wl-cover-veil) 35%,
+    var(--wl-cover-veil) 65%,
+    var(--wl-cover-veil-edge)
+  );
+  background-size: 220% 220%;
+  animation:
+    wl-cover-fade-in var(--wl-cover-fade-duration) ease both,
+    wl-cover-drift var(--wl-cover-drift-duration) ease-in-out infinite alternate;
+  transition: opacity var(--wl-cover-fade-duration) ease;
+}
+
+/* Map jumps read as travel: the cover sweeps in from the right instead. */
+.wl-scene-cover[data-reason='map-jump'] {
+  animation:
+    wl-cover-slide-in var(--wl-cover-slide-duration)
+      cubic-bezier(0.2, 0.7, 0.2, 1) both,
+    wl-cover-drift var(--wl-cover-drift-duration) ease-in-out infinite alternate;
+}
+
+.wl-scene-cover[data-leaving='true'] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The clock: ring + two hands spinning at token-set speeds (clock-spin
+   vocabulary, UI Spec §1.14). */
+.wl-cover-clock {
+  position: relative;
+  width: 4.4rem;
+  height: 4.4rem;
+  border: 2px solid var(--wl-border);
+  border-top-color: var(--wl-accent);
+  border-radius: 50%;
+  animation: wl-cover-spin var(--wl-cover-spin-duration) linear infinite;
+}
+
+.wl-cover-clock-hand {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  width: 2px;
+  height: 34%;
+  margin-left: -1px;
+  transform-origin: 50% 100%;
+  background: var(--wl-accent);
+  border-radius: 1px;
+  animation: wl-cover-spin var(--wl-cover-spin-duration) linear infinite;
+}
+
+.wl-cover-clock-hand-minute {
+  height: 24%;
+  opacity: 0.7;
+  animation-duration: var(--wl-cover-minute-duration);
+}
+
+.wl-cover-label {
+  margin: 0;
+  font-family: var(--wl-font-narration);
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+  color: var(--wl-text);
+}
+
+.wl-cover-dots {
+  display: flex;
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.wl-cover-dots span {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--wl-text-dim);
+  animation: wl-cover-dot var(--wl-cover-dot-duration) ease-in-out infinite;
+}
+
+.wl-cover-dots span:nth-child(2) {
+  animation-delay: calc(var(--wl-cover-dot-duration) / 3);
+}
+
+.wl-cover-dots span:nth-child(3) {
+  animation-delay: calc(var(--wl-cover-dot-duration) * 2 / 3);
+}
+
+@keyframes wl-cover-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes wl-cover-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes wl-cover-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes wl-cover-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes wl-cover-drift {
+  from {
+    background-position: 0% 0%;
+  }
+  to {
+    background-position: 100% 100%;
   }
 }

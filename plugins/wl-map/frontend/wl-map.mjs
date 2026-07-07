@@ -126,7 +126,11 @@ class WlMap extends HTMLElement {
       ctx.stroke();
     }
 
-    // DOM overlay pins, anchored to world coordinates.
+    // DOM overlay pins, anchored to world coordinates. A pin click is the
+    // map-jump surface (UI Spec §1.14): the plugin dispatches a bubbling
+    // wl-map-jump CustomEvent (detail = MapJumpDetail in @weltari/protocol)
+    // and the HOST answers with a masked scene transition — the plugin never
+    // opens scenes itself (documented surface only).
     this._overlay.replaceChildren();
     for (const [id, pin] of this._pins) {
       const el = document.createElement('div');
@@ -142,7 +146,18 @@ class WlMap extends HTMLElement {
       el.style.textAlign = 'center';
       el.textContent = `${pin.current ? '◉' : '○'}\n${pin.name}`;
       el.style.whiteSpace = 'pre';
-      el.title = id;
+      el.title = `Jump to ${pin.name}`;
+      el.style.pointerEvents = 'auto';
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => {
+        this.dispatchEvent(
+          new CustomEvent('wl-map-jump', {
+            bubbles: true,
+            composed: true,
+            detail: { sublocation_id: id, name: pin.name },
+          }),
+        );
+      });
       this._overlay.appendChild(el);
     }
   }

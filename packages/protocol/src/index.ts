@@ -12,8 +12,9 @@
  * GET /v1/images/* serves painter outputs (tile source).
  * 0.5.0: update.available + update.staged events; apply-update command
  * (self-update path, FINAL item 12 / Guide B12).
+ * 0.6.0: wl-map-jump DOM event detail (map connector surface, UI Spec §1.14).
  */
-export const PROTOCOL_VERSION = '0.5.0';
+export const PROTOCOL_VERSION = '0.6.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -50,8 +51,10 @@ export {
   type StreamSentence,
 } from './stream.js';
 export {
+  MapJumpDetailSchema,
   PluginInfoSchema,
   PluginListSchema,
+  type MapJumpDetail,
   type PluginInfo,
   type PluginList,
 } from './plugins.js';

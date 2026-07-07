@@ -61,10 +61,23 @@ function scriptedToolCalls(prompt: string): RawToolCall[] {
   return calls;
 }
 
-export function createFakeLlmClient(): LlmClient {
+export interface FakeLlmOptions {
+  /** Hold before the FIRST token of every call — simulates real-provider
+   * prefill latency so the §1.14 masking animations can be exercised
+   * against a 5–10 s generation window (WELTARI_FAKE_LLM_DELAY_MS). */
+  firstTokenDelayMs?: number;
+}
+
+export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
+  const firstTokenDelayMs = options.firstTokenDelayMs ?? 0;
   return {
     async streamCall(call: LlmCall): Promise<Result<LlmCallResult>> {
       const text = SCRIPT[call.kind] ?? 'The rain continues.';
+      if (firstTokenDelayMs > 0) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, firstTokenDelayMs);
+        });
+      }
       // Stream word by word so sentence assembly and SSE pacing are exercised.
       for (const word of text.split(' ')) {
         call.onTextDelta(`${word} `);

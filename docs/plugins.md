@@ -51,6 +51,12 @@ pins (world coordinates — a repaint never moves a pin). Canvas 2D tile +
 grid-fog placeholder, DOM overlay pins; themed via the same `--wl-*` tokens.
 The core web app only hosts a modal slot (`MapModal`) that lights up when any
 plugin defines `<wl-map>` — a community plugin can replace the map wholesale.
+0.2.0 (M3 part 2): pins are clickable and dispatch a bubbling `wl-map-jump`
+CustomEvent whose detail matches `MapJumpDetailSchema` (@weltari/protocol) —
+the HOST validates it and answers with the §1.14 masked scene transition;
+the plugin never opens scenes itself. The web client cache-busts plugin
+asset URLs with the provenance hash (`?v=…`), so a plugin update is picked
+up on the next reload despite header-less asset serving.
 NOTE: any edit to plugin content requires re-running `computePluginContentHash`
 and updating plugin.json's provenance sha256 (the loader refuses otherwise).
 

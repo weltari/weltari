@@ -32,3 +32,16 @@ export const PluginListSchema = z.strictObject({
   plugins: z.array(PluginInfoSchema),
 });
 export type PluginList = z.infer<typeof PluginListSchema>;
+
+/**
+ * The `wl-map-jump` DOM CustomEvent detail — part of the documented map
+ * connector surface (UI Spec §1.8/§1.14): a map plugin dispatches it
+ * (bubbling, composed) when the user picks a destination pin; the host app
+ * answers with a masked scene transition. Validated by the host like any
+ * boundary data — a replacement map plugin cannot inject arbitrary shapes.
+ */
+export const MapJumpDetailSchema = z.strictObject({
+  sublocation_id: z.string().min(1),
+  name: z.string().min(1).max(200),
+});
+export type MapJumpDetail = z.infer<typeof MapJumpDetailSchema>;
