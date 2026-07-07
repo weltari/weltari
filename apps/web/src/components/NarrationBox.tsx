@@ -11,7 +11,7 @@ function voiceOf(call: 'narrator' | 'character' | 'narration'): string {
 
 export function NarrationBox(props: { pacing: Pacing }): React.JSX.Element {
   const openTurnId = useSceneStore((s) => s.openTurnId);
-  const { displayed, hasMore, advance, auto, setAuto } = props.pacing;
+  const { displayed, hasMore, advance } = props.pacing;
   const last = displayed[displayed.length - 1];
 
   return (
@@ -49,31 +49,6 @@ export function NarrationBox(props: { pacing: Pacing }): React.JSX.Element {
       )}
 
       {hasMore ? <span className="wl-advance-hint">▼</span> : null}
-
-      <label
-        className="wl-auto-toggle"
-        style={{
-          position: 'absolute',
-          top: '0.5rem',
-          right: '0.9rem',
-          fontFamily: 'var(--wl-font-ui)',
-          fontSize: 'var(--wl-font-size-ui)',
-          color: 'var(--wl-text-dim)',
-          cursor: 'pointer',
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-        }}
-      >
-        <input
-          type="checkbox"
-          checked={auto}
-          onChange={(e) => {
-            setAuto(e.target.checked);
-          }}
-        />{' '}
-        Auto
-      </label>
     </div>
   );
 }
