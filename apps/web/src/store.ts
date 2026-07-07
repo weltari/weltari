@@ -30,6 +30,14 @@ export interface SceneStore {
   sceneEnd: SceneEnd | null;
   /** Latest world.time_advanced `to` — engine-owned fictional time, read never invented. */
   worldTime: string | null;
+  /** The latest skip + how many cron occurrences it enqueued (Gameday flow). */
+  timeAdvance: { from: string; to: string; enqueued: number } | null;
+  /** world_cron.completed count since the latest skip — the replay progress
+   * the Gameday dial animation masks ("catching up", UI Spec §1.11). */
+  cronCompleted: number;
+  /** `from` of the FIRST world.time_advanced — the day-1 anchor "GAMEDAY N"
+   * counts from. Still a pure projection: the full log replays on connect. */
+  worldEpoch: string | null;
   /** '' until the first sublocation.changed (the default backdrop token). */
   sublocationId: string;
   sublocationName: string;
@@ -63,6 +71,9 @@ export const useSceneStore = create<SceneStore>((set) => ({
   sceneTitle: 'Weltari',
   sceneEnd: null,
   worldTime: null,
+  timeAdvance: null,
+  cronCompleted: 0,
+  worldEpoch: null,
   sublocationId: '',
   sublocationName: '',
   previousSublocationId: null,
@@ -145,13 +156,24 @@ export const useSceneStore = create<SceneStore>((set) => ({
         }));
         return;
       case 'world.time_advanced':
-        set({ worldTime: event.payload.to });
+        set((state) => ({
+          worldTime: event.payload.to,
+          timeAdvance: {
+            from: event.payload.from,
+            to: event.payload.to,
+            enqueued: event.payload.code_enqueued + event.payload.llm_enqueued,
+          },
+          cronCompleted: 0,
+          worldEpoch: state.worldEpoch ?? event.payload.from,
+        }));
         return;
-      // No scene-page projection (yet): these surfaces arrive in later
-      // milestones (map refresh, feed, job status UI, Config update badge).
+      case 'world_cron.completed':
+        set((state) => ({ cronCompleted: state.cronCompleted + 1 }));
+        return;
+      // No projection (yet): these surfaces arrive in later milestones
+      // (map refresh, feed, job status UI).
       case 'reflection.committed':
       case 'world_agent.committed':
-      case 'world_cron.completed':
       case 'painter.completed':
       case 'plugin.rejected':
       case 'update.available':
