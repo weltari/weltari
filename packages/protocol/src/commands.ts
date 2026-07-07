@@ -150,6 +150,29 @@ export const PaintRegionAcceptedSchema = z.strictObject({
 });
 export type PaintRegionAccepted = z.infer<typeof PaintRegionAcceptedSchema>;
 
+/**
+ * POST /v1/commands/apply-update — enqueue the update_apply job: download the
+ * named release to versions/vNext, verify SHA-256 AND minisign signature,
+ * then flip the `current` pointer (Guide B12; new version starts on restart).
+ * 409 when updates are disabled (no verification key configured, or Docker
+ * notify-only mode) or the version is not the announced one.
+ */
+export const ApplyUpdateCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  /** The release version tag from update.available. */
+  version: z.string().min(1).max(100),
+});
+export type ApplyUpdateCommand = z.infer<typeof ApplyUpdateCommandSchema>;
+
+/** 202 response: the update_apply job is on the ledger; progress arrives as events. */
+export const ApplyUpdateAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  /** The ledger idempotency key (`update_apply:<version>`). */
+  job_key: z.string().min(1),
+});
+export type ApplyUpdateAccepted = z.infer<typeof ApplyUpdateAcceptedSchema>;
+
 /** 4xx response for a schema-valid command the engine refused (e.g. busy scene). */
 export const CommandRejectedSchema = z.strictObject({
   accepted: z.literal(false),

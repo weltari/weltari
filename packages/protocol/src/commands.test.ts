@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   AdvanceTimeCommandSchema,
+  ApplyUpdateAcceptedSchema,
+  ApplyUpdateCommandSchema,
   EndSceneCommandSchema,
   InterruptTurnCommandSchema,
   PaintRegionCommandSchema,
@@ -212,5 +214,26 @@ describe('response and stream frames', () => {
       index: -1,
     };
     expect(StreamSentenceSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('apply-update command validates; extra key rejected (B5)', () => {
+    const ok: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      version: '0.2.0',
+    };
+    expect(ApplyUpdateCommandSchema.safeParse(ok).success).toBe(true);
+    const extra: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      version: '0.2.0',
+      url: 'https://evil.example/artifact',
+    };
+    expect(ApplyUpdateCommandSchema.safeParse(extra).success).toBe(false);
+    const accepted: unknown = {
+      accepted: true,
+      job_key: 'update_apply:0.2.0',
+    };
+    expect(ApplyUpdateAcceptedSchema.safeParse(accepted).success).toBe(true);
   });
 });

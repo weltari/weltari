@@ -359,4 +359,54 @@ describe('WeltariEventSchema', () => {
     };
     expect(WeltariEventSchema.safeParse(noActor).success).toBe(false);
   });
+
+  it('accepts update.available and update.staged events', () => {
+    const available: unknown = {
+      id: 20,
+      world_id: 'w1',
+      actor_id: 'system:updater',
+      ts: '2026-07-07T12:00:00.000Z',
+      type: 'update.available',
+      payload: {
+        version: '0.2.0',
+        current_version: '0.1.0',
+        release_url: 'https://github.com/weltari/weltari/releases/tag/v0.2.0',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(available).success).toBe(true);
+    const staged: unknown = {
+      id: 21,
+      world_id: 'w1',
+      actor_id: 'system:updater',
+      ts: '2026-07-07T12:05:00.000Z',
+      type: 'update.staged',
+      payload: {
+        version: '0.2.0',
+        previous_version: '0.1.0',
+        sha256: 'a'.repeat(64),
+      },
+    };
+    expect(WeltariEventSchema.safeParse(staged).success).toBe(true);
+  });
+
+  it('rejects update.staged with a short hash or an extra key (B5)', () => {
+    const shortHash: unknown = {
+      id: 21,
+      world_id: 'w1',
+      actor_id: 'system:updater',
+      ts: '2026-07-07T12:05:00.000Z',
+      type: 'update.staged',
+      payload: { version: '0.2.0', previous_version: '0.1.0', sha256: 'abc' },
+    };
+    expect(WeltariEventSchema.safeParse(shortHash).success).toBe(false);
+    const extra: unknown = {
+      id: 22,
+      world_id: 'w1',
+      actor_id: 'system:updater',
+      ts: '2026-07-07T12:05:00.000Z',
+      type: 'update.available',
+      payload: { version: '0.2.0', current_version: '0.1.0', smuggled: true },
+    };
+    expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
+  });
 });
