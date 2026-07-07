@@ -12,7 +12,8 @@ Single-process, self-hosted AI-RP world engine. TypeScript strict, Node 24 LTS, 
 
 - `packages/protocol/` — MIT. Zod v4 wire schemas; emitted `schemas/*.json`.
 - `apps/server/src/` — `storage/` (only SQLite site) · `llm/` (only AI-SDK site) · `engine/` (no wall-clock reads) · `ledger/` · `painter/` (only sharp site — M2 addition, docs/painter.md) · `gateway/` · `boundary/` · `http/` · `observability/` · `main.ts`.
-- `apps/web/` — React 19 + Vite 8; imports `@weltari/protocol` only, never server code.
+- `apps/web/` — React 19 + Vite 8; imports `@weltari/protocol` only, never server code. Store writable only by the SSE reducer; theming via `--wl-*` tokens (`apps/web/structure.md`).
+- `plugins/` — drop-in plugin folders (M3 addition, docs/plugins.md): manifest + content hash verified at every load (B10).
 - `tests/` (`invariants/`, `helpers/`, `fakes/`) · `tools/` (kill harness) · `scripts/` (CI checks) · `fixtures/`.
 
 ## Never violate (machine-enforced; full rules in `docs/Coding Guide/AI Coding Guide.md`)

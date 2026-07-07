@@ -236,6 +236,28 @@ export const PainterCompletedEventSchema = z.strictObject({
   }),
 });
 
+/**
+ * A plugin failed validation or hash verification at load and was refused —
+ * the app boots without it (Guide B10). Emitted by: the plugin loader.
+ * Consumed by: clients (Config surface, dev mode).
+ */
+export const PluginRejectedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('plugin.rejected'),
+  payload: z.strictObject({
+    /** The plugin folder name under plugins/. */
+    plugin: z.string().min(1),
+    reason: z.enum([
+      'manifest_missing',
+      'manifest_invalid',
+      'engine_mismatch',
+      'hash_mismatch',
+      'backend_failed',
+    ]),
+    detail: z.string(),
+  }),
+});
+
 /** Truncated error surface for the UI — never prompt content (Guide C7/C12). */
 export const JobErrorSchema = z.strictObject({
   kind: z.enum(['operational', 'bug', 'corrupt_state']),
@@ -286,6 +308,7 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   WorldTimeAdvancedEventSchema,
   WorldCronCompletedEventSchema,
   PainterCompletedEventSchema,
+  PluginRejectedEventSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,
 ]);

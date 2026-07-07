@@ -3,12 +3,14 @@
 // by constitution (Brief §2.5): zero game logic, the store is writable only
 // by the SSE reducer, commands go up and truth comes back down as events.
 import { useEffect, useState } from 'react';
+import type { PluginInfo } from '@weltari/protocol';
 import { DevOverlay } from './components/DevOverlay.js';
 import { InputRow } from './components/InputRow.js';
 import { NarrationBox } from './components/NarrationBox.js';
 import { SceneStage } from './components/SceneStage.js';
 import { SoftClose } from './components/SoftClose.js';
 import { Transcript } from './components/Transcript.js';
+import { loadPluginFrontends } from './plugins.js';
 import { connectStream } from './stream.js';
 import { useSceneStore } from './store.js';
 import { usePacing } from './usePacing.js';
@@ -24,8 +26,14 @@ export function App(): React.JSX.Element {
   const liveTurnId = useSceneStore((s) => s.liveTurnId);
   const pacing = usePacing();
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [plugins, setPlugins] = useState<PluginInfo[]>([]);
 
   useEffect(() => connectStream(DEV_MODE), []);
+  useEffect(() => {
+    loadPluginFrontends()
+      .then(setPlugins)
+      .catch(() => undefined); // CATCH-OK: the core UI stands without plugins
+  }, []);
 
   // The live turn graduates into the transcript once the reader caught up
   // AND the turn committed (interrupted turns graduate immediately — the
@@ -82,7 +90,7 @@ export function App(): React.JSX.Element {
         <Transcript pacingTurnId={pacingTurnId} open={transcriptOpen} />
       </main>
 
-      {DEV_MODE ? <DevOverlay /> : null}
+      {DEV_MODE ? <DevOverlay plugins={plugins} /> : null}
     </div>
   );
 }

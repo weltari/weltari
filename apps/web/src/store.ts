@@ -153,6 +153,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
       case 'world_agent.committed':
       case 'world_cron.completed':
       case 'painter.completed':
+      case 'plugin.rejected':
       case 'job.failed':
       case 'job.parked':
         return;

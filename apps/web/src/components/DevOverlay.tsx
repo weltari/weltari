@@ -1,9 +1,13 @@
 // Dev mode (?dev=1, UI Spec §2.8): renders the log-only trail — tool calls,
-// B6-gate rejections, self-watch gauges — pushed on the SSE dev channel.
+// B6-gate rejections, self-watch gauges — pushed on the SSE dev channel,
+// plus loaded-plugin provenance (source + content hash, Guide B10).
 // Display-only and deliberately alien-looking: it must never read as play.
+import type { PluginInfo } from '@weltari/protocol';
 import { useSceneStore } from '../store.js';
 
-export function DevOverlay(): React.JSX.Element {
+export function DevOverlay(props: {
+  plugins: readonly PluginInfo[];
+}): React.JSX.Element {
   const devFrames = useSceneStore((s) => s.devFrames);
 
   let gaugesLine = '';
@@ -21,6 +25,12 @@ export function DevOverlay(): React.JSX.Element {
         dev trail
         {gaugesLine}
       </h3>
+      {props.plugins.map((plugin) => (
+        <p key={plugin.name} className="wl-dev-line" data-kind="plugin">
+          ⬡ {plugin.name}@{plugin.version} sha256:{plugin.provenance.sha256} (
+          {plugin.provenance.source_url})
+        </p>
+      ))}
       {[...devFrames].reverse().map((frame, i) => {
         switch (frame.type) {
           case 'dev.tool_call':

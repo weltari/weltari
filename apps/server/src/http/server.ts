@@ -19,6 +19,7 @@ import {
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
   PaintRegionCommandSchema,
+  PluginListSchema,
   PROTOCOL_VERSION,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
@@ -33,8 +34,11 @@ import {
   type OpenSceneCommand,
   type PaintRegionAccepted,
   type PaintRegionCommand,
+  type PluginInfo,
+  type PluginList,
   type StartTurnCommand,
 } from '@weltari/protocol';
+import { createReadStream } from 'node:fs';
 import { z } from 'zod';
 import type { Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
@@ -66,6 +70,13 @@ export interface HttpDeps {
   }>;
   /** Painter seam: enqueue one region composite job (FINAL item 10). */
   paintRegion: (command: PaintRegionCommand) => Result<{ jobKey: string }>;
+  /** Loaded plugins (GET /v1/plugins) — provenance shown in dev mode (B10). */
+  plugins?: PluginInfo[];
+  /** Serves zero-build plugin assets; null = 404 (refused plugins are invisible). */
+  resolvePluginAsset?: (
+    pluginName: string,
+    relativePath: string,
+  ) => { file: string; contentType: string } | null;
   heartbeatMs?: number;
 }
 
@@ -103,6 +114,37 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
           ? {}
           : { heartbeatMs: deps.heartbeatMs }),
       });
+    },
+  );
+
+  app.get(
+    '/v1/plugins',
+    { schema: { response: { 200: PluginListSchema } } },
+    (_request, reply) => {
+      reply.code(200);
+      const list: PluginList = { plugins: deps.plugins ?? [] };
+      return list;
+    },
+  );
+
+  // Zero-build plugin assets (FINAL item 13): /plugins/<name>/<path…>.
+  // Refused plugins never resolve; the resolver contains paths to the folder.
+  const assetParamsSchema = z.object({
+    name: z.string().min(1),
+    '*': z.string().min(1),
+  });
+  app.get(
+    '/plugins/:name/*',
+    { schema: { params: assetParamsSchema } },
+    (request, reply) => {
+      const resolver = deps.resolvePluginAsset;
+      const asset =
+        resolver?.(request.params.name, request.params['*']) ?? null;
+      if (asset === null) {
+        return reply.code(404).send({ accepted: false, error: 'not_found' });
+      }
+      reply.header('content-type', asset.contentType);
+      return reply.send(createReadStream(asset.file));
     },
   );
 

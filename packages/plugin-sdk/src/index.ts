@@ -11,3 +11,8 @@ export type {
   InboundMessage,
   SendResult,
 } from './gateway-connector.js';
+export {
+  computePluginContentHash,
+  PluginManifestSchema,
+  type PluginManifest,
+} from './manifest.js';
