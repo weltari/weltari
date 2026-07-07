@@ -1,19 +1,19 @@
-// The Scene page (M3): VN stage + paced narration + committed transcript +
-// interrupt-anywhere chatbox, all a projection of the SSE stream. Render-only
-// by constitution (Brief §2.5): zero game logic, the store is writable only
-// by the SSE reducer, commands go up and truth comes back down as events.
+// The app shell (M4): Left Nav Rail + History-API routes over one SSE
+// connection. Render-only by constitution (Brief §2.5): the store is writable
+// only by the SSE reducer, commands go up and truth comes back down as
+// events. The shell owns the §1.14 masked transition (openSceneCovered) and
+// the wl-map-jump listener so map jumps work from ANY route — the cover is
+// rendered by the Scene page, which a jump always navigates to first.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapJumpDetailSchema, type PluginInfo } from '@weltari/protocol';
 import { postOpenScene, postStartTurn } from './commands.js';
 import { DevOverlay } from './components/DevOverlay.js';
-import { InputRow } from './components/InputRow.js';
 import { MapModal } from './components/MapModal.js';
-import { NarrationBox } from './components/NarrationBox.js';
-import { SceneCover, type CoverState } from './components/SceneCover.js';
-import { SceneStage } from './components/SceneStage.js';
-import { SoftClose } from './components/SoftClose.js';
-import { Transcript } from './components/Transcript.js';
+import { NavRail } from './components/NavRail.js';
+import { type CoverState } from './components/SceneCover.js';
+import { ScenePage } from './pages/ScenePage.js';
 import { loadPluginFrontends } from './plugins.js';
+import { navigate } from './router.js';
 import { connectStream } from './stream.js';
 import { useSceneStore } from './store.js';
 import { usePacing } from './usePacing.js';
@@ -32,14 +32,7 @@ function readTokenMs(token: string, fallback: number): number {
 }
 
 export function App(): React.JSX.Element {
-  const connected = useSceneStore((s) => s.connected);
-  const protocolVersion = useSceneStore((s) => s.protocolVersion);
-  const sceneTitle = useSceneStore((s) => s.sceneTitle);
-  const worldTime = useSceneStore((s) => s.worldTime);
-  const turns = useSceneStore((s) => s.turns);
-  const liveTurnId = useSceneStore((s) => s.liveTurnId);
   const pacing = usePacing();
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
@@ -51,6 +44,7 @@ export function App(): React.JSX.Element {
   const coverTurnRef = useRef<string | null>(null);
   const coverShownAtRef = useRef(0);
   const coverTimersRef = useRef<number[]>([]);
+  const liveTurnId = useSceneStore((s) => s.liveTurnId);
   const liveSentenceCount = useSceneStore((s) => s.liveSentences.length);
 
   const dismissCover = useCallback((): void => {
@@ -120,6 +114,7 @@ export function App(): React.JSX.Element {
   }, [cover, liveTurnId, liveSentenceCount, dismissCover]);
 
   // The map plugin's jump surface (wl-map-jump, validated like any boundary).
+  // Jumps land on the Scene route from anywhere — modal or Map page alike.
   useEffect(() => {
     function onJump(event: Event): void {
       if (!(event instanceof CustomEvent)) return;
@@ -127,6 +122,7 @@ export function App(): React.JSX.Element {
       const detail = MapJumpDetailSchema.safeParse(raw);
       if (!detail.success) return;
       setMapOpen(false);
+      navigate('/');
       openSceneCovered(detail.data.name, 'map-jump');
     }
     window.addEventListener('wl-map-jump', onJump);
@@ -152,80 +148,24 @@ export function App(): React.JSX.Element {
     };
   }, []);
 
-  // The live turn graduates into the transcript once the reader caught up
-  // AND the turn committed (interrupted turns graduate immediately — the
-  // truncated commit IS what was read).
-  const liveCommitted = turns.find((t) => t.turn_id === liveTurnId);
-  const stillPacing =
-    liveTurnId !== null &&
-    (liveCommitted === undefined ||
-      (!pacing.caughtUp && !liveCommitted.interrupted));
-  const pacingTurnId = stillPacing ? liveTurnId : null;
-
-  const lastDisplayed = pacing.displayed[pacing.displayed.length - 1];
-
   return (
     <div className="wl-app">
-      <header className="wl-topbar">
-        <span
-          className="wl-conn-dot"
-          data-connected={connected}
-          title={connected ? 'connected' : 'reconnecting…'}
-        />
-        <h1>{sceneTitle}</h1>
-        {worldTime !== null ? (
-          <span className="wl-clock">
-            {worldTime.replace('T', ' · ').slice(0, 18)}
-          </span>
-        ) : null}
-        {mapReady ? (
-          <button
-            className="wl-button"
-            onClick={() => {
-              setMapOpen(true);
-            }}
-          >
-            Map
-          </button>
-        ) : null}
-        <span>{protocolVersion ?? '…'}</span>
-      </header>
-
-      <main className="wl-main">
-        <div className="wl-stage-column">
-          <SceneStage
-            speakingCall={
-              stillPacing && lastDisplayed !== undefined
-                ? lastDisplayed.call
-                : null
-            }
-          >
-            <SoftClose
-              mapReady={mapReady}
-              covering={cover !== null}
-              onOpenScene={(title) => {
-                openSceneCovered(title, 'scene-open');
-              }}
-              onOpenMap={() => {
-                setMapOpen(true);
-              }}
-            />
-            <NarrationBox pacing={pacing} />
-            <SceneCover cover={cover} />
-          </SceneStage>
-          <InputRow pacing={pacing} />
-        </div>
-
-        <button
-          className="wl-button wl-transcript-toggle"
-          onClick={() => {
-            setTranscriptOpen((open) => !open);
+      <NavRail />
+      <div className="wl-page">
+        {/* Map / Gameday / Config pages land in this milestone's later
+            commits; until then every route renders the Scene page. */}
+        <ScenePage
+          pacing={pacing}
+          cover={cover}
+          onOpenScene={(title) => {
+            openSceneCovered(title, 'scene-open');
           }}
-        >
-          {transcriptOpen ? 'Scene' : 'Transcript'}
-        </button>
-        <Transcript pacingTurnId={pacingTurnId} open={transcriptOpen} />
-      </main>
+          mapReady={mapReady}
+          onOpenMap={() => {
+            setMapOpen(true);
+          }}
+        />
+      </div>
 
       <MapModal
         open={mapOpen}

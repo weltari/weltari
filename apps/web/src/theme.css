@@ -85,6 +85,13 @@
   --wl-stage-min-height: 46vh;
   --wl-transcript-width: 26rem;
   --wl-radius: 10px;
+
+  /* ---- nav rail (wireframes §0.1; bottom bar on mobile) ---- */
+  --wl-rail-size: 3.6rem;
+  --wl-rail-bg: var(--wl-panel);
+  --wl-rail-icon: var(--wl-text-dim);
+  --wl-rail-icon-active: var(--wl-accent);
+  --wl-clock-blink-duration: 1.6s;
 }
 
 /* ============================== app shell ============================== */
@@ -102,49 +109,129 @@ body {
 
 .wl-app {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100vh;
   height: 100dvh;
 }
 
-.wl-topbar {
+.wl-page {
   display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--wl-border);
-  font-size: var(--wl-font-size-ui);
-  color: var(--wl-text-dim);
-}
-
-.wl-topbar h1 {
-  font-family: var(--wl-font-narration);
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: var(--wl-text);
-  margin: 0;
-}
-
-.wl-topbar .wl-clock {
-  margin-left: auto;
-}
-
-.wl-conn-dot {
-  display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--wl-danger);
-}
-
-.wl-conn-dot[data-connected='true'] {
-  background: var(--wl-ok);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 .wl-main {
   display: flex;
   flex: 1;
+  min-width: 0;
   min-height: 0;
+}
+
+/* ========================= nav rail (§0.1) ========================= */
+
+.wl-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: var(--wl-rail-size);
+  padding: 0.6rem 0;
+  background: var(--wl-rail-bg);
+  border-right: 1px solid var(--wl-border);
+}
+
+.wl-rail-logo {
+  border: none;
+  background: none;
+  color: var(--wl-accent);
+  font-family: var(--wl-font-narration);
+  font-size: 1.25rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0.2rem 0;
+  margin-bottom: 0.4rem;
+}
+
+.wl-rail-button,
+.wl-rail-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  width: calc(var(--wl-rail-size) - 0.7rem);
+  padding: 0.42rem 0;
+  border: none;
+  border-radius: var(--wl-radius);
+  background: none;
+  color: var(--wl-rail-icon);
+  cursor: pointer;
+}
+
+.wl-rail-button:hover:not(:disabled),
+.wl-rail-clock:hover:not(:disabled) {
+  color: var(--wl-text);
+  background: var(--wl-accent-soft);
+}
+
+.wl-rail-button:disabled,
+.wl-rail-clock:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.wl-rail-button[data-active='true'],
+.wl-rail-clock[data-active='true'] {
+  color: var(--wl-rail-icon-active);
+  background: var(--wl-accent-soft);
+}
+
+.wl-rail-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  stroke: currentColor;
+}
+
+.wl-rail-label {
+  font-size: 0.55rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wl-rail-spacer {
+  flex: 1;
+}
+
+/* The clock blinks (wireframes §0.1): an interactive button, not a passive
+   readout — clicking it opens the Gameday time-advance flow. */
+.wl-rail-clock {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  animation: wl-clock-blink var(--wl-clock-blink-duration) ease-in-out infinite;
+}
+
+@keyframes wl-clock-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.wl-rail-avatar {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  background: var(--wl-portrait-bg);
+  border: 2px solid var(--wl-danger);
+  margin-top: 0.3rem;
+}
+
+.wl-rail-avatar[data-connected='true'] {
+  border-color: var(--wl-ok);
 }
 
 /* ============================== stage ============================== */
@@ -198,9 +285,22 @@ body {
   }
 }
 
-.wl-sublocation-chip {
+.wl-scene-title-chip {
   position: absolute;
   top: 0.75rem;
+  left: 1rem;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  background: var(--wl-panel-translucent);
+  border: 1px solid var(--wl-border);
+  font-family: var(--wl-font-narration);
+  font-size: var(--wl-font-size-ui);
+  color: var(--wl-text);
+}
+
+.wl-sublocation-chip {
+  position: absolute;
+  top: 2.9rem;
   left: 1rem;
   padding: 0.2rem 0.7rem;
   border-radius: 999px;
@@ -585,6 +685,38 @@ body {
   :root {
     --wl-stage-min-height: 38vh;
     --wl-transcript-width: 100%;
+  }
+
+  /* Recorded deviation from the desktop-landscape sketches (wireframes §0.1):
+     the rail becomes a bottom bar — thumb-reachable, standard mobile idiom. */
+  .wl-app {
+    flex-direction: column-reverse;
+  }
+
+  .wl-rail {
+    flex-direction: row;
+    width: 100%;
+    height: var(--wl-rail-size);
+    padding: 0 0.4rem;
+    border-right: none;
+    border-top: 1px solid var(--wl-border);
+    gap: 0.1rem;
+  }
+
+  .wl-rail-logo {
+    margin-bottom: 0;
+  }
+
+  .wl-rail-button,
+  .wl-rail-clock {
+    width: auto;
+    flex: 1;
+    padding: 0.3rem 0.2rem;
+  }
+
+  .wl-rail-avatar {
+    margin-top: 0;
+    flex-shrink: 0;
   }
 
   .wl-main {

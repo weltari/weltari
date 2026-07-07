@@ -6,6 +6,9 @@ game logic, bookkeeping, or state the stream didn't push, the edit is wrong.
 
 ## What this module owns
 
+- The app shell: the Left Nav Rail (wireframes §0.1) + History-API routing
+  (`src/router.ts` — no router dependency). Routes are pure view state; every
+  page renders from the same store projections.
 - The Scene page (VN stage, paced narration, transcript, chatbox, soft close).
 - The default theme (`src/theme.css`) — every color/font/motion value is a
   `--wl-*` CSS custom property; per-world reskins override tokens, never
