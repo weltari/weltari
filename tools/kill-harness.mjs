@@ -24,8 +24,19 @@ const POINTS = [
   'client_disconnect',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
-const PORT = Number(process.env.HARNESS_PORT ?? 7911);
-const BASE = `http://127.0.0.1:${PORT}`;
+// Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
+// reads leave client-side TIME_WAIT tuples against the old port; Windows'
+// sequential ephemeral allocator then streaks `connect EADDRINUSE` against
+// a reused destination. A new destination per cycle makes collisions
+// structurally impossible (the 4-tuple never repeats within a run).
+const PORT_BASE = Number(process.env.HARNESS_PORT ?? 7911);
+let PORT = PORT_BASE;
+let BASE = `http://127.0.0.1:${PORT}`;
+let portSeq = 0;
+function rotatePort() {
+  PORT = PORT_BASE + (portSeq++ % 500);
+  BASE = `http://127.0.0.1:${PORT}`;
+}
 
 const dataDir = mkdtempSync(join(tmpdir(), 'weltari-kill-'));
 const dbPath = join(dataDir, 'w.sqlite');
@@ -106,13 +117,33 @@ function exited(child) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Windows flake shield (same as server.test.ts): under ephemeral-port
+ * pressure (thousands of TIME_WAIT sockets on this box) a connect draws
+ * `EADDRINUSE`. Random allocation makes every retry an independent draw, so
+ * persistence wins: 40 attempts × 100 ms rides out even a near-exhausted
+ * range while TIME_WAITs expire. Environmental, not behavior under test. */
+async function fetchRetry(url, init) {
+  let lastError = new Error('fetchRetry: no attempt ran');
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (thrown) {
+      const transient = thrown?.cause?.code === 'EADDRINUSE';
+      if (!transient) throw thrown;
+      lastError = thrown;
+      await sleep(100);
+    }
+  }
+  throw lastError;
+}
+
 /** Read SSE replay frames until the log head from the hello frame is reached. */
 async function readReplayIds(lastEventId) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   const ids = [];
   try {
-    const res = await fetch(`${BASE}/v1/events`, {
+    const res = await fetchRetry(`${BASE}/v1/events`, {
       headers: { 'Last-Event-ID': String(lastEventId) },
       signal: controller.signal,
     });
@@ -149,7 +180,7 @@ async function readReplayIds(lastEventId) {
 }
 
 async function post(path, body) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchRetry(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -218,7 +249,9 @@ async function openSceneWhenUnblocked(sceneId, deadlineMs = 60000) {
  * a vanished reader must cost nothing durable — the turn still commits). */
 async function driveClientDisconnect(sceneId) {
   const controller = new AbortController();
-  const res = await fetch(`${BASE}/v1/events`, { signal: controller.signal });
+  const res = await fetchRetry(`${BASE}/v1/events`, {
+    signal: controller.signal,
+  });
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
 
@@ -267,6 +300,7 @@ let paintSeq = 0;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
+  rotatePort();
   const child = spawnServer();
   await waitForLine(child, 'weltari listening');
 

@@ -18,13 +18,13 @@ interface Frame {
   data: string;
 }
 
-/** Windows flake shield: undici sometimes draws an ephemeral local port that
- * collides with a live socket — `connect EADDRINUSE`. That is the OS, not the
- * behavior under test: retry immediately (a fresh socket gets a fresh port).
- * Any other failure still throws on the first attempt. */
+/** Windows flake shield: under ephemeral-port pressure (thousands of
+ * TIME_WAIT sockets) a connect draws `EADDRINUSE`. Random port allocation
+ * makes every retry an independent draw — persistence rides it out. That is
+ * the OS, not the behavior under test; any other failure throws first try. */
 async function fetchRetry(url: string, init?: RequestInit): Promise<Response> {
   let lastError: unknown = new Error('fetchRetry: no attempt ran');
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 40; attempt++) {
     try {
       return await fetch(url, init);
     } catch (thrown) {
@@ -35,6 +35,7 @@ async function fetchRetry(url: string, init?: RequestInit): Promise<Response> {
         cause.code === 'EADDRINUSE';
       if (!transient) throw thrown;
       lastError = thrown;
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
   throw lastError instanceof Error
