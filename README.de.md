@@ -27,7 +27,7 @@
 
 Weltari ist ein einzelnes Programm, das du auf deiner eigenen Maschine betreibst und das lebendige, KI-gesteuerte Rollenspiel-Welten hostet. Stell es dir als die Engine hinter einer Visual Novel oder einem Textadventure vor — nur dass Erzähler, Figuren und die Welt selbst von einem Sprachmodell angetrieben werden. Nichts ist vorgeschrieben.
 
-Es ist **selbstgehostet und läuft in einem einzigen Prozess**: kein Cloud-Dienst, kein Abo, kein Konzern, dem deine Welten gehören. Du verbindest es mit einem KI-Anbieter, alles Übrige liegt auf deiner eigenen Hardware. Und es ist so gebaut, dass alles Bedeutsame **dauerhaft festgehalten** wird — die Welt erinnert sich.
+Es ist **standardmäßig selbstgehostet und läuft in einem einzigen Prozess**: kein Abo, kein Konzern, dem deine Welten gehören. Du verbindest es mit einem KI-Anbieter, alles Übrige liegt auf deiner eigenen Hardware. Ein gehostetes Angebot könnte später als Open-Core-Erweiterung dazukommen — für Multiplayer-Welten und einfach als Komfortoption, falls du keinen eigenen Server betreiben möchtest — aber der Kern läuft immer eigenständig auf Hardware, die du selbst kontrollierst. Und es ist so gebaut, dass alles Bedeutsame **dauerhaft festgehalten** wird — die Welt erinnert sich.
 
 ## Die Kernideen
 

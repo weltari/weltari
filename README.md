@@ -27,7 +27,7 @@
 
 Weltari is a single program you run on your own machine that hosts living, AI-driven roleplay worlds. Think of it as the engine behind a visual novel or a text adventure — except the narrator, the characters, and the world itself are powered by a language model, so nothing is pre-scripted.
 
-It is **self-hosted and single-process**: no cloud service, no subscription, no company owning your worlds. You point it at an AI provider, and everything else lives on your own hardware. And it is built so that everything meaningful that happens is **written down permanently** — the world remembers.
+It is **self-hosted and single-process by default**: no subscription, no company owning your worlds. You point it at an AI provider, and everything else lives on your own hardware. A hosted option may arrive later as an open-core add-on — for multiplayer worlds, and simply for convenience if you'd rather not run your own server — but the core engine will always run standalone on hardware you control. And it is built so that everything meaningful that happens is **written down permanently** — the world remembers.
 
 ## The core ideas
 
