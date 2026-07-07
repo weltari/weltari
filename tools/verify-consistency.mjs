@@ -129,6 +129,23 @@ for (const event of events) {
   if (event.type === 'painter.completed') {
     dupCheck('painter.completed', payload.job_key, event.id);
   }
+  if (event.type === 'update.staged') {
+    dupCheck('update.staged', payload.version, event.id);
+  }
+}
+
+// 4f. Update pointer discipline (M3 part 2, Guide B12): if a `current`
+//     pointer exists it must name a COMPLETE version directory — the flip is
+//     rename-then-pointer, so a torn state is a violation. vNext leftovers
+//     are legal here (startup deletes them; we run pre-startup).
+const versionsDir = process.argv[4] ?? process.env.WELTARI_VERSIONS_DIR;
+if (versionsDir && existsSync(join(versionsDir, 'current'))) {
+  const pointer = readFileSync(join(versionsDir, 'current'), 'utf8').trim();
+  if (pointer === '' || !existsSync(join(versionsDir, pointer))) {
+    failures.push(
+      `update pointer names "${pointer}" but versions/${pointer} does not exist (torn flip)`,
+    );
+  }
 }
 
 // 4d. World clock is monotonic per world (M2): each skip starts exactly where

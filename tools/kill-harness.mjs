@@ -6,14 +6,24 @@
 // (scene opens block only on THAT world's pending jobs).
 // CYCLES=25 per PR, 100 nightly. Usage: CYCLES=25 node tools/kill-harness.mjs
 import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MAIN = join(ROOT, 'apps', 'server', 'dist', 'main.js');
+// The update fixtures reuse the compiled test helpers (tsc -b builds tests/).
+// Windows: dynamic import of an absolute path needs a file:// URL.
+const { generateMinisignKeypair, minisignSign } = await import(
+  pathToFileURL(join(ROOT, 'tests', 'dist', 'helpers', 'minisign.js')).href
+);
+const { buildTarGz } = await import(
+  pathToFileURL(join(ROOT, 'tests', 'dist', 'helpers', 'tar.js')).href
+);
 const POINTS = [
   'mid_stream',
   'between_calls',
@@ -22,6 +32,7 @@ const POINTS = [
   'mid_painter',
   'mid_cron',
   'client_disconnect',
+  'mid_update',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -41,6 +52,75 @@ function rotatePort() {
 const dataDir = mkdtempSync(join(tmpdir(), 'weltari-kill-'));
 const dbPath = join(dataDir, 'w.sqlite');
 const imagesDir = join(dataDir, 'images');
+const versionsDir = join(dataDir, 'versions');
+
+// ---- Local release fixture (mid_update): a real HTTP server serving a
+// signed artifact trio, fresh version per mid_update cycle so the staged
+// idempotency gate never skips the fault window.
+const updateKeypair = generateMinisignKeypair();
+let updateSeq = 0;
+const updateVersion = () => `0.2.${updateSeq}`;
+const releaseCache = new Map();
+function releaseFixture(version) {
+  let entry = releaseCache.get(version);
+  if (entry) return entry;
+  const base = `weltari-app-${version}-${process.platform}-${process.arch}.tar.gz`;
+  const artifact = buildTarGz([
+    { path: 'dist' },
+    { path: 'dist/main.js', data: `// weltari ${version} (harness fixture)` },
+    { path: 'package.json', data: `{"version":"${version}"}` },
+  ]);
+  const sha = createHash('sha256').update(artifact).digest('hex');
+  entry = {
+    json: JSON.stringify({
+      tag_name: `v${version}`,
+      html_url: `http://127.0.0.1/releases/v${version}`,
+      assets: [base, `${base}.minisig`, `${base}.sha256`].map((name) => ({
+        name,
+        browser_download_url: `http://127.0.0.1:${releasePort}/assets/${name}`,
+      })),
+    }),
+    files: new Map([
+      [base, artifact],
+      [`${base}.minisig`, Buffer.from(minisignSign(artifact, updateKeypair))],
+      [`${base}.sha256`, Buffer.from(`${sha}  ${base}\n`)],
+    ]),
+  };
+  releaseCache.set(version, entry);
+  return entry;
+}
+const releaseServer = createServer((req, res) => {
+  const fixture = releaseFixture(updateVersion());
+  if (req.url === '/latest') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(fixture.json);
+    return;
+  }
+  const asset = req.url?.startsWith('/assets/')
+    ? fixture.files.get(decodeURIComponent(req.url.slice('/assets/'.length)))
+    : undefined;
+  if (asset === undefined) {
+    res.writeHead(404);
+    res.end('not found');
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'application/octet-stream' });
+  res.end(asset);
+});
+let releasePort = PORT_BASE + 600;
+for (;;) {
+  try {
+    await new Promise((resolve, reject) => {
+      releaseServer.once('error', reject);
+      releaseServer.listen(releasePort, '127.0.0.1', resolve);
+    });
+    break;
+  } catch (error) {
+    if (error?.code !== 'EADDRINUSE' || releasePort > PORT_BASE + 650)
+      throw error;
+    releasePort += 1;
+  }
+}
 
 function fail(message) {
   console.error(`KILL-HARNESS FAIL: ${message}`);
@@ -70,6 +150,25 @@ function dbHasCommittedTurn(turnId) {
   return row.n > 0;
 }
 
+function dbHasStagedUpdate(version) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'update.staged' AND payload LIKE ?`,
+    )
+    .get(`%"${version}"%`);
+  db.close();
+  return row.n > 0;
+}
+
+function readPointer() {
+  const file = join(versionsDir, 'current');
+  if (!existsSync(file)) return null;
+  const text = readFileSync(file, 'utf8').trim();
+  return text === '' ? null : text;
+}
+
 function spawnServer() {
   const child = spawn(process.execPath, [MAIN], {
     env: {
@@ -80,6 +179,10 @@ function spawnServer() {
       WELTARI_LEASE_SECONDS: '2', // a killed-mid-job lease expires within a cycle
       WELTARI_DB_PATH: dbPath,
       WELTARI_IMAGES_DIR: imagesDir,
+      WELTARI_VERSIONS_DIR: versionsDir,
+      WELTARI_UPDATE_PUBKEY: updateKeypair.publicKeyBase64,
+      WELTARI_UPDATE_RELEASES_URL: `http://127.0.0.1:${releasePort}/latest`,
+      WELTARI_APP_VERSION: '0.1.0',
       PORT: String(PORT),
       LOG_LEVEL: 'info',
     },
@@ -283,7 +386,12 @@ function runVerify() {
   return new Promise((resolve) => {
     const proc = spawn(
       process.execPath,
-      [join(ROOT, 'tools', 'verify-consistency.mjs'), dbPath, imagesDir],
+      [
+        join(ROOT, 'tools', 'verify-consistency.mjs'),
+        dbPath,
+        imagesDir,
+        versionsDir,
+      ],
       {
         stdio: 'inherit',
       },
@@ -297,6 +405,7 @@ let currentScene = 's1';
 let sceneSeq = 0;
 let needNewScene = false;
 let paintSeq = 0;
+let pendingUpdate = null;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -314,6 +423,28 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
     fail(
       `cycle ${cycle}: resume mismatch after ${previousMax} — expected [${expected}], got [${got}]`,
     );
+  }
+
+  // Criterion (a), M3 part 2: a kill at mid_update must CONVERGE after
+  // restart — the leased job retries, re-verifies, and completes the flip.
+  if (pendingUpdate !== null) {
+    const deadline = Date.now() + 30000;
+    while (
+      !dbHasStagedUpdate(pendingUpdate) ||
+      readPointer() !== pendingUpdate
+    ) {
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          `update ${pendingUpdate} never converged after mid_update kill (pointer=${readPointer()})`,
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      `mid_update convergence ok: ${pendingUpdate} staged + pointer flipped after restart`,
+    );
+    pendingUpdate = null;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -390,12 +521,35 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       await driveClientDisconnect(currentScene);
       break;
     }
+    case 'mid_update': {
+      updateSeq += 1; // fresh version: the staged-idempotency gate must not skip the window
+      const version = updateVersion();
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_update', 30000);
+      const res = await post('/v1/commands/apply-update', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        version,
+      });
+      if (res.status !== 202) fail(`apply-update returned ${res.status}`);
+      await killAt;
+      pendingUpdate = version;
+      break;
+    }
     default:
       fail(`unknown fault point ${point}`);
   }
 
   child.kill('SIGKILL'); // Windows: unconditional termination
   await exited(child);
+
+  // Torn-flip check (B12): if the kill landed after the pointer write, the
+  // pointer must name a COMPLETE version dir (rename happens before the flip).
+  if (point === 'mid_update' && pendingUpdate !== null) {
+    const pointer = readPointer();
+    if (pointer === pendingUpdate && !existsSync(join(versionsDir, pointer))) {
+      fail('torn update flip: pointer names a missing version dir');
+    }
+  }
 
   const verifyCode = await runVerify();
   if (verifyCode !== 0)
@@ -407,6 +561,7 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
   );
 }
 
+releaseServer.close();
 console.log(
-  `kill-harness: ${CYCLES} cycles over ${POINTS.length} fault points, zero duplicate or lost events, zero corrupted images, resume exact`,
+  `kill-harness: ${CYCLES} cycles over ${POINTS.length} fault points, zero duplicate or lost events, zero corrupted images, zero torn update flips, resume exact`,
 );
