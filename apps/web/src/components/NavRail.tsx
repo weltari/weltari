@@ -127,7 +127,7 @@ const DESTINATIONS: readonly Destination[] = [
   {
     route: '/config',
     label: 'Config',
-    disabledReason: 'The Config page lands later in this milestone.',
+    disabledReason: null,
     icon: <IconGear />,
   },
 ];

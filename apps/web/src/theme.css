@@ -710,6 +710,110 @@ body {
   font-style: italic;
 }
 
+/* ========================= Config page (15) ========================= */
+
+.wl-config {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 1.4rem 2rem 2.5rem;
+  font-size: var(--wl-font-size-ui);
+}
+
+.wl-config h1 {
+  margin: 0 0 1rem;
+  font-family: var(--wl-font-narration);
+  font-size: 1.4rem;
+  color: var(--wl-text);
+}
+
+.wl-config-section {
+  max-width: 42rem;
+  margin-bottom: 1.6rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--wl-border);
+  border-radius: var(--wl-radius);
+  background: var(--wl-panel);
+}
+
+.wl-config-section h2 {
+  margin: 0 0 0.7rem;
+  font-size: var(--wl-font-size-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--wl-text-dim);
+}
+
+.wl-config-facts {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 0.3rem 1rem;
+  margin: 0;
+}
+
+.wl-config-facts dt {
+  color: var(--wl-text-dim);
+}
+
+.wl-config-facts dd {
+  margin: 0;
+}
+
+.wl-config-facts dd[data-tone='ok'] {
+  color: var(--wl-ok);
+}
+
+.wl-config-facts dd[data-tone='danger'] {
+  color: var(--wl-danger);
+}
+
+.wl-config-badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.wl-config-badge[data-tone='accent'] {
+  background: var(--wl-accent-soft);
+  color: var(--wl-accent);
+  border: 1px solid var(--wl-accent);
+}
+
+.wl-config-badge[data-tone='ok'] {
+  color: var(--wl-ok);
+  border: 1px solid var(--wl-ok);
+}
+
+.wl-config-note {
+  color: var(--wl-text-dim);
+}
+
+.wl-config-note[data-tone='danger'] {
+  color: var(--wl-danger);
+}
+
+.wl-config-hash {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--wl-text-dim);
+}
+
+.wl-config-plugins {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.wl-config-plugins li {
+  margin: 0.25rem 0;
+}
+
+.wl-config a {
+  color: var(--wl-accent);
+}
+
 /* ======================= Gameday clock (11–13) ======================= */
 
 .wl-gameday {
