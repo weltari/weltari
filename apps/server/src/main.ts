@@ -451,8 +451,8 @@ process.on('SIGINT', () => {
 });
 
 try {
-  await app.listen({ port: env.port, host: '127.0.0.1' });
-  logger.info({ port: env.port }, 'weltari listening');
+  await app.listen({ port: env.port, host: env.host });
+  logger.info({ port: env.port, host: env.host }, 'weltari listening');
 } catch (thrown) {
   fatal(logger, thrown);
 }
