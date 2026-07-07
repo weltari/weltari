@@ -5,10 +5,13 @@
 /**
  * Protocol semver, sent in the handshake. Major bumps signal breaking wire
  * changes; CI blocks schema removals without one (Invariant I7).
+ * 0.2.0: interrupt-turn command; sublocation.changed + art.switched events;
+ * scene.ended end_type/divider_text; dev.tool_call/dev.tool_rejected frames.
  */
-export const PROTOCOL_VERSION = '0.1.0';
+export const PROTOCOL_VERSION = '0.2.0';
 
 export {
+  ArtSwitchedEventSchema,
   ImageRegionSchema,
   JobErrorSchema,
   JobFailedEventSchema,
@@ -17,6 +20,7 @@ export {
   ReflectionCommittedEventSchema,
   SceneEndedEventSchema,
   SceneStartedEventSchema,
+  SublocationChangedEventSchema,
   TurnCommittedEventSchema,
   TurnStartedEventSchema,
   TurnStepSchema,
@@ -38,8 +42,12 @@ export {
 export {
   DevEventSchema,
   DevGaugesSchema,
+  DevToolCallSchema,
+  DevToolRejectedSchema,
   type DevEvent,
   type DevGauges,
+  type DevToolCall,
+  type DevToolRejected,
 } from './dev.js';
 export {
   AdvanceTimeAcceptedSchema,
@@ -47,6 +55,8 @@ export {
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
+  InterruptTurnAcceptedSchema,
+  InterruptTurnCommandSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
@@ -58,6 +68,8 @@ export {
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,
+  type InterruptTurnAccepted,
+  type InterruptTurnCommand,
   type OpenSceneAccepted,
   type OpenSceneCommand,
   type PaintRegionAccepted,

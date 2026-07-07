@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AdvanceTimeCommandSchema,
   EndSceneCommandSchema,
+  InterruptTurnCommandSchema,
   PaintRegionCommandSchema,
   OpenSceneCommandSchema,
   StartTurnAcceptedSchema,
@@ -45,6 +46,51 @@ describe('StartTurnCommandSchema', () => {
       text: 'x'.repeat(8193),
     };
     expect(StartTurnCommandSchema.safeParse(oversized).success).toBe(false);
+  });
+});
+
+describe('InterruptTurnCommandSchema', () => {
+  it('accepts an interrupt with and without a seen cut point', () => {
+    const withSeen: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: 't1',
+      seen: { call: 'narrator', sentence_index: 2 },
+    };
+    expect(InterruptTurnCommandSchema.safeParse(withSeen).success).toBe(true);
+    const noSeen: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: 't1',
+    };
+    expect(InterruptTurnCommandSchema.safeParse(noSeen).success).toBe(true);
+  });
+
+  it('rejects an unknown call kind and an extra key (B5)', () => {
+    const badCall: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: 't1',
+      seen: { call: 'whisper', sentence_index: 0 },
+    };
+    expect(InterruptTurnCommandSchema.safeParse(badCall).success).toBe(false);
+    const extra: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: 't1',
+      force: true,
+    };
+    expect(InterruptTurnCommandSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('rejects a negative sentence index', () => {
+    const negative: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: 't1',
+      seen: { call: 'narrator', sentence_index: -1 },
+    };
+    expect(InterruptTurnCommandSchema.safeParse(negative).success).toBe(false);
   });
 });
 

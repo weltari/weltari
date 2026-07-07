@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "world_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "turn_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seen": {
+      "type": "object",
+      "properties": {
+        "call": {
+          "type": "string",
+          "enum": [
+            "narrator",
+            "character",
+            "narration"
+          ]
+        },
+        "sentence_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "call",
+        "sentence_index"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "world_id",
+    "actor_id",
+    "turn_id"
+  ],
+  "additionalProperties": false
+}

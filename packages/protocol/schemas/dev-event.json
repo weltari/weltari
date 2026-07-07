@@ -27,6 +27,69 @@
         "degraded"
       ],
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "dev.tool_call"
+        },
+        "turn_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_json": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "turn_id",
+        "tool",
+        "input_json"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "dev.tool_rejected"
+        },
+        "turn_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gate": {
+          "type": "string",
+          "enum": [
+            "schema",
+            "state"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "turn_id",
+        "tool",
+        "gate",
+        "reason"
+      ],
+      "additionalProperties": false
     }
   ]
 }

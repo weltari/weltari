@@ -5,7 +5,7 @@ import { Writable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import type { StartTurnCommand } from '@weltari/protocol';
+import { PROTOCOL_VERSION, type StartTurnCommand } from '@weltari/protocol';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import { createRootLogger } from '../observability/logger.js';
 import { openStorage, type Storage } from '../storage/db.js';
@@ -180,7 +180,7 @@ describe('HTTP layer (SSE + commands)', () => {
     expect(frames[0]?.event).toBe('hello');
     const hello: unknown = JSON.parse(frames[0]?.data ?? '');
     expect(hello).toMatchObject({
-      protocol_version: '0.1.0',
+      protocol_version: PROTOCOL_VERSION,
       last_event_id: 2,
     });
     expect(frames.slice(1).map((f) => f.id)).toEqual([1, 2]); // full replay from 0

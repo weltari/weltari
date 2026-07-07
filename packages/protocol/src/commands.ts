@@ -23,6 +23,41 @@ export const StartTurnAcceptedSchema = z.strictObject({
 export type StartTurnAccepted = z.infer<typeof StartTurnAcceptedSchema>;
 
 /**
+ * POST /v1/commands/interrupt-turn — the interrupt-anywhere contract (UI Spec
+ * §1.4): close the running turn's envelope at the interruption point. Only
+ * sentences the user had displayed commit (marked `interrupted` on
+ * turn.committed); everything generated after the point — text and staged
+ * tool effects — is discarded and never durable (Guide B6).
+ */
+export const InterruptTurnCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  turn_id: z.string().min(1),
+  /**
+   * The last streamed sentence the user saw, addressed the way stream frames
+   * are: call kind + per-call sentence index. Absent = nothing was displayed
+   * yet — the whole turn voids (envelope closed, nothing durable).
+   */
+  seen: z
+    .strictObject({
+      call: z.enum(['narrator', 'character', 'narration']),
+      sentence_index: z.int().nonnegative(),
+    })
+    .optional(),
+});
+export type InterruptTurnCommand = z.infer<typeof InterruptTurnCommandSchema>;
+
+/**
+ * 202 response: the interrupt landed. `committed` says whether a truncated
+ * turn.committed was written (false = the turn voided entirely).
+ */
+export const InterruptTurnAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  committed: z.boolean(),
+});
+export type InterruptTurnAccepted = z.infer<typeof InterruptTurnAcceptedSchema>;
+
+/**
  * POST /v1/commands/end-scene — close the scene and fan out reflections: one
  * ledger job per participating character plus one World Agent job, enqueued
  * atomically with the scene.ended event (Brief §2.4).
