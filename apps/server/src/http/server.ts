@@ -45,6 +45,7 @@ import type { Logger } from '../observability/logger.js';
 import type { EventLogRepository } from '../storage/repositories/event-log.js';
 import type { DevBus, EventBus, StreamBus } from './bus.js';
 import { attachSseClient } from './sse.js';
+import type { StaticResolver } from './static.js';
 
 export interface HttpDeps {
   eventLog: EventLogRepository;
@@ -86,6 +87,9 @@ export interface HttpDeps {
     pluginName: string,
     relativePath: string,
   ) => { file: string; contentType: string } | null;
+  /** The built frontend (FINAL item 2): SPA files with index.html fallback;
+   * null = 404 (no dist built — dev runs the Vite server instead). */
+  resolveStatic?: StaticResolver;
   heartbeatMs?: number;
 }
 
@@ -168,6 +172,34 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         return reply.code(404).send({ accepted: false, error: 'not_found' });
       }
       reply.header('content-type', asset.contentType);
+      return reply.send(createReadStream(asset.file));
+    },
+  );
+
+  // The built frontend (FINAL item 2), registered as the lowest-priority
+  // wildcard: every explicit route above wins first. API namespaces never
+  // fall through to the SPA — a typo'd command path must fail loudly as
+  // JSON, not ship index.html.
+  const staticParamsSchema = z.object({ '*': z.string() });
+  app.get(
+    '/*',
+    { schema: { params: staticParamsSchema } },
+    (request, reply) => {
+      const urlPath = request.params['*'];
+      if (urlPath === 'v1' || urlPath.startsWith('v1/')) {
+        return reply.code(404).send({ accepted: false, error: 'not_found' });
+      }
+      if (urlPath === 'plugins' || urlPath.startsWith('plugins/')) {
+        return reply.code(404).send({ accepted: false, error: 'not_found' });
+      }
+      const asset = deps.resolveStatic?.(urlPath) ?? null;
+      if (asset === null) {
+        return reply.code(404).send({ accepted: false, error: 'not_found' });
+      }
+      reply.header('content-type', asset.contentType);
+      if (asset.cacheControl !== undefined) {
+        reply.header('cache-control', asset.cacheControl);
+      }
       return reply.send(createReadStream(asset.file));
     },
   );

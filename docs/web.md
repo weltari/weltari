@@ -29,7 +29,7 @@ is a projection of the SSE stream, rebuilt from the event replay on every
 | `src/components/MapModal.tsx` | The pluggable map slot: renders `<wl-map>` (a plugin custom element) in a modal; the Map buttons light up via `customElements.whenDefined('wl-map')`. |
 | `src/components/DevOverlay.tsx` | Dev mode (?dev=1): tool calls, B6-gate rejections, gauges, loaded-plugin provenance — deliberately alien styling (never reads as play). |
 | `src/theme.css` | ALL colors/fonts/motion as CSS custom properties — the reskin surface (see below). |
-| `vite.config.mjs` | Dev proxy `/v1` → `127.0.0.1:7777`; the built app is later served by Fastify itself (FINAL item 2). |
+| `vite.config.mjs` | Dev proxy `/v1` → `127.0.0.1:7777`; the built app (`npm run build`) is served by Fastify itself from the same process (`http/static.ts`, FINAL item 2) — production needs zero Vite process. |
 | `structure.md` | The in-repo module contract + customization guide for (third-party AI) frontend editors (UI Spec §1.13). |
 
 ## Customizing the UI (owner guide)

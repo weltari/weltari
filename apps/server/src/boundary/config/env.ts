@@ -34,6 +34,9 @@ const envSchema = z.object({
   WELTARI_IMAGES_DIR: z.string().min(1).default('data/images'),
   /** Drop-in plugin folders live here (FINAL item 13, Guide B10). */
   WELTARI_PLUGINS_DIR: z.string().min(1).default('plugins'),
+  /** The built frontend (FINAL item 2). Unset = resolved next to the compiled
+   * server (apps/web/dist in-repo and in the packaged layout). */
+  WELTARI_WEB_DIR: z.string().min(1).optional(),
   /** Gauge cadence (C13). Default 15 s; the RSS criteria runner shortens it. */
   WELTARI_GAUGE_INTERVAL_MS: z.coerce.number().int().positive().default(15000),
 });
@@ -53,6 +56,7 @@ export interface Env {
   leaseSeconds: number;
   imagesDir: string;
   pluginsDir: string;
+  webDir: string | undefined;
   gaugeIntervalMs: number;
 }
 
@@ -98,6 +102,7 @@ export function readEnv(
       leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
       pluginsDir: parsed.data.WELTARI_PLUGINS_DIR,
+      webDir: parsed.data.WELTARI_WEB_DIR,
       gaugeIntervalMs: parsed.data.WELTARI_GAUGE_INTERVAL_MS,
     },
   };

@@ -12,7 +12,7 @@ Purpose: everything at the repo root that makes the gate run: compiler config, l
 
 | File | What it does / talks to |
 | --- | --- |
-| `package.json` | Root workspace manifest: npm workspaces (`packages/*`, `apps/*`), gate scripts, exact-pinned dev toolchain (Guide A1, §7). |
+| `package.json` | Root workspace manifest: npm workspaces (`packages/*`, `apps/*`), gate scripts, `build` (`tsc -b` + Vite build — the packaged-app input), exact-pinned dev toolchain (Guide A1, §7). |
 | `package-lock.json` | Committed lockfile; CI installs with `npm ci` (Guide D10). Generated — never hand-edited. |
 | `.npmrc` | `save-exact` + `engine-strict`: installs pin exactly and refuse wrong Node (Guide A1). |
 | `.node-version` | `24` — the only supported Node major (FINAL item 1). |
