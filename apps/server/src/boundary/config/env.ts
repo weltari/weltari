@@ -6,6 +6,9 @@ import { z } from 'zod';
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(7777),
+  /** Listen address. Default loopback-only; the Docker image sets 0.0.0.0
+   * (the container boundary is the exposure decision there). */
+  WELTARI_HOST: z.string().min(1).default('127.0.0.1'),
   WELTARI_DB_PATH: z.string().min(1).default('data/weltari.sqlite'),
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
@@ -66,6 +69,7 @@ const envSchema = z.object({
 
 export interface Env {
   port: number;
+  host: string;
   dbPath: string;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
   openrouterApiKey: string | undefined;
@@ -114,6 +118,7 @@ export function readEnv(
     ok: true,
     env: {
       port: parsed.data.PORT,
+      host: parsed.data.WELTARI_HOST,
       dbPath: parsed.data.WELTARI_DB_PATH,
       logLevel: parsed.data.LOG_LEVEL,
       openrouterApiKey: parsed.data.OPENROUTER_API_KEY,
