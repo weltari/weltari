@@ -4,7 +4,8 @@
 import { useEffect, useRef } from 'react';
 import { useSceneStore, type CommittedTurn } from '../store.js';
 
-function TurnBlock(props: { turn: CommittedTurn }): React.JSX.Element {
+/** One committed turn as prose — shared by the transcript and Reader mode. */
+export function TurnBlock(props: { turn: CommittedTurn }): React.JSX.Element {
   return (
     <div className="wl-turn">
       {props.turn.steps.map((step, i) => (

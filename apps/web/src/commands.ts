@@ -2,6 +2,7 @@
 // mutates local state on a 202; it waits for the stream to push the truth
 // (render-only, Brief §2.5). Responses are validated like any boundary data.
 import {
+  EndSceneAcceptedSchema,
   InterruptTurnAcceptedSchema,
   OpenSceneAcceptedSchema,
   StartTurnAcceptedSchema,
@@ -52,6 +53,20 @@ export async function postInterruptTurn(
   });
   const parsed = InterruptTurnAcceptedSchema.safeParse(raw);
   return parsed.success ? { committed: parsed.data.committed } : null;
+}
+
+/** The exit-scene path (control cluster): close the scene and fan out
+ * reflections; scene.ended arrives on the stream (soft close, §1.7). */
+export async function postEndScene(
+  sceneId: string,
+): Promise<{ jobsEnqueued: number } | null> {
+  const raw = await post('/v1/commands/end-scene', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    scene_id: sceneId,
+  });
+  const parsed = EndSceneAcceptedSchema.safeParse(raw);
+  return parsed.success ? { jobsEnqueued: parsed.data.jobs_enqueued } : null;
 }
 
 /** Returns the client-generated scene id on 202 (the §1.14 cover flow
