@@ -18,6 +18,30 @@ interface Frame {
   data: string;
 }
 
+/** Windows flake shield: undici sometimes draws an ephemeral local port that
+ * collides with a live socket — `connect EADDRINUSE`. That is the OS, not the
+ * behavior under test: retry immediately (a fresh socket gets a fresh port).
+ * Any other failure still throws on the first attempt. */
+async function fetchRetry(url: string, init?: RequestInit): Promise<Response> {
+  let lastError: unknown = new Error('fetchRetry: no attempt ran');
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (thrown) {
+      const cause = thrown instanceof Error ? thrown.cause : undefined;
+      const transient =
+        cause instanceof Error &&
+        'code' in cause &&
+        cause.code === 'EADDRINUSE';
+      if (!transient) throw thrown;
+      lastError = thrown;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('fetchRetry exhausted');
+}
+
 function quietLogger(): ReturnType<typeof createRootLogger> {
   const sink = new Writable({
     write(_chunk, _enc, cb): void {
@@ -175,7 +199,7 @@ describe('HTTP layer (SSE + commands)', () => {
   it('hello frame carries protocol_version and the current log head', async () => {
     const ctx = await setup();
     seed(ctx.storage, ctx.eventBus, 2);
-    const res = await fetch(`${ctx.baseUrl}/v1/events`);
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/events`);
     const frames = await readFrames(res, 3);
     expect(frames[0]?.event).toBe('hello');
     const hello: unknown = JSON.parse(frames[0]?.data ?? '');
@@ -189,7 +213,7 @@ describe('HTTP layer (SSE + commands)', () => {
   it('Last-Event-ID replays only missed events, exactly once', async () => {
     const ctx = await setup();
     seed(ctx.storage, ctx.eventBus, 5);
-    const res = await fetch(`${ctx.baseUrl}/v1/events`, {
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/events`, {
       headers: { 'Last-Event-ID': '3' },
     });
     const frames = await readFrames(res, 3);
@@ -200,7 +224,7 @@ describe('HTTP layer (SSE + commands)', () => {
   it('a live append after connect is pushed with its log id', async () => {
     const ctx = await setup();
     seed(ctx.storage, ctx.eventBus, 1);
-    const res = await fetch(`${ctx.baseUrl}/v1/events`);
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/events`);
     const framesPromise = readFrames(res, 3); // hello + replay(1) + live(1)
     seed(ctx.storage, ctx.eventBus, 1);
     const frames = await framesPromise;
@@ -210,15 +234,15 @@ describe('HTTP layer (SSE + commands)', () => {
   it('curl-style query fallback ?last_event_id= works without the header', async () => {
     const ctx = await setup();
     seed(ctx.storage, ctx.eventBus, 3);
-    const res = await fetch(`${ctx.baseUrl}/v1/events?last_event_id=2`);
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/events?last_event_id=2`);
     const frames = await readFrames(res, 2);
     expect(frames.slice(1).map((f) => f.id)).toEqual([3]);
   });
 
   it('dev frames reach only clients that opted in with ?dev=1 (Guide C11)', async () => {
     const ctx = await setup();
-    const optedIn = await fetch(`${ctx.baseUrl}/v1/events?dev=1`);
-    const optedOut = await fetch(`${ctx.baseUrl}/v1/events`);
+    const optedIn = await fetchRetry(`${ctx.baseUrl}/v1/events?dev=1`);
+    const optedOut = await fetchRetry(`${ctx.baseUrl}/v1/events`);
     const devFramesPromise = readFrames(optedIn, 2); // hello + dev
     const plainFramesPromise = readFrames(optedOut, 2); // hello + the durable event below
 
@@ -242,7 +266,7 @@ describe('HTTP layer (SSE + commands)', () => {
 
   it('end-scene -> 202 with jobs_enqueued; engine refusal -> 409', async () => {
     const ctx = await setup();
-    const accepted = await fetch(`${ctx.baseUrl}/v1/commands/end-scene`, {
+    const accepted = await fetchRetry(`${ctx.baseUrl}/v1/commands/end-scene`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -255,7 +279,7 @@ describe('HTTP layer (SSE + commands)', () => {
     const body: unknown = await accepted.json();
     expect(body).toMatchObject({ accepted: true, jobs_enqueued: 2 });
 
-    const refused = await fetch(`${ctx.baseUrl}/v1/commands/end-scene`, {
+    const refused = await fetchRetry(`${ctx.baseUrl}/v1/commands/end-scene`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -269,7 +293,7 @@ describe('HTTP layer (SSE + commands)', () => {
 
   it('open-scene -> 202; blocked scene -> 409 with the error code', async () => {
     const ctx = await setup();
-    const accepted = await fetch(`${ctx.baseUrl}/v1/commands/open-scene`, {
+    const accepted = await fetchRetry(`${ctx.baseUrl}/v1/commands/open-scene`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -282,7 +306,7 @@ describe('HTTP layer (SSE + commands)', () => {
     });
     expect(accepted.status).toBe(202);
 
-    const blocked = await fetch(`${ctx.baseUrl}/v1/commands/open-scene`, {
+    const blocked = await fetchRetry(`${ctx.baseUrl}/v1/commands/open-scene`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -303,7 +327,7 @@ describe('HTTP layer (SSE + commands)', () => {
 
   it('advance-time -> 202 with the new world time and enqueue counts', async () => {
     const ctx = await setup();
-    const res = await fetch(`${ctx.baseUrl}/v1/commands/advance-time`, {
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/commands/advance-time`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -325,7 +349,7 @@ describe('HTTP layer (SSE + commands)', () => {
 
   it('paint-region -> 202 echoing the job key', async () => {
     const ctx = await setup();
-    const res = await fetch(`${ctx.baseUrl}/v1/commands/paint-region`, {
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/commands/paint-region`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -346,7 +370,7 @@ describe('HTTP layer (SSE + commands)', () => {
 
   it('malformed command body -> 400 and nothing appended (B-http)', async () => {
     const ctx = await setup();
-    const res = await fetch(`${ctx.baseUrl}/v1/commands/start-turn`, {
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/commands/start-turn`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -362,10 +386,10 @@ describe('HTTP layer (SSE + commands)', () => {
 
   it('valid command -> 202 with turn_id; turn events land on the stream', async () => {
     const ctx = await setup();
-    const sse = await fetch(`${ctx.baseUrl}/v1/events`);
+    const sse = await fetchRetry(`${ctx.baseUrl}/v1/events`);
     const framesPromise = readFrames(sse, 4); // hello + started + stream sentence + committed
 
-    const res = await fetch(`${ctx.baseUrl}/v1/commands/start-turn`, {
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/commands/start-turn`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
