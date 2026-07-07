@@ -7,8 +7,9 @@
  * changes; CI blocks schema removals without one (Invariant I7).
  * 0.2.0: interrupt-turn command; sublocation.changed + art.switched events;
  * scene.ended end_type/divider_text; dev.tool_call/dev.tool_rejected frames.
+ * 0.3.0: plugin.rejected event; GET /v1/plugins wire shapes (PluginInfo).
  */
-export const PROTOCOL_VERSION = '0.2.0';
+export const PROTOCOL_VERSION = '0.3.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -17,6 +18,7 @@ export {
   JobFailedEventSchema,
   JobParkedEventSchema,
   PainterCompletedEventSchema,
+  PluginRejectedEventSchema,
   ReflectionCommittedEventSchema,
   SceneEndedEventSchema,
   SceneStartedEventSchema,
@@ -39,6 +41,12 @@ export {
   type StreamHello,
   type StreamSentence,
 } from './stream.js';
+export {
+  PluginInfoSchema,
+  PluginListSchema,
+  type PluginInfo,
+  type PluginList,
+} from './plugins.js';
 export {
   DevEventSchema,
   DevGaugesSchema,

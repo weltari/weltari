@@ -14,6 +14,7 @@ Purpose: the contract surface for plugin and connector authors (Brief §7e). MIT
 | --- | --- |
 | `src/gateway-connector.ts` | The connector contract: `start/stop/send/onInbound/health`, `InboundMessage`, `SendResult`; `paused` is an expected health state (Guide B8). The host re-validates, caps and dedups everything a connector delivers (B7/B10). |
 | `src/conformance.ts` | `runGatewayConnectorConformance(factory)` — pure behavioral checks (lifecycle idempotence, health states, send-never-throws), runnable under any test runner. |
+| `src/manifest.ts` | The plugin format contract (FINAL item 13): `PluginManifestSchema` (strict plugin.json) + `computePluginContentHash` — the canonical B10 hash rule the engine verifies at every load (docs/plugins.md). |
 | `src/index.ts` | Public surface re-exports. |
 
 ## Tests

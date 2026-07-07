@@ -5,6 +5,8 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { StartTurnCommand } from '@weltari/protocol';
 import { readEnvOrExplain } from './boundary/config/env.js';
+import { createPluginAssetResolver } from './boundary/plugins/assets.js';
+import { loadPlugins } from './boundary/plugins/loader.js';
 import { OperationalError, type Result } from './errors.js';
 import { createEventSink, type EventSink } from './engine/event-sink.js';
 import type { FaultPointHook } from './engine/fault-points.js';
@@ -183,11 +185,21 @@ async function runGatewayTurn(
   };
 }
 
+// Drop-in plugins (B10): validated, hash-verified, refused-on-tamper; the
+// app boots without a failing plugin. Connectors a plugin registers join the
+// gateway host under the 'plugin' trust boundary (the host validates B7).
+const plugins = await loadPlugins({
+  pluginsDir: env.pluginsDir,
+  sink,
+  logger,
+  worldId: FIXTURE_WORLD_ID,
+});
+
 const gatewayHost = createGatewayHost({
   storage,
   logger,
-  connectors:
-    env.telegramBotToken === undefined
+  connectors: [
+    ...(env.telegramBotToken === undefined
       ? []
       : [
           {
@@ -195,9 +207,16 @@ const gatewayHost = createGatewayHost({
               token: env.telegramBotToken,
               logger,
             }),
-            boundary: 'telegram',
+            boundary: 'telegram' as const,
           },
-        ],
+        ]),
+    ...plugins.flatMap((plugin) =>
+      plugin.connectors.map((entry) => ({
+        connector: entry.connector,
+        boundary: 'plugin' as const,
+      })),
+    ),
+  ],
   runTurn: runGatewayTurn,
 });
 
@@ -283,6 +302,8 @@ const app = createHttpServer({
   openScene: (command) => lifecycle.openScene(command),
   advanceTime: (command) => worldClock.advanceTime(command),
   paintRegion: createPaintRegionCommand(storage),
+  plugins: plugins.map((plugin) => plugin.info),
+  resolvePluginAsset: createPluginAssetResolver(plugins),
 });
 
 let draining = false;

@@ -17,6 +17,7 @@ import {
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
   PaintRegionCommandSchema,
+  PluginListSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
   StreamHelloSchema,
@@ -45,6 +46,7 @@ const files = {
   'paint-region-command.json': PaintRegionCommandSchema,
   'paint-region-accepted.json': PaintRegionAcceptedSchema,
   'command-rejected.json': CommandRejectedSchema,
+  'plugin-list.json': PluginListSchema,
 };
 
 for (const [name, schema] of Object.entries(files)) {

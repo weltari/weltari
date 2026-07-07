@@ -528,6 +528,10 @@ body {
   color: var(--wl-danger);
 }
 
+.wl-dev .wl-dev-line[data-kind='plugin'] {
+  color: #8fb8d8;
+}
+
 /* ============================== mobile ============================== */
 
 @media (max-width: 760px) {

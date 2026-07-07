@@ -276,6 +276,30 @@ describe('WeltariEventSchema', () => {
     expect(WeltariEventSchema.safeParse(emptyArt).success).toBe(false);
   });
 
+  it('accepts a valid plugin.rejected and rejects an unknown reason', () => {
+    const base = {
+      id: 47,
+      world_id: 'w1',
+      actor_id: 'system:plugins',
+      ts: '2026-07-07T12:00:00.000Z',
+      type: 'plugin.rejected',
+    };
+    const valid: unknown = {
+      ...base,
+      payload: {
+        plugin: 'night-theme',
+        reason: 'hash_mismatch',
+        detail: 'content hash 1a2b… does not match manifest provenance',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const badReason: unknown = {
+      ...base,
+      payload: { plugin: 'night-theme', reason: 'vibes', detail: 'x' },
+    };
+    expect(WeltariEventSchema.safeParse(badReason).success).toBe(false);
+  });
+
   it('rejects an unknown envelope key (strict — Guide B5)', () => {
     const withExtra: unknown = {
       id: 1,
