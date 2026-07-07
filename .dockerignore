@@ -1,0 +1,20 @@
+# Build context hygiene — the image builds from source, never from local
+# artifacts (dist is rebuilt in-container; data/secrets never enter the context).
+.git
+node_modules
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+data
+versions
+docs
+tools
+scripts
+fixtures
+.env
+.env.*
+*.md
+!plugins/**/*.md
+Dockerfile
+.dockerignore
+.github

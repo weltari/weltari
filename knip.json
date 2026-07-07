@@ -4,12 +4,13 @@
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": {
-      "ignoreBinaries": ["powershell", "ps"],
+      "ignoreBinaries": ["powershell", "ps", "tar.exe"],
       "entry": [
         "tests/**/*.test.ts",
         "tests/helpers/**/*.ts",
         "tests/fakes/**/*.ts",
-        "tools/**/*.mjs"
+        "tools/**/*.mjs",
+        "scripts/**/*.mjs"
       ],
       "project": ["tests/**/*.ts", "scripts/**/*.mjs", "tools/**/*.mjs"]
     },
