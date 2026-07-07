@@ -1,0 +1,588 @@
+/* ============================================================================
+   Weltari default theme — EVERY color, font and motion value is a CSS custom
+   property (UI Spec §1.13: per-world reskinning is a V1 requirement).
+   Reskin path: a world/plugin theme.css redefines tokens on :root — no
+   component edits needed. Full token table: docs/web.md §Customizing the UI.
+   ========================================================================== */
+
+:root {
+  /* ---- typography ---- */
+  --wl-font-narration: Georgia, 'Times New Roman', serif;
+  --wl-font-ui: system-ui, 'Segoe UI', sans-serif;
+  --wl-font-size-narration: 1.06rem;
+  --wl-font-size-ui: 0.85rem;
+  --wl-line-height-reading: 1.7;
+
+  /* ---- core palette (reading-first dark) ---- */
+  --wl-bg: #16181d;
+  --wl-panel: #1e2128;
+  --wl-panel-translucent: rgba(22, 24, 29, 0.82);
+  --wl-text: #e8e4da;
+  --wl-text-dim: #9a958a;
+  --wl-accent: #d8a748;
+  --wl-accent-soft: rgba(216, 167, 72, 0.18);
+  --wl-danger: #c96a5a;
+  --wl-ok: #7fa763;
+  --wl-border: rgba(232, 228, 218, 0.12);
+
+  /* ---- narrator vs character voices ---- */
+  --wl-narrator-text: #b9b2a4;
+  --wl-character-text: #e8e4da;
+  --wl-speaker-plate-bg: var(--wl-accent-soft);
+  --wl-speaker-plate-text: var(--wl-accent);
+
+  /* ---- backdrops: one token per sublocation id (placeholder gradients
+         until painter-generated backdrops exist; sublocation.changed carries
+         backdrop_path when a real image is available) ---- */
+  --wl-backdrop-default: linear-gradient(
+    170deg,
+    #2c3547 0%,
+    #1a2130 55%,
+    #12161f 100%
+  );
+  --wl-backdrop-common-room: linear-gradient(
+    165deg,
+    #4a3826 0%,
+    #2e2318 55%,
+    #1c1610 100%
+  );
+  --wl-backdrop-cellar: linear-gradient(
+    180deg,
+    #1d3138 0%,
+    #14232c 55%,
+    #0d161d 100%
+  );
+  --wl-backdrop-shrine: linear-gradient(
+    160deg,
+    #3a3350 0%,
+    #241f35 55%,
+    #161222 100%
+  );
+
+  /* ---- character art placeholders: accent per pose (art_id) ---- */
+  --wl-art-neutral: #8c93a8;
+  --wl-art-smile: #d8a748;
+  --wl-art-worried: #c96a5a;
+  --wl-art-working: #7fa763;
+  --wl-portrait-bg: rgba(232, 228, 218, 0.08);
+
+  /* ---- motion (Animations cover generation, UI Spec §1.14) ---- */
+  --wl-slide-duration: 700ms;
+  --wl-rise-duration: 260ms;
+  --wl-sentence-fade: 220ms;
+
+  /* ---- layout ---- */
+  --wl-stage-min-height: 46vh;
+  --wl-transcript-width: 26rem;
+  --wl-radius: 10px;
+}
+
+/* ============================== app shell ============================== */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--wl-bg);
+  color: var(--wl-text);
+  font-family: var(--wl-font-ui);
+}
+
+.wl-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.wl-topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--wl-border);
+  font-size: var(--wl-font-size-ui);
+  color: var(--wl-text-dim);
+}
+
+.wl-topbar h1 {
+  font-family: var(--wl-font-narration);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--wl-text);
+  margin: 0;
+}
+
+.wl-topbar .wl-clock {
+  margin-left: auto;
+}
+
+.wl-conn-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--wl-danger);
+}
+
+.wl-conn-dot[data-connected='true'] {
+  background: var(--wl-ok);
+}
+
+.wl-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ============================== stage ============================== */
+
+.wl-stage-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.wl-stage {
+  position: relative;
+  flex: 1;
+  min-height: var(--wl-stage-min-height);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.wl-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--wl-backdrop-default);
+}
+
+.wl-backdrop[data-sublocation='subloc:common_room'] {
+  background: var(--wl-backdrop-common-room);
+}
+
+.wl-backdrop[data-sublocation='subloc:cellar'] {
+  background: var(--wl-backdrop-cellar);
+}
+
+.wl-backdrop[data-sublocation='subloc:shrine'] {
+  background: var(--wl-backdrop-shrine);
+}
+
+/* The entering layer slides over the previous one (UI Spec §1.6). */
+.wl-backdrop-enter {
+  animation: wl-slide-in var(--wl-slide-duration) ease both;
+}
+
+@keyframes wl-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.wl-sublocation-chip {
+  position: absolute;
+  top: 0.75rem;
+  left: 1rem;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  background: var(--wl-panel-translucent);
+  border: 1px solid var(--wl-border);
+  font-size: var(--wl-font-size-ui);
+  color: var(--wl-text-dim);
+}
+
+/* ---- character line-up (VN mode, UI Spec §1.5) ---- */
+
+.wl-lineup {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  padding-bottom: 0.5rem;
+}
+
+.wl-portrait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  transition: transform var(--wl-rise-duration) ease;
+}
+
+.wl-portrait[data-speaking='true'] {
+  transform: translateY(-10px) scale(1.04);
+}
+
+.wl-portrait-figure {
+  width: 5.5rem;
+  height: 7rem;
+  border-radius: var(--wl-radius) var(--wl-radius) 0 0;
+  background: var(--wl-portrait-bg);
+  border: 2px solid var(--wl-art-neutral);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--wl-font-narration);
+  font-size: 2.4rem;
+  color: var(--wl-art-neutral);
+  transition:
+    border-color var(--wl-rise-duration) ease,
+    color var(--wl-rise-duration) ease;
+}
+
+.wl-portrait-pose {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wl-art-neutral);
+}
+
+/* switch_art projection: one rule pair per art_id (placeholder art —
+   swap these for image sprites when real character art exists). */
+.wl-portrait[data-art='smile'] .wl-portrait-figure,
+.wl-portrait[data-art='smile'] .wl-portrait-pose {
+  border-color: var(--wl-art-smile);
+  color: var(--wl-art-smile);
+}
+
+.wl-portrait[data-art='worried'] .wl-portrait-figure,
+.wl-portrait[data-art='worried'] .wl-portrait-pose {
+  border-color: var(--wl-art-worried);
+  color: var(--wl-art-worried);
+}
+
+.wl-portrait[data-art='working'] .wl-portrait-figure,
+.wl-portrait[data-art='working'] .wl-portrait-pose {
+  border-color: var(--wl-art-working);
+  color: var(--wl-art-working);
+}
+
+/* ---- narration box (sentence pacing, UI Spec §1.4) ---- */
+
+.wl-narration {
+  position: relative;
+  margin: 0 1rem 1rem;
+  padding: 0.9rem 1.2rem 1.1rem;
+  border-radius: var(--wl-radius);
+  background: var(--wl-panel-translucent);
+  border: 1px solid var(--wl-border);
+  backdrop-filter: blur(3px);
+  font-family: var(--wl-font-narration);
+  font-size: var(--wl-font-size-narration);
+  line-height: var(--wl-line-height-reading);
+  min-height: 6.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wl-narration .wl-speaker-plate {
+  display: inline-block;
+  margin-bottom: 0.3rem;
+  padding: 0.1rem 0.6rem;
+  border-radius: 4px;
+  background: var(--wl-speaker-plate-bg);
+  color: var(--wl-speaker-plate-text);
+  font-family: var(--wl-font-ui);
+  font-size: var(--wl-font-size-ui);
+  font-weight: 600;
+}
+
+.wl-narration p {
+  margin: 0.15rem 0;
+}
+
+.wl-narration .wl-sentence {
+  animation: wl-fade-in var(--wl-sentence-fade) ease both;
+}
+
+.wl-narration .wl-sentence[data-voice='narrator'] {
+  color: var(--wl-narrator-text);
+  font-style: italic;
+}
+
+.wl-narration .wl-sentence[data-voice='character'] {
+  color: var(--wl-character-text);
+}
+
+@keyframes wl-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.wl-advance-hint {
+  position: absolute;
+  right: 0.9rem;
+  bottom: 0.5rem;
+  color: var(--wl-accent);
+  animation: wl-bounce 1.2s infinite;
+  font-size: 0.9rem;
+}
+
+@keyframes wl-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+
+.wl-thinking {
+  color: var(--wl-text-dim);
+  font-style: italic;
+}
+
+.wl-thinking::after {
+  content: '…';
+  animation: wl-bounce 1.2s infinite;
+  display: inline-block;
+}
+
+/* ---- soft close (UI Spec §1.7): a divider, never a "scene over" screen ---- */
+
+.wl-soft-close {
+  text-align: center;
+  padding: 0.6rem 0 0.2rem;
+}
+
+.wl-divider {
+  color: var(--wl-text-dim);
+  font-family: var(--wl-font-narration);
+  font-style: italic;
+  letter-spacing: 0.06em;
+}
+
+.wl-soft-close-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+/* ---- input row ---- */
+
+.wl-input-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid var(--wl-border);
+  background: var(--wl-panel);
+}
+
+.wl-input-row input {
+  flex: 1;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--wl-radius);
+  border: 1px solid var(--wl-border);
+  background: var(--wl-bg);
+  color: var(--wl-text);
+  font-family: var(--wl-font-narration);
+  font-size: 1rem;
+}
+
+.wl-input-row input:focus {
+  outline: 1px solid var(--wl-accent);
+}
+
+.wl-button {
+  padding: 0.5rem 1.1rem;
+  border-radius: var(--wl-radius);
+  border: 1px solid var(--wl-border);
+  background: var(--wl-panel);
+  color: var(--wl-text);
+  font-family: var(--wl-font-ui);
+  font-size: var(--wl-font-size-ui);
+  cursor: pointer;
+}
+
+.wl-button:hover:not(:disabled) {
+  border-color: var(--wl-accent);
+  color: var(--wl-accent);
+}
+
+.wl-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.wl-button-accent {
+  background: var(--wl-accent-soft);
+  border-color: var(--wl-accent);
+  color: var(--wl-accent);
+}
+
+.wl-button-danger {
+  border-color: var(--wl-danger);
+  color: var(--wl-danger);
+  background: transparent;
+}
+
+/* ============================== transcript ============================== */
+
+.wl-transcript {
+  width: var(--wl-transcript-width);
+  border-left: 1px solid var(--wl-border);
+  overflow-y: auto;
+  padding: 1rem 1.2rem 2rem;
+  font-family: var(--wl-font-narration);
+  font-size: var(--wl-font-size-narration);
+  line-height: var(--wl-line-height-reading);
+}
+
+.wl-transcript h2 {
+  font-size: var(--wl-font-size-ui);
+  font-family: var(--wl-font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--wl-text-dim);
+  margin: 0 0 0.8rem;
+}
+
+.wl-transcript .wl-turn {
+  margin-bottom: 1.1rem;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid var(--wl-border);
+}
+
+.wl-transcript p {
+  margin: 0.35rem 0;
+}
+
+.wl-transcript .wl-line-narrator {
+  color: var(--wl-narrator-text);
+  font-style: italic;
+}
+
+.wl-transcript .wl-line-character {
+  color: var(--wl-character-text);
+}
+
+.wl-transcript .wl-line-character strong {
+  color: var(--wl-accent);
+  font-weight: 600;
+}
+
+.wl-interrupted-mark {
+  color: var(--wl-text-dim);
+  font-size: var(--wl-font-size-ui);
+  font-family: var(--wl-font-ui);
+  font-style: italic;
+}
+
+.wl-transcript-toggle {
+  display: none;
+}
+
+/* ============================== dev overlay ============================== */
+
+.wl-dev {
+  position: fixed;
+  right: 0.8rem;
+  bottom: 5rem;
+  width: 22rem;
+  max-height: 45vh;
+  overflow-y: auto;
+  background: rgba(10, 12, 16, 0.92);
+  border: 1px solid #3d2f6b; /* deliberately alien: dev mode must not look like play (UI Spec §2.8) */
+  border-radius: var(--wl-radius);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.72rem;
+  padding: 0.6rem 0.8rem;
+  color: #b9b2d8;
+  z-index: 50;
+}
+
+.wl-dev h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.wl-dev .wl-dev-line {
+  margin: 0.2rem 0;
+  word-break: break-all;
+}
+
+.wl-dev .wl-dev-line[data-kind='tool_call'] {
+  color: var(--wl-ok);
+}
+
+.wl-dev .wl-dev-line[data-kind='tool_rejected'] {
+  color: var(--wl-danger);
+}
+
+/* ============================== mobile ============================== */
+
+@media (max-width: 760px) {
+  :root {
+    --wl-stage-min-height: 38vh;
+    --wl-transcript-width: 100%;
+  }
+
+  .wl-main {
+    position: relative;
+  }
+
+  .wl-transcript {
+    position: absolute;
+    inset: 0;
+    background: var(--wl-bg);
+    border-left: none;
+    transform: translateX(100%);
+    transition: transform 250ms ease;
+    z-index: 20;
+  }
+
+  .wl-transcript[data-open='true'] {
+    transform: translateX(0);
+  }
+
+  .wl-transcript-toggle {
+    display: block;
+    position: absolute;
+    top: 0.6rem;
+    right: 0.8rem;
+    z-index: 30;
+  }
+
+  .wl-lineup {
+    gap: 1rem;
+  }
+
+  .wl-portrait-figure {
+    width: 4rem;
+    height: 5.2rem;
+    font-size: 1.8rem;
+  }
+
+  .wl-narration {
+    margin: 0 0.5rem 0.5rem;
+    min-height: 5.2rem;
+  }
+
+  .wl-input-row {
+    padding: 0.5rem 0.6rem;
+  }
+
+  .wl-dev {
+    width: calc(100vw - 1.6rem);
+    max-height: 32vh;
+  }
+}

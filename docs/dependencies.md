@@ -325,3 +325,16 @@ Every dependency gets one `## <package>` heading (CI keys on the heading — Gui
 - Maintenance: release within last 12 months, checked 2026-07-06.
 - Pinned: 6.0.3
 - Swap documented: n/a
+
+## zustand
+
+- What: the Scene page's store — writable ONLY by the SSE reducer, so
+  render-only (Brief §2.5) is a structure, not a convention (FINAL item 5;
+  the recorded M3 deferral lands here).
+- Why not stdlib / an existing dep: React context re-renders everything per
+  frame; zustand gives selector-scoped subscriptions with ~1 KB of surface.
+- License: MIT
+- Maintenance: release within last 12 months (5.0.14, 2026-05), checked 2026-07-07.
+- Pinned: 5.0.14
+- Swap documented: React useSyncExternalStore over a hand-rolled store (the
+  API surface used is deliberately tiny: create + selectors).
