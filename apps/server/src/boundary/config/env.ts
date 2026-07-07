@@ -108,12 +108,9 @@ export function readEnv(
     return { ok: false, badKeys };
   }
   const fakeLlm = parsed.data.WELTARI_FAKE_LLM === '1';
-  if (!fakeLlm && parsed.data.OPENROUTER_API_KEY === undefined) {
-    return {
-      ok: false,
-      badKeys: ['OPENROUTER_API_KEY (required unless WELTARI_FAKE_LLM=1)'],
-    };
-  }
+  // An absent key is a LEGAL fresh-install state (B11 bans malformed present
+  // values, not missing optional secrets): the app boots on the FakeLLM and
+  // main.ts warns loudly — a packaged install must start before it is configured.
   return {
     ok: true,
     env: {

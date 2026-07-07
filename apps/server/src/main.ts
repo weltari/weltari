@@ -105,6 +105,12 @@ const registry = createModelRegistry({
     ? {}
     : { providerOrder: env.providerOrder }),
 });
+if (!env.fakeLlm && env.openrouterApiKey === undefined) {
+  logger.warn(
+    {},
+    'no OPENROUTER_API_KEY configured — running on the deterministic FakeLLM until one is set',
+  );
+}
 const llm =
   env.fakeLlm || env.openrouterApiKey === undefined
     ? createFakeLlmClient()
