@@ -17,6 +17,7 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [gateway.md](gateway.md) — apps/server/src/gateway: connector host (B7 validate/cap/dedup), grammY Telegram long-polling echo.
 - [plugins.md](plugins.md) — boundary/plugins + plugins/: drop-in loader (B10 hash verification, plugin.rejected), zero-build asset serving, frontend injection.
 - [update.md](update.md) — boundary/update: self-update path (B12) — release check, SHA-256 + minisign verification (node:crypto, zero deps), VerifiedArtifact-confined pointer flip.
+- [packaging.md](packaging.md) — Dockerfile (multi-arch, notify-only updates), Windows zip + launcher (exit-code contract), release checklist.
 - [tools.md](tools.md) — kill harness (I4, 25/PR + 100/nightly) and offline consistency verifier.
 - [web.md](web.md) — apps/web: bare React 19 + Vite 8 stream renderer (render-only client).
 - [week1-results.md](week1-results.md) — Week-1 success-criteria measurements, model shootout, cost.

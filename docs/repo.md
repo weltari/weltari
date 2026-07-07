@@ -24,6 +24,9 @@ Purpose: everything at the repo root that makes the gate run: compiler config, l
 | `knip.json` | Knip workspace map: entries per package so unused deps/exports fail the gate. |
 | `commitlint.config.mjs` | Conventional-commit checking (Guide D6). |
 | `.github/workflows/ci.yml` | CI: `npm ci` → structural checks (`scripts/*.mjs`) → `npm run gate` → protocol emit diff; kill harness; gitleaks secret scan; commitlint + tests-accompany on PRs. |
+| `.github/workflows/release.yml` | Tag push → multi-arch Docker image on ghcr ([packaging.md](packaging.md)). |
+| `Dockerfile` / `.dockerignore` | The multi-arch image (build-from-source, notify-only updates) — see [packaging.md](packaging.md). |
+| `scripts/package-win.mjs` | The Windows zip + update-artifact builder — see [packaging.md](packaging.md). |
 | `scripts/check-dep-ledger.mjs` | D8: every declared dep has a `## <name>` heading in `docs/dependencies.md` and an exact pin (no `^`/`~`). |
 | `scripts/check-licenses.mjs` | A12/D8: AGPL core + MIT edges license fields, MIT packages free of AGPL workspace deps, direct deps on the approved license list. |
 | `scripts/check-c6-handlers.mjs` | C6: `uncaughtException`/`unhandledRejection` registered exactly once each, both in `main.ts`. |

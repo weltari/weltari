@@ -6,6 +6,9 @@
 // on restart (plugin.rejected + app boots without it). Idle RSS is sampled
 // from the server's own gauges with the plugins installed (< 170 MB).
 // Usage: node tools/m3-plugin-proof.mjs  (after npx tsc -b)
+// Packaged-build mode (M3 part-2 criterion d): PROOF_MAIN / PROOF_PLUGINS_DIR
+// / PROOF_NODE point at an extracted package's main.js, plugins dir, and
+// bundled node.exe — the RSS sample then measures the shipped artifact.
 import { spawn } from 'node:child_process';
 import {
   mkdirSync,
@@ -22,8 +25,10 @@ import Database from 'better-sqlite3';
 import { computePluginContentHash } from '../packages/plugin-sdk/dist/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MAIN = join(ROOT, 'apps', 'server', 'dist', 'main.js');
-const PLUGINS_DIR = join(ROOT, 'plugins');
+const MAIN =
+  process.env.PROOF_MAIN ?? join(ROOT, 'apps', 'server', 'dist', 'main.js');
+const PLUGINS_DIR = process.env.PROOF_PLUGINS_DIR ?? join(ROOT, 'plugins');
+const NODE = process.env.PROOF_NODE ?? process.execPath;
 const PROOF_DIR = join(PLUGINS_DIR, 'proof-dropin');
 const PORT = Number(process.env.HARNESS_PORT ?? 7914);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -107,7 +112,7 @@ function writeProofPlugin() {
 }
 
 function spawnServer() {
-  const child = spawn(process.execPath, [MAIN], {
+  const child = spawn(NODE, [MAIN], {
     env: {
       ...process.env,
       WELTARI_FAKE_LLM: '1',
