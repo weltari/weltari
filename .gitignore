@@ -7,6 +7,8 @@ coverage/
 # Secrets & local config — never commit (Guide B15, §8.5)
 .env
 .env.*
+# …except the names-only template (values never go in it)
+!.env.example
 *.local
 openrouter_api.txt
 

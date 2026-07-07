@@ -23,7 +23,10 @@ Purpose: engine-owned truth and prompt assembly. No wall-clock reads here (lint-
 
 ## Deviations recorded
 
-- The root `fixtures/` directory (data-file fixtures agents can load) is deferred; the Week-1 fixture world ships as code here so the engine and main.ts can import it type-safely. Revisit when world loading exists.
+- ~~The root `fixtures/` directory is deferred~~ — resolved in M4:
+  `fixtures/example-world/` + loader exist for row inspection
+  (builder.md §4.3). The engine's own fixture world still ships as code here
+  (type-safe imports); that split is deliberate.
 
 ## Tests
 
