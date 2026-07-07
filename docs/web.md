@@ -1,9 +1,10 @@
 # web — apps/web (React 19 + Vite 8 client)
 
-Purpose: the real VN Scene page (M3, replacing the Week-1 stream dump).
-Render-only by constitution (Brief §2.5) — zero game logic, no polling; state
-is a projection of the SSE stream, rebuilt from the event replay on every
-(re)connect. On reconnect `EventSource` resumes with `Last-Event-ID` natively.
+Purpose: the app shell (M4: Left Nav Rail + History-API routes) hosting the
+VN Scene page (M3). Render-only by constitution (Brief §2.5) — zero game
+logic, no polling; state is a projection of the SSE stream, rebuilt from the
+event replay on every (re)connect. On reconnect `EventSource` resumes with
+`Last-Event-ID` natively.
 
 ## Contract
 
@@ -20,7 +21,10 @@ is a projection of the SSE stream, rebuilt from the event replay on every
 | `src/stream.ts` | The SSE reducer: one `EventSource` (`?dev=1` opts into the dev channel), safeParse per frame, dispatch to store actions. The only store writer. |
 | `src/commands.ts` | POST helpers (start-turn, interrupt-turn, open-scene — returns the client-generated scene id so the §1.14 cover flow can start the opening-narration turn) with validated responses; fixture identity constants. |
 | `src/usePacing.ts` | Sentence pacing (UI Spec §1.4): view-owned read cursor over the store's live-sentence buffer; click / Auto-Advance (localStorage pref); exposes the interrupt cut (`seen`). |
-| `src/App.tsx` | The Scene page shell: header (title, world clock, connection), stage column + transcript, dev overlay; decides when the live turn "graduates" into the transcript (caught up + committed; interrupted turns graduate immediately). Owns the §1.14 masked transition (`openSceneCovered`: cover → open-scene → opening-narration turn → dismiss on first sentence) and the `wl-map-jump` listener (detail validated with `MapJumpDetailSchema`). |
+| `src/App.tsx` | The app shell (M4): Nav Rail + route switch over one SSE connection; owns pacing (so the read cursor survives navigation), the §1.14 masked transition (`openSceneCovered`: cover → open-scene → opening-narration turn → dismiss on first sentence) and the `wl-map-jump` listener (detail validated with `MapJumpDetailSchema` — jumps navigate to the Scene route first, so the cover masks them from any page). |
+| `src/router.ts` | History-API routing (owner decision: no router dep — four destinations). `useRoute`/`navigate`; unknown paths render the Scene route. Route = pure view state, never store state. |
+| `src/components/NavRail.tsx` | The Left Nav Rail (wireframes §0.1): logo, Scene ▶, Map, Feed, Chats, Wiki, Config; blinking clock (→ Gameday flow) + profile avatar bottom-anchored. M5 destinations (Chats/Feed/Wiki) are disabled with a "later" tooltip — never fake surfaces. Mobile: becomes a bottom bar (recorded deviation below). |
+| `src/pages/ScenePage.tsx` | The Scene route: stage column + transcript composition, live-turn "graduation" into the transcript (caught up + committed; interrupted turns graduate immediately), scene-title chip. |
 | `src/plugins.ts` | Fetches `/v1/plugins`, injects theme stylesheets, imports component modules zero-build. Asset URLs carry the provenance hash as a cache-buster (`?v=<sha256…>`): plugin assets have no cache headers, and a stale browser-cached module would silently undo a plugin update. |
 | `src/components/SceneStage.tsx` | Backdrop layers (slide transition on sublocation.changed, UI Spec §1.6), sublocation chip, character line-up with speaker rise + art switches (data-art attribute → theme rules). |
 | `src/components/NarrationBox.tsx` | Paced narration: revealed sentences (narrator italic / character voiced), speaker plate, thinking indicator, ▼ buffered hint, Auto toggle. Display-only text (B6). |
@@ -64,6 +68,9 @@ scene backdrops), portraits by swapping `.wl-portrait-figure` for an `<img>`.
 
 ## Deviations recorded
 
+- Mobile nav (M4): the wireframes assume desktop landscape (§0.1); on ≤760px
+  viewports the rail renders as a bottom bar (thumb-reachable, standard mobile
+  idiom) instead of a left rail. Same component, CSS-only.
 - zustand landed (the recorded M3 deferral) — dep ledger entry, exact pin 5.0.14.
 - The line-up cast is a hardcoded fixture constant (`SceneStage.CAST`) until a
   character-roster projection event exists.
