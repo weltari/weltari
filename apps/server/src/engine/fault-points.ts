@@ -8,7 +8,9 @@ export type FaultPoint =
   | 'pre_commit'
   | 'mid_reflection'
   | 'mid_painter'
-  | 'mid_cron';
+  | 'mid_cron'
+  /** M3 part 2: inside the update apply window — verified, not yet flipped. */
+  | 'mid_update';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;

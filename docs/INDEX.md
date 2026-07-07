@@ -16,6 +16,7 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [painter.md](painter.md) — apps/server/src/painter: kill-safe sharp compositing (crop → feather → composite, temp+rename), stub image source, region leases.
 - [gateway.md](gateway.md) — apps/server/src/gateway: connector host (B7 validate/cap/dedup), grammY Telegram long-polling echo.
 - [plugins.md](plugins.md) — boundary/plugins + plugins/: drop-in loader (B10 hash verification, plugin.rejected), zero-build asset serving, frontend injection.
+- [update.md](update.md) — boundary/update: self-update path (B12) — release check, SHA-256 + minisign verification (node:crypto, zero deps), VerifiedArtifact-confined pointer flip.
 - [tools.md](tools.md) — kill harness (I4, 25/PR + 100/nightly) and offline consistency verifier.
 - [web.md](web.md) — apps/web: bare React 19 + Vite 8 stream renderer (render-only client).
 - [week1-results.md](week1-results.md) — Week-1 success-criteria measurements, model shootout, cost.
