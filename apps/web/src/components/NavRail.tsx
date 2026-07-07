@@ -105,12 +105,7 @@ interface Destination {
 
 const DESTINATIONS: readonly Destination[] = [
   { route: '/', label: 'Scene', disabledReason: null, icon: <IconPlay /> },
-  {
-    route: '/map',
-    label: 'Map',
-    disabledReason: 'The Map page lands later in this milestone.',
-    icon: <IconGlobe />,
-  },
+  { route: '/map', label: 'Map', disabledReason: null, icon: <IconGlobe /> },
   {
     route: null,
     label: 'Feed',
