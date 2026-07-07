@@ -15,3 +15,6 @@ UI Spec (skeleton).md
 # Local secrets
 openrouter_api.txt
 .env
+
+# Harness worktrees (other sessions may hold these open)
+.claude/
