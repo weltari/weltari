@@ -19,7 +19,12 @@ export interface SceneToolsOptions {
 }
 
 export type StagedToolEffect =
-  | { kind: 'sublocation'; sublocationId: string; name: string }
+  | {
+      kind: 'sublocation';
+      sublocationId: string;
+      name: string;
+      mapPosition: { x: number; y: number };
+    }
   | { kind: 'art'; characterId: string; artId: string }
   | {
       kind: 'end_scene';
@@ -133,6 +138,7 @@ export function createToolStage(
             kind: 'sublocation',
             sublocationId: target.sublocation_id,
             name: target.name,
+            mapPosition: target.map_position,
           };
           effects.push(effect);
           return ok(effect);

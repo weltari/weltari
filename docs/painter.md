@@ -20,6 +20,7 @@ Purpose: kill-safe image compositing (FINAL item 10). M2 proves the crash-safety
 | --- | --- |
 | `painter.ts` | The pipeline: extract crop → stub-generate tile (deterministic color from the job key, fixed 256² so the resize step is real) → blurred-edge feather mask joined as alpha → composite at (x,y) → temp-file + atomic rename. `ensureBaseImage` lazily creates the deterministic 512² checkerboard fixture base. Idempotent rerun writes byte-identical output. |
 | `commands.ts` | paint-region command seam: writes the ledger row (durable intent before work) with the region-lease serial_group; duplicate `request_id` = silent no-op (I3). |
+| `images.ts` | `createImageResolver` — read-only `GET /v1/images/*` serving (M3): traversal-contained to the images dir, image content types only; the tile source for the wl-map plugin. The event, never the file, stays the truth. |
 | `../ledger/handlers/painter.ts` | The job handler: payload safeParse (garbage = corrupt_state, C2), idempotency via `painter.completed(job_key)`, base = latest completed composite for the image (else fixture base), fault point `mid_painter` between rename and event append — the nastiest kill window, healed by deterministic regeneration. |
 
 ## Events consumed/emitted

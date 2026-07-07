@@ -5,7 +5,11 @@ import { useState } from 'react';
 import { postOpenScene } from '../commands.js';
 import { useSceneStore } from '../store.js';
 
-export function SoftClose(): React.JSX.Element | null {
+export function SoftClose(props: {
+  /** True once a plugin defined <wl-map> (the map surface is pluggable). */
+  mapReady: boolean;
+  onOpenMap: () => void;
+}): React.JSX.Element | null {
   const sceneEnd = useSceneStore((s) => s.sceneEnd);
   const sceneTitle = useSceneStore((s) => s.sceneTitle);
   const [busy, setBusy] = useState(false);
@@ -49,8 +53,13 @@ export function SoftClose(): React.JSX.Element | null {
         ) : null}
         <button
           className="wl-button"
-          disabled
-          title="The map surface arrives with the wl-map plugin (M3)."
+          disabled={!props.mapReady}
+          title={
+            props.mapReady
+              ? 'Open the world map'
+              : 'No map plugin loaded (the map surface is pluggable).'
+          }
+          onClick={props.onOpenMap}
         >
           Open map
         </button>

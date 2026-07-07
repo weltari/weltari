@@ -26,7 +26,8 @@ is a projection of the SSE stream, rebuilt from the event replay on every
 | `src/components/Transcript.tsx` | The committed transcript — the authoritative reading pane; `— interrupted —` marks truncated turns; slide-over panel on mobile. |
 | `src/components/InputRow.tsx` | The chatbox. Submitting while a turn streams = interrupt path: interrupt-turn at the last displayed sentence, then start-turn. |
 | `src/components/SoftClose.tsx` | Soft close (UI Spec §1.7): divider + button set by end_type (rest → Stay/Map; continuation → Stay/Jump/Map; travel → Map). Map button enables when the wl-map plugin lands. |
-| `src/components/DevOverlay.tsx` | Dev mode (?dev=1): tool calls, B6-gate rejections, gauges — deliberately alien styling (never reads as play). |
+| `src/components/MapModal.tsx` | The pluggable map slot: renders `<wl-map>` (a plugin custom element) in a modal; the Map buttons light up via `customElements.whenDefined('wl-map')`. |
+| `src/components/DevOverlay.tsx` | Dev mode (?dev=1): tool calls, B6-gate rejections, gauges, loaded-plugin provenance — deliberately alien styling (never reads as play). |
 | `src/theme.css` | ALL colors/fonts/motion as CSS custom properties — the reskin surface (see below). |
 | `vite.config.mjs` | Dev proxy `/v1` → `127.0.0.1:7777`; the built app is later served by Fastify itself (FINAL item 2). |
 | `structure.md` | The in-repo module contract + customization guide for (third-party AI) frontend editors (UI Spec §1.13). |

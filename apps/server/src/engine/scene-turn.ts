@@ -426,6 +426,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                     scene_id: command.scene_id,
                     sublocation_id: effect.sublocationId,
                     name: effect.name,
+                    map_position: effect.mapPosition,
                   },
                 }),
               );

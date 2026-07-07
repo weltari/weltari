@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import type { PluginInfo } from '@weltari/protocol';
 import { DevOverlay } from './components/DevOverlay.js';
 import { InputRow } from './components/InputRow.js';
+import { MapModal } from './components/MapModal.js';
 import { NarrationBox } from './components/NarrationBox.js';
 import { SceneStage } from './components/SceneStage.js';
 import { SoftClose } from './components/SoftClose.js';
@@ -27,12 +28,24 @@ export function App(): React.JSX.Element {
   const pacing = usePacing();
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
 
   useEffect(() => connectStream(DEV_MODE), []);
   useEffect(() => {
     loadPluginFrontends()
       .then(setPlugins)
       .catch(() => undefined); // CATCH-OK: the core UI stands without plugins
+    let alive = true;
+    customElements
+      .whenDefined('wl-map')
+      .then(() => {
+        if (alive) setMapReady(true);
+      })
+      .catch(() => undefined); // CATCH-OK: no map plugin = button stays off
+    return (): void => {
+      alive = false;
+    };
   }, []);
 
   // The live turn graduates into the transcript once the reader caught up
@@ -61,6 +74,16 @@ export function App(): React.JSX.Element {
             {worldTime.replace('T', ' · ').slice(0, 18)}
           </span>
         ) : null}
+        {mapReady ? (
+          <button
+            className="wl-button"
+            onClick={() => {
+              setMapOpen(true);
+            }}
+          >
+            Map
+          </button>
+        ) : null}
         <span>{protocolVersion ?? '…'}</span>
       </header>
 
@@ -73,7 +96,12 @@ export function App(): React.JSX.Element {
                 : null
             }
           >
-            <SoftClose />
+            <SoftClose
+              mapReady={mapReady}
+              onOpenMap={() => {
+                setMapOpen(true);
+              }}
+            />
             <NarrationBox pacing={pacing} />
           </SceneStage>
           <InputRow pacing={pacing} />
@@ -90,6 +118,12 @@ export function App(): React.JSX.Element {
         <Transcript pacingTurnId={pacingTurnId} open={transcriptOpen} />
       </main>
 
+      <MapModal
+        open={mapOpen}
+        onClose={() => {
+          setMapOpen(false);
+        }}
+      />
       {DEV_MODE ? <DevOverlay plugins={plugins} /> : null}
     </div>
   );

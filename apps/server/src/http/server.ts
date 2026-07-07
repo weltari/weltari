@@ -70,6 +70,15 @@ export interface HttpDeps {
   }>;
   /** Painter seam: enqueue one region composite job (FINAL item 10). */
   paintRegion: (command: PaintRegionCommand) => Result<{ jobKey: string }>;
+  /**
+   * Read-only painter-output serving (GET /v1/images/*): resolves a path
+   * RELATIVE to the images dir, contained to it; null = 404. The event
+   * (painter.completed), not the file, is the truth about which image is
+   * current — this route only hands out pixels the events already named.
+   */
+  resolveImage?: (
+    relativePath: string,
+  ) => { file: string; contentType: string } | null;
   /** Loaded plugins (GET /v1/plugins) — provenance shown in dev mode (B10). */
   plugins?: PluginInfo[];
   /** Serves zero-build plugin assets; null = 404 (refused plugins are invisible). */
@@ -140,6 +149,21 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
       const resolver = deps.resolvePluginAsset;
       const asset =
         resolver?.(request.params.name, request.params['*']) ?? null;
+      if (asset === null) {
+        return reply.code(404).send({ accepted: false, error: 'not_found' });
+      }
+      reply.header('content-type', asset.contentType);
+      return reply.send(createReadStream(asset.file));
+    },
+  );
+
+  // Tile/backdrop pixels for clients and the <wl-map> plugin (FINAL item 6).
+  const imageParamsSchema = z.object({ '*': z.string().min(1) });
+  app.get(
+    '/v1/images/*',
+    { schema: { params: imageParamsSchema } },
+    (request, reply) => {
+      const asset = deps.resolveImage?.(request.params['*']) ?? null;
       if (asset === null) {
         return reply.code(404).send({ accepted: false, error: 'not_found' });
       }
