@@ -113,7 +113,7 @@ if (!env.fakeLlm && env.openrouterApiKey === undefined) {
 }
 const llm =
   env.fakeLlm || env.openrouterApiKey === undefined
-    ? createFakeLlmClient()
+    ? createFakeLlmClient({ firstTokenDelayMs: env.fakeLlmDelayMs })
     : createOpenRouterClient({
         apiKey: env.openrouterApiKey,
         registry,

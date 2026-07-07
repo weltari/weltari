@@ -19,6 +19,9 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
   /** '1' routes all LLM calls to the deterministic fake (kill harness, CI). */
   WELTARI_FAKE_LLM: z.string().optional(),
+  /** FakeLLM first-token hold (ms) — simulates the 5–10 s generation window
+   * the §1.14 masking animations must cover. */
+  WELTARI_FAKE_LLM_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
   /** '1' prints FAULT_POINT:<name> lines the kill harness targets. */
   WELTARI_EMIT_FAULT_POINTS: z.string().optional(),
   /** OpenRouter model id for all Week-1 calls. Default = the configuration that
@@ -75,6 +78,7 @@ export interface Env {
   openrouterApiKey: string | undefined;
   telegramBotToken: string | undefined;
   fakeLlm: boolean;
+  fakeLlmDelayMs: number;
   emitFaultPoints: boolean;
   model: string;
   providerOrder: readonly string[] | undefined;
@@ -121,6 +125,7 @@ export function readEnv(
       openrouterApiKey: parsed.data.OPENROUTER_API_KEY,
       telegramBotToken: parsed.data.TELEGRAM_BOT_TOKEN,
       fakeLlm,
+      fakeLlmDelayMs: parsed.data.WELTARI_FAKE_LLM_DELAY_MS,
       emitFaultPoints: parsed.data.WELTARI_EMIT_FAULT_POINTS === '1',
       model: parsed.data.WELTARI_MODEL,
       providerOrder:

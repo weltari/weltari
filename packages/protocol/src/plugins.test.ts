@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PluginListSchema } from './plugins.js';
+import { MapJumpDetailSchema, PluginListSchema } from './plugins.js';
 
 const valid: unknown = {
   plugins: [
@@ -50,5 +50,17 @@ describe('PluginListSchema', () => {
       ],
     };
     expect(PluginListSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('wl-map-jump detail validates; extra key rejected (B5)', () => {
+    const detail: unknown = { sublocation_id: 'sub:cellar', name: 'Cellar' };
+    expect(MapJumpDetailSchema.safeParse(detail).success).toBe(true);
+    const extra: unknown = {
+      sublocation_id: 'sub:cellar',
+      name: 'Cellar',
+      href: 'javascript:alert(1)',
+    };
+    expect(MapJumpDetailSchema.safeParse(extra).success).toBe(false);
+    expect(MapJumpDetailSchema.safeParse({ name: 'x' }).success).toBe(false);
   });
 });

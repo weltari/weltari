@@ -26,6 +26,14 @@ game logic, bookkeeping, or state the stream didn't push, the edit is wrong.
    changes when the resulting event arrives on the stream.
 5. **Display-only text stays display-only.** Streamed sentences render dimmed
    /live; only `turn.committed` text enters the transcript (Guide B6).
+6. **Generation is always masked (UI Spec §1.14).** Scene opens and map jumps
+   go through `App`'s `openSceneCovered` — the `SceneCover` overlay animates
+   continuously (clock-spin/dots/drift) from the click until the destination's
+   opening narration streams. Plugin map surfaces request jumps by dispatching
+   a bubbling `wl-map-jump` CustomEvent whose detail is validated against
+   `MapJumpDetailSchema` — plugins never open scenes themselves. Animation
+   durations are `--wl-cover-*` tokens; JS reads them via `readTokenMs`, never
+   owns them.
 
 ## How to customize
 

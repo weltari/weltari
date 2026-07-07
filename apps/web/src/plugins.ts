@@ -19,17 +19,23 @@ export async function loadPluginFrontends(): Promise<PluginInfo[]> {
   if (!list.success) return [];
 
   for (const plugin of list.data.plugins) {
+    // The provenance hash doubles as a cache-buster: plugin assets carry no
+    // cache headers, and a stale browser-cached module would silently undo a
+    // plugin update (the hash changes with every content change, B10).
+    const bust = `?v=${plugin.provenance.sha256.slice(0, 16)}`;
     for (const theme of plugin.themes) {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
-      link.href = theme;
+      link.href = `${theme}${bust}`;
       document.head.appendChild(link);
     }
     for (const component of plugin.components) {
       // Zero-build: the module self-defines its custom elements on import.
-      import(/* @vite-ignore */ component).catch((thrown: unknown) => {
-        console.warn('plugin component failed to load', component, thrown);
-      });
+      import(/* @vite-ignore */ `${component}${bust}`).catch(
+        (thrown: unknown) => {
+          console.warn('plugin component failed to load', component, thrown);
+        },
+      );
     }
   }
   return list.data.plugins;

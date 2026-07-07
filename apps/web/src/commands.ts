@@ -54,13 +54,16 @@ export async function postInterruptTurn(
   return parsed.success ? { committed: parsed.data.committed } : null;
 }
 
-export async function postOpenScene(title: string): Promise<boolean> {
+/** Returns the client-generated scene id on 202 (the §1.14 cover flow
+ * starts the opening-narration turn against it), null on refusal. */
+export async function postOpenScene(title: string): Promise<string | null> {
+  const sceneId = `s-${crypto.randomUUID().slice(0, 8)}`;
   const raw = await post('/v1/commands/open-scene', {
     world_id: WORLD_ID,
     actor_id: ACTOR_ID,
-    scene_id: `s-${crypto.randomUUID().slice(0, 8)}`,
+    scene_id: sceneId,
     title,
     participants: ['char:elias'],
   });
-  return OpenSceneAcceptedSchema.safeParse(raw).success;
+  return OpenSceneAcceptedSchema.safeParse(raw).success ? sceneId : null;
 }

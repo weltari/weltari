@@ -15,6 +15,7 @@ import {
   EndSceneCommandSchema,
   InterruptTurnAcceptedSchema,
   InterruptTurnCommandSchema,
+  MapJumpDetailSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
@@ -51,6 +52,7 @@ const files = {
   'apply-update-accepted.json': ApplyUpdateAcceptedSchema,
   'command-rejected.json': CommandRejectedSchema,
   'plugin-list.json': PluginListSchema,
+  'map-jump-detail.json': MapJumpDetailSchema,
 };
 
 for (const [name, schema] of Object.entries(files)) {
