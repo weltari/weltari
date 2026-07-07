@@ -30,3 +30,6 @@ Thumbs.db
 /Stack Session/
 /UI Spec (skeleton).md
 /stack.md
+
+# m3-plugin-proof scratch plugin (authored + removed by the script; never committed)
+plugins/proof-dropin/
