@@ -88,7 +88,14 @@ const stopGauges = startGauges({
   },
 });
 
-// Fixture world seed (builder.md §4.3): an empty log gets one scene to play in.
+const elias = buildEliasProfile(env.prefixTokens);
+const narrator = buildNarratorProfile(env.prefixTokens);
+const knownCharacters = [
+  { character_id: elias.character_id, name: elias.name },
+];
+
+// Fixture world seed (builder.md §4.3): an empty log gets one scene to play
+// in, roster included (character.joined per participant, like openScene).
 if (storage.eventLog.lastId() === 0) {
   sink.append({
     world_id: FIXTURE_WORLD_ID,
@@ -96,6 +103,18 @@ if (storage.eventLog.lastId() === 0) {
     type: 'scene.started',
     payload: { scene_id: FIXTURE_SCENE_ID, title: FIXTURE_SCENE_TITLE },
   });
+  for (const character of knownCharacters) {
+    sink.append({
+      world_id: FIXTURE_WORLD_ID,
+      actor_id: 'system:engine',
+      type: 'character.joined',
+      payload: {
+        scene_id: FIXTURE_SCENE_ID,
+        character_id: character.character_id,
+        name: character.name,
+      },
+    });
+  }
   logger.info({ world_id: FIXTURE_WORLD_ID }, 'seeded fixture world');
 }
 
@@ -132,12 +151,6 @@ const faultPoint: FaultPointHook | undefined = env.emitFaultPoints
       }
     }
   : undefined;
-
-const elias = buildEliasProfile(env.prefixTokens);
-const narrator = buildNarratorProfile(env.prefixTokens);
-const knownCharacters = [
-  { character_id: elias.character_id, name: elias.name },
-];
 
 const engine = createTurnEngine({
   storage,

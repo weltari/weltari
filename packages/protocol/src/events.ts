@@ -37,6 +37,25 @@ export const SceneStartedEventSchema = z.strictObject({
 });
 
 /**
+ * A character joined a scene's cast — the roster projection (M4). Emitted by:
+ * the scene lifecycle at scene open, one per participant, in the same
+ * transaction as scene.started (and by the fixture seed). Consumed by:
+ * clients (the VN line-up renders the cast from these — no hardcoded cast).
+ * The scene's current roster = character.joined events since its
+ * scene.started; leave/mid-scene-join events arrive with a later milestone.
+ */
+export const CharacterJoinedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('character.joined'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    character_id: z.string().min(1),
+    /** Display name as it appears in turn steps' `speaker`. */
+    name: z.string().min(1),
+  }),
+});
+
+/**
  * Turn envelope opened — durable intent before any LLM work happens
  * (crash-only design, Brief §2.4). Emitted by: scene engine. Consumed by:
  * clients (show "thinking"), recovery sweep (a started-but-never-committed
@@ -350,6 +369,7 @@ export const JobParkedEventSchema = z.strictObject({
 export const WeltariEventSchema = z.discriminatedUnion('type', [
   SceneStartedEventSchema,
   SceneEndedEventSchema,
+  CharacterJoinedEventSchema,
   TurnStartedEventSchema,
   TurnCommittedEventSchema,
   SublocationChangedEventSchema,

@@ -35,6 +35,43 @@ describe('WeltariEventSchema', () => {
     expect(WeltariEventSchema.safeParse(ended).success).toBe(true);
   });
 
+  it('accepts a valid character.joined event (roster projection)', () => {
+    const joined: unknown = {
+      id: 6,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-08T12:00:00.000Z',
+      type: 'character.joined',
+      payload: { scene_id: 's1', character_id: 'char:elias', name: 'Elias' },
+    };
+    expect(WeltariEventSchema.safeParse(joined).success).toBe(true);
+  });
+
+  it('rejects a character.joined with an empty name or extra key (B5)', () => {
+    const base = {
+      id: 6,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-08T12:00:00.000Z',
+      type: 'character.joined',
+    };
+    const emptyName: unknown = {
+      ...base,
+      payload: { scene_id: 's1', character_id: 'char:elias', name: '' },
+    };
+    const extraKey: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        character_id: 'char:elias',
+        name: 'Elias',
+        art_id: 'smile',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(emptyName).success).toBe(false);
+    expect(WeltariEventSchema.safeParse(extraKey).success).toBe(false);
+  });
+
   it('accepts a valid reflection.committed event', () => {
     const reflection: unknown = {
       id: 8,
