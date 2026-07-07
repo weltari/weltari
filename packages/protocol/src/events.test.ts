@@ -163,6 +163,119 @@ describe('WeltariEventSchema', () => {
     }
   });
 
+  it('accepts an interrupted turn.committed and rejects interrupted: false', () => {
+    const base = {
+      id: 43,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-07T12:00:00.000Z',
+      type: 'turn.committed',
+    };
+    const interrupted: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        turn_id: 't1',
+        steps: [{ call: 'narrator', speaker: 'Narrator', text: 'Rain falls.' }],
+        interrupted: true,
+      },
+    };
+    expect(WeltariEventSchema.safeParse(interrupted).success).toBe(true);
+    // interrupted is a literal true: an uninterrupted turn omits the key.
+    const explicitFalse: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        turn_id: 't1',
+        steps: [{ call: 'narrator', speaker: 'Narrator', text: 'Rain falls.' }],
+        interrupted: false,
+      },
+    };
+    expect(WeltariEventSchema.safeParse(explicitFalse).success).toBe(false);
+  });
+
+  it('accepts scene.ended with end_type + divider and rejects unknown end_type', () => {
+    const base = {
+      id: 44,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-07T12:00:00.000Z',
+      type: 'scene.ended',
+    };
+    const soft: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        participants: ['char:elias'],
+        end_type: 'continuation',
+        divider_text: '— evening falls —',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(soft).success).toBe(true);
+    const badType: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        participants: ['char:elias'],
+        end_type: 'hard_cut',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(badType).success).toBe(false);
+  });
+
+  it('accepts a valid sublocation.changed and rejects an extra payload key (B5)', () => {
+    const base = {
+      id: 45,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-07T12:00:00.000Z',
+      type: 'sublocation.changed',
+    };
+    const valid: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:cellar',
+        name: 'The Flooded Cellar',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const extra: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:cellar',
+        name: 'The Flooded Cellar',
+        smuggled: true,
+      },
+    };
+    expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('accepts a valid art.switched and rejects an empty art_id', () => {
+    const base = {
+      id: 46,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-07T12:00:00.000Z',
+      type: 'art.switched',
+    };
+    const valid: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        character_id: 'char:elias',
+        art_id: 'smile',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const emptyArt: unknown = {
+      ...base,
+      payload: { scene_id: 's1', character_id: 'char:elias', art_id: '' },
+    };
+    expect(WeltariEventSchema.safeParse(emptyArt).success).toBe(false);
+  });
+
   it('rejects an unknown envelope key (strict — Guide B5)', () => {
     const withExtra: unknown = {
       id: 1,

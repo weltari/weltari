@@ -64,6 +64,12 @@ export const TurnCommittedEventSchema = z.strictObject({
     scene_id: z.string().min(1),
     turn_id: z.string().min(1),
     steps: z.array(TurnStepSchema).min(1),
+    /**
+     * Present (true) when the user interrupted the stream: steps hold only
+     * what was displayed up to the interruption point — nothing generated
+     * after it is durable (UI Spec §1.4, Guide B6).
+     */
+    interrupted: z.literal(true).optional(),
   }),
 });
 
@@ -80,6 +86,16 @@ export const SceneEndedEventSchema = z.strictObject({
     scene_id: z.string().min(1),
     /** Character ids whose reflections were enqueued at close. */
     participants: z.array(z.string().min(1)),
+    /**
+     * How the scene closed — drives the soft-close button set (UI Spec §1.7):
+     * `rest` → Stay longer + Open map; `continuation` → Stay longer + Jump to
+     * the next scene + Open map; `travel` → Open map. Absent on closes from
+     * the bare end-scene HTTP command (clients treat absent as `rest`).
+     * Emitted by: the Narrator's end_scene tool (engine-validated, Guide B6).
+     */
+    end_type: z.enum(['rest', 'continuation', 'travel']).optional(),
+    /** Soft-close divider line, e.g. "— evening falls —" (UI Spec §1.7). */
+    divider_text: z.string().min(1).max(200).optional(),
   }),
 });
 
@@ -147,6 +163,45 @@ export const WorldCronCompletedEventSchema = z.strictObject({
     job_class: z.enum(['code', 'llm']),
     /** LLM-class only: the generated note (B6-gated before it lands here). */
     note: z.string().min(1).optional(),
+  }),
+});
+
+/**
+ * The scene's backdrop moved to another sublocation — clients play the
+ * slide-style backdrop transition (UI Spec §1.6). Emitted by: the Narrator's
+ * change_sublocation tool after both B6 gates (the sublocation must exist in
+ * this world). Consumed by: clients (backdrop swap + scene header).
+ */
+export const SublocationChangedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('sublocation.changed'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    sublocation_id: z.string().min(1),
+    /** Display name for the scene header ("The Flooded Cellar"). */
+    name: z.string().min(1),
+    /**
+     * Path (relative to the images dir) of a painter-generated backdrop, when
+     * one exists. Absent = the client renders its themed placeholder backdrop.
+     */
+    backdrop_path: z.string().min(1).optional(),
+  }),
+});
+
+/**
+ * A character's displayed art changed — the VN line-up re-renders that
+ * character's pose (UI Spec §1.5). Emitted by: the Narrator's switch_art tool
+ * after both B6 gates (character present in the scene, art id in their art
+ * set). Consumed by: clients (VN stage).
+ */
+export const ArtSwitchedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('art.switched'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    character_id: z.string().min(1),
+    /** A named pose from the character's fixture art set, e.g. "smile". */
+    art_id: z.string().min(1),
   }),
 });
 
@@ -224,6 +279,8 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   SceneEndedEventSchema,
   TurnStartedEventSchema,
   TurnCommittedEventSchema,
+  SublocationChangedEventSchema,
+  ArtSwitchedEventSchema,
   ReflectionCommittedEventSchema,
   WorldAgentCommittedEventSchema,
   WorldTimeAdvancedEventSchema,

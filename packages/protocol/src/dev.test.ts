@@ -12,7 +12,7 @@ describe('DevEventSchema', () => {
   it('accepts a valid dev.gauges frame', () => {
     const r = DevEventSchema.safeParse(valid);
     expect(r.success).toBe(true);
-    if (r.success) {
+    if (r.success && r.data.type === 'dev.gauges') {
       expect(r.data.degraded).toBe(false);
     }
   });
@@ -46,5 +46,50 @@ describe('DevEventSchema', () => {
       degraded: false,
     };
     expect(DevEventSchema.safeParse(negative).success).toBe(false);
+  });
+
+  it('accepts a valid dev.tool_call frame and rejects an extra key (B5)', () => {
+    const call: unknown = {
+      type: 'dev.tool_call',
+      turn_id: 't1',
+      tool: 'switch_art',
+      input_json: '{"character_id":"char:elias","art_id":"smile"}',
+    };
+    expect(DevEventSchema.safeParse(call).success).toBe(true);
+    const extra: unknown = {
+      type: 'dev.tool_call',
+      turn_id: 't1',
+      tool: 'switch_art',
+      input_json: '{}',
+      smuggled: true,
+    };
+    expect(DevEventSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('accepts both dev.tool_rejected gates and rejects an unknown gate', () => {
+    const schemaGate: unknown = {
+      type: 'dev.tool_rejected',
+      turn_id: 't1',
+      tool: 'change_sublocation',
+      gate: 'schema',
+      reason: 'sublocation_id: expected string',
+    };
+    expect(DevEventSchema.safeParse(schemaGate).success).toBe(true);
+    const stateGate: unknown = {
+      type: 'dev.tool_rejected',
+      turn_id: 't1',
+      tool: 'change_sublocation',
+      gate: 'state',
+      reason: 'unknown sublocation subloc:moon',
+    };
+    expect(DevEventSchema.safeParse(stateGate).success).toBe(true);
+    const badGate: unknown = {
+      type: 'dev.tool_rejected',
+      turn_id: 't1',
+      tool: 'change_sublocation',
+      gate: 'vibes',
+      reason: 'nope',
+    };
+    expect(DevEventSchema.safeParse(badGate).success).toBe(false);
   });
 });

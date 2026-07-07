@@ -13,10 +13,10 @@ Purpose: the language-neutral wire contract between the engine and every client 
 | File | What it does / talks to |
 | --- | --- |
 | `src/index.ts` | Public surface: re-exports + `PROTOCOL_VERSION` (handshake semver; major bump required for breaking changes, I7). |
-| `src/events.ts` | Durable event union (`scene.started`, `scene.ended`, `turn.started`, `turn.committed`, `reflection.committed`, `world_agent.committed`, `world.time_advanced`, `world_cron.completed`, `painter.completed`, `job.failed`, `job.parked`) — rows of the append-only event log, replayed via SSE `Last-Event-ID`. strictObject: own formats reject unknown keys (B5). |
+| `src/events.ts` | Durable event union (`scene.started`, `scene.ended` — now with optional `end_type`/`divider_text` for the soft-close button set, `turn.started`, `turn.committed` — now with optional `interrupted`, `sublocation.changed`, `art.switched`, `reflection.committed`, `world_agent.committed`, `world.time_advanced`, `world_cron.completed`, `painter.completed`, `job.failed`, `job.parked`) — rows of the append-only event log, replayed via SSE `Last-Event-ID`. strictObject: own formats reject unknown keys (B5). |
 | `src/stream.ts` | Ephemeral SSE frames (`hello`, `stream` sentence) — display-only, never durable, never carry an SSE `id:` (B6). |
-| `src/dev.ts` | Dev-channel frame union (`dev.gauges`) — the log-only trail for dev mode (UI Spec §2.8, Guide C11); ephemeral like `stream`, sent only to clients that opted in with `?dev=1`. |
-| `src/commands.ts` | POST command bodies + responses (`start-turn`, `end-scene`, `open-scene`, `advance-time`, `paint-region`), user text capped at 8 KB (B7). |
+| `src/dev.ts` | Dev-channel frame union (`dev.gauges`, `dev.tool_call`, `dev.tool_rejected`) — the log-only trail for dev mode (UI Spec §2.8, Guide C11); ephemeral like `stream`, sent only to clients that opted in with `?dev=1`. `dev.tool_rejected` is the I8 trail subject: a B6-gate rejection lives only here, zero rows written. |
+| `src/commands.ts` | POST command bodies + responses (`start-turn`, `interrupt-turn` — closes the envelope at the user's last-seen sentence, `end-scene`, `open-scene`, `advance-time`, `paint-region`), user text capped at 8 KB (B7). |
 | `scripts/emit.mjs` | Emits `schemas/*.json` via `z.toJSONSchema` (`npm run protocol:emit`); CI diffs the output against the committed copies. |
 | `src/*.test.ts` | Valid + extra-key + boundary fixtures per schema (B5 test rule). |
 
