@@ -39,6 +39,21 @@ file EXCEPT plugin.json, sorted relative paths, `<path>\0<bytes>\0` each.
 Authors re-run it after any edit (a one-liner:
 `node -e "import('@weltari/plugin-sdk').then(m => console.log(m.computePluginContentHash('plugins/<name>')))"`).
 
+## The default wl-map plugin (plugins/wl-map)
+
+The map renderer is a plugin by decree (UI Spec §1.8) and dogfoods this
+contract: `frontend/wl-map.mjs` defines `<wl-map>` with ZERO imports —
+lint-proven (`eslint.config.mjs` bans every import specifier under
+`plugins/wl-map/`, M3 criterion b). It consumes only documented surfaces:
+its own `EventSource('/v1/events')` for `painter.completed` (tile source,
+pixels via `GET /v1/images/<path>`) and `sublocation.changed` `map_position`
+pins (world coordinates — a repaint never moves a pin). Canvas 2D tile +
+grid-fog placeholder, DOM overlay pins; themed via the same `--wl-*` tokens.
+The core web app only hosts a modal slot (`MapModal`) that lights up when any
+plugin defines `<wl-map>` — a community plugin can replace the map wholesale.
+NOTE: any edit to plugin content requires re-running `computePluginContentHash`
+and updating plugin.json's provenance sha256 (the loader refuses otherwise).
+
 ## Events consumed/emitted
 
 Emits `plugin.rejected` (actor `system:plugins`) — reasons: `manifest_missing`,

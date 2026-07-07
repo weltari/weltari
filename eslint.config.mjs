@@ -67,12 +67,7 @@ const restricted = (paths, patterns = []) => ({
 });
 
 export default defineConfig([
-  globalIgnores([
-    '**/dist/**',
-    '**/node_modules/**',
-    '**/coverage/**',
-    'plugins/**',
-  ]),
+  globalIgnores(['**/dist/**', '**/node_modules/**', '**/coverage/**']),
 
   /* ---- Base TypeScript block: all .ts/.tsx ---- */
   {
@@ -333,6 +328,33 @@ export default defineConfig([
     files: ['scripts/**/*.mjs', 'tools/**/*.mjs'],
     extends: [js.configs.recommended],
     languageOptions: { globals: globalsPkg.node },
+  },
+
+  /* ---- Plugins: zero-build browser modules (FINAL item 13) ---- */
+  {
+    files: ['plugins/**/frontend/**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: { globals: globalsPkg.browser },
+  },
+  /* The default map renderer is written ONLY against documented public
+     events (UI Spec §1.8) — lint PROVES no private imports (M3 criterion b)
+     by banning every import specifier outright. */
+  {
+    files: ['plugins/wl-map/**/*.mjs'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['*', '**'],
+              message:
+                'wl-map consumes only the documented public stream + image routes — no imports of any kind (dogfoods the plugin contract).',
+            },
+          ],
+        },
+      ],
+    },
   },
 
   /* Must stay last: disables formatting rules that would fight Prettier (Guide §0.4). */

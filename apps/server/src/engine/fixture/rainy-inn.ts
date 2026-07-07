@@ -12,6 +12,9 @@ export const FIXTURE_SCENE_TITLE = 'The Rainy Inn';
 export interface SublocationDefinition {
   sublocation_id: string;
   name: string;
+  /** World-map anchor (unit square) — pins anchor to world coordinates,
+   * never pixels (UI Spec §1.8). */
+  map_position: { x: number; y: number };
 }
 
 /**
@@ -20,9 +23,21 @@ export interface SublocationDefinition {
  * until painter-generated backdrops exist.
  */
 export const FIXTURE_SUBLOCATIONS: readonly SublocationDefinition[] = [
-  { sublocation_id: 'subloc:common_room', name: 'The Common Room' },
-  { sublocation_id: 'subloc:cellar', name: 'The Flooded Cellar' },
-  { sublocation_id: 'subloc:shrine', name: 'The Old Shrine' },
+  {
+    sublocation_id: 'subloc:common_room',
+    name: 'The Common Room',
+    map_position: { x: 0.42, y: 0.55 },
+  },
+  {
+    sublocation_id: 'subloc:cellar',
+    name: 'The Flooded Cellar',
+    map_position: { x: 0.38, y: 0.72 },
+  },
+  {
+    sublocation_id: 'subloc:shrine',
+    name: 'The Old Shrine',
+    map_position: { x: 0.61, y: 0.33 },
+  },
 ];
 
 /** Every fixture scene opens here (the projection default before any sublocation.changed). */

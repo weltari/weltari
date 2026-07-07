@@ -34,6 +34,7 @@ import {
 } from './ledger/handlers/world-cron.js';
 import { createRunner } from './ledger/runner.js';
 import { createPaintRegionCommand } from './painter/commands.js';
+import { createImageResolver } from './painter/images.js';
 import { createFakeLlmClient } from './llm/fake-client.js';
 import { createModelRegistry } from './llm/model-registry.js';
 import { createOpenRouterClient } from './llm/openrouter-client.js';
@@ -304,6 +305,7 @@ const app = createHttpServer({
   paintRegion: createPaintRegionCommand(storage),
   plugins: plugins.map((plugin) => plugin.info),
   resolvePluginAsset: createPluginAssetResolver(plugins),
+  resolveImage: createImageResolver(env.imagesDir),
 });
 
 let draining = false;

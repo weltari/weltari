@@ -8,12 +8,16 @@
  * 0.2.0: interrupt-turn command; sublocation.changed + art.switched events;
  * scene.ended end_type/divider_text; dev.tool_call/dev.tool_rejected frames.
  * 0.3.0: plugin.rejected event; GET /v1/plugins wire shapes (PluginInfo).
+ * 0.4.0: sublocation.changed optional map_position (map connector surface);
+ * GET /v1/images/* serves painter outputs (tile source).
  */
-export const PROTOCOL_VERSION = '0.3.0';
+export const PROTOCOL_VERSION = '0.4.0';
 
 export {
   ArtSwitchedEventSchema,
   ImageRegionSchema,
+  MapPositionSchema,
+  type MapPosition,
   JobErrorSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,

@@ -172,6 +172,17 @@ export const WorldCronCompletedEventSchema = z.strictObject({
  * change_sublocation tool after both B6 gates (the sublocation must exist in
  * this world). Consumed by: clients (backdrop swap + scene header).
  */
+/**
+ * World-coordinate anchor for map pins (UI Spec §1.8: pins anchor to world
+ * coordinates, never pixels — a repaint never moves a pin). Unit square:
+ * x/y ∈ [0, 1] of the world map extent.
+ */
+export const MapPositionSchema = z.strictObject({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+});
+export type MapPosition = z.infer<typeof MapPositionSchema>;
+
 export const SublocationChangedEventSchema = z.strictObject({
   ...eventEnvelope,
   type: z.literal('sublocation.changed'),
@@ -185,6 +196,9 @@ export const SublocationChangedEventSchema = z.strictObject({
      * one exists. Absent = the client renders its themed placeholder backdrop.
      */
     backdrop_path: z.string().min(1).optional(),
+    /** Where this sublocation sits on the world map — the map connector
+     * surface the default <wl-map> plugin anchors its pins to. */
+    map_position: MapPositionSchema.optional(),
   }),
 });
 
