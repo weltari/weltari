@@ -1,8 +1,8 @@
 # Weltari — UI Wireframes (page-by-page description)
 
-This folder contains the source hand-drawn wireframe sheet (`../UI.jpg`) sliced into
-one PNG per page (`01-…` … `15-…`). This README describes each page **in words** so an
-agent without vision can rebuild the prototype in Figma.
+This folder contains the hand-drawn wireframe sheet sliced into one PNG per page
+(`01-…` … `15-…`; the unsliced source sheet has been removed from the repo). This README
+describes each page **in words** so an agent without vision can rebuild the prototype.
 
 > These are **rough hand sketches**, not pixel-accurate mockups. Treat every measurement,
 > label, and icon as intent, not spec. Where a label or icon was unreadable it is marked
@@ -57,11 +57,11 @@ The top-level landing/home screen. **No left rail here.**
 
 - **Header row:**
   - Far left: large wordmark **“Weltari.”** with small version text **“v1.0.1”** beside it.
-  - Far right: three round icon buttons — a **flag**, a **sun/asterisk**, and a
-    **profile avatar** (circle with a face). (Likely: language/region, theme, account.)
+  - Far right: three round icon buttons — a **chat** button to open Weltari Chat (where you can directly talk to every character), a **sun/asterisk**, and a
+    **Github icon** Clicking on it redirects to the github project page in default system browser.
 - **“Continue” section** (label “Continue”):
   - One wide horizontal **resume card**. Left third = a **thumbnail** (city-skyline
-    sketch). Right two-thirds = big title **“City Newtown”** with grey subtitle
+    sketch). Right two-thirds = big title **“City Newtown”** as an example with grey subtitle
     **“City newtown quickly evolved…”**. Far right of the card: a **» (double-chevron)**
     affordance meaning *enter / resume*.
 - **“Worlds” section** (label “Worlds”):
@@ -125,7 +125,7 @@ A **modal panel** floating over a dimmed screen (rail visible behind at left).
 
 The default in-scene view, styled like a **visual novel**. Left rail present.
 
-- **Top-right control cluster** (3 icons): **log/transcript panel**, **» fast-forward/skip**,
+- **Top-right control cluster** (4 icons): **Book** for switching VN - Reader mode, History, **» auto-mode/skip**,
   **→ exit scene**.
 - **Stage:** **two standing character silhouettes** (VN sprites) facing forward. A blue
   **annotation arrow** points at one figure labeled **“character”** (this is a note to the
@@ -133,7 +133,7 @@ The default in-scene view, styled like a **visual novel**. Left rail present.
 - **Dialogue box** (full-width, near bottom): speaker name **“Elias”** top-left, then
   dialogue text (shown as dotted placeholder lines). A small **collapse/continue chevron**
   sits at the box’s bottom-right.
-- **Input bar** (below the dialogue box): a small **quick-action icon** in a box at the left,
+- **Input bar** (below the dialogue box): a small **backpack icon** in a box at the left,
   a text field, and a circular **send/generate** button at the right.
 
 ---
@@ -143,7 +143,7 @@ The default in-scene view, styled like a **visual novel**. Left rail present.
 Same as page 05, but the **transcript/history side panel is open**.
 
 - **Stage:** a **single** character silhouette now (blue arrow, “character” note).
-- **Top-right cluster:** as page 05, **plus** an extra leading icon (a **highlight/pin**).
+- **Top-right cluster:** as page 05, **with** the VN / Reader switch icon (lookes like **book**).
 - **Right side — docked “History” panel:** title **“History”**, then labeled log lines:
   **“Narrator: ….”** and **“Elias: ….”** (a running transcript of the scene).
 - Bottom: same **“Elias” dialogue box** + **input bar** as page 05.
@@ -154,10 +154,10 @@ Same as page 05, but the **transcript/history side panel is open**.
 
 A **text-first / prose** reading layout for the same scene. Left rail present.
 
-- **Top-right control cluster:** **log panel**, **» skip**, **→ exit** (no character/pin).
+- **Top-right control cluster:** book for switching, **log panel**, **» auto-mode**, **→ exit**.
 - **Main area:** a single **large empty reading pane** (blank rectangle) — this is where
   narration/prose text flows. No character sprites, no dialogue box.
-- **Bottom:** the same **input bar** (left quick-action icon + right send button).
+- **Bottom:** the same **input bar** (left backpack icon + right send button).
 
 > Pages 05 / 06 / 07 are **three display modes of the same scene screen** — VN, VN-with-log,
 > and Reader. Keep the rail, top-right cluster, and bottom input bar consistent across all three.
@@ -169,12 +169,11 @@ A **text-first / prose** reading layout for the same scene. Left rail present.
 A full-canvas **city map**. Left rail present.
 
 - **Map surface:** dotted-grid background with hand-drawn **streets and building blocks**.
-- **Marker:** a **blue location pin** (teardrop with a “!”) dropped on the map; a small
-  **compass/target** glyph near the center.
+- **Marker:** a **blue location pin** (teardrop with a “!”) dropped on the map that represents a event; a small **compass/target** glyph near the center.
 - **Search:** a **“Search location…”** input field with a magnifier icon, centered near
-  the bottom.
+  the bottom. Allow users to search and select sublocation, and zoom in it directly.
 - **Map controls (right edge):** **＋ / −** zoom buttons and a small **vertical slider/pen**
-  control (zoom or a drawing/pin tool — see **Open questions Q3**).
+  control for user to lasso - edit the map.
 
 ---
 
@@ -241,8 +240,7 @@ Build as one screen with an animated/transition state; the three PNGs are keyfra
 
 ## 14. `14-chat-page.png` — Chats (full page)
 
-The **standalone, full-page** version of the Chats screen (page 02 is the embedded/in-world
-variant — same layout). Left rail present.
+The **standalone, full-page** version of the Chats screen (page 02 is the one before opening a world, which allow user to chat with character from different worlds). Left rail present.
 
 - **Left pane “Chats”:** **New**, **Alex – Disclosure**, **Elias**, **Group Chat**,
   **Game Master** (same list as page 02).
@@ -266,23 +264,23 @@ account avatar).
 
 ## Screen inventory (quick map for Figma frames)
 
-| # | File | Screen | Notes |
-|---|------|--------|-------|
-| 01 | 01-world-page | World / Home | no left rail |
-| 02 | 02-chat-world-page | Chats (in-world) | 2-pane |
-| 03 | 03-landing-scene | Scene splash | “Adventure Awaits” |
-| 04 | 04-history | History | modal overlay |
-| 05 | 05-scene-vn-mode | Scene · VN | 2 characters |
-| 06 | 06-scene-vn-opened-chat | Scene · VN + log | 1 character + side log |
-| 07 | 07-scene-reader-mode | Scene · Reader | prose pane |
-| 08 | 08-map | Map | pin + search |
-| 09 | 09-social-feed | Feed | posts + stories |
-| 10 | 10-wiki | Wiki | tree + article |
-| 11 | 11-clock-before-changing | Gameday clock ① | 09:41 |
-| 12 | 12-clock-advancing | Gameday clock ② | 09:41 → 12:00⁺¹ |
-| 13 | 13-clock-advanced | Gameday clock ③ | 12:00 |
-| 14 | 14-chat-page | Chats (full page) | 2-pane |
-| 15 | 15-config | Config | empty placeholder |
+| #   | File                     | Screen               | Notes                  |
+| --- | ------------------------ | -------------------- | ---------------------- |
+| 01  | 01-world-page            | World / Home         | no left rail           |
+| 02  | 02-chat-world-page       | Chats (not in-world) | 2-pane                 |
+| 03  | 03-landing-scene         | Scene splash         | “Adventure Awaits”     |
+| 04  | 04-history               | History              | modal overlay          |
+| 05  | 05-scene-vn-mode         | Scene · VN           | 2 characters           |
+| 06  | 06-scene-vn-opened-chat  | Scene · VN + log     | 1 character + side log |
+| 07  | 07-scene-reader-mode     | Scene · Reader       | prose pane             |
+| 08  | 08-map                   | Map                  | pin + search           |
+| 09  | 09-social-feed           | Feed                 | posts + stories        |
+| 10  | 10-wiki                  | Wiki                 | tree + article         |
+| 11  | 11-clock-before-changing | Gameday clock ①      | 09:41                  |
+| 12  | 12-clock-advancing       | Gameday clock ②      | 09:41 → 12:00⁺¹        |
+| 13  | 13-clock-advanced        | Gameday clock ③      | 12:00                  |
+| 14  | 14-chat-page             | Chats (full page)    | 2-pane                 |
+| 15  | 15-config                | Config               | empty placeholder      |
 
 Pages 05/06/07 = modes of one Scene screen. Pages 11/12/13 = states of one Gameday screen.
 Pages 02/14 = embedded vs. full-page Chats.
@@ -297,10 +295,3 @@ Pages 02/14 = embedded vs. full-page Chats.
 - **Q2 — Landing button #3:** **“Hang around”** = open a **random scene from the Map**.
 - **Q4 — Config:** leave as-is (empty placeholder for now).
 - **Q6 — Viewport:** **desktop** landscape.
-
-## Still open (please confirm before building)
-
-1. **Map right-edge control (Q3):** is the vertical control a zoom slider, or a pin/draw tool
-   (separate from the ＋/− buttons)?
-2. **Header icons on World page (Q5):** the World home’s top-right three icons —
-   flag / sun / circle — what are they (guess: language / theme / account)?
