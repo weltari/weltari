@@ -1,8 +1,8 @@
 // Composition root. Startup IS recovery (Brief §2.4): open storage (runs
 // migrations; the runner's first tick sweeps expired leases), seed the fixture
 // world if the log is empty, start HTTP + runner loops.
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import type { StartTurnCommand } from '@weltari/protocol';
 import { readEnvOrExplain } from './boundary/config/env.js';
 import { createPluginAssetResolver } from './boundary/plugins/assets.js';
@@ -25,6 +25,7 @@ import { createGatewayHost } from './gateway/host.js';
 import { createTelegramConnector } from './gateway/telegram/connector.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
+import { createStaticResolver } from './http/static.js';
 import { createPainterHandler } from './ledger/handlers/painter.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
 import { createWorldAgentHandler } from './ledger/handlers/world-agent.js';
@@ -291,6 +292,14 @@ const worldClock = createWorldClock({
   },
 });
 
+// The built frontend ships from this process (FINAL item 2). The default sits
+// next to the compiled server both in-repo and in the packaged layout; a
+// missing dist just means API-only (dev uses the Vite server instead).
+const webDir = env.webDir ?? resolve(import.meta.dirname, '../../web/dist');
+if (!existsSync(webDir)) {
+  logger.warn({ webDir }, 'web dist not found — static frontend disabled');
+}
+
 const app = createHttpServer({
   eventLog: storage.eventLog,
   eventBus,
@@ -306,6 +315,7 @@ const app = createHttpServer({
   plugins: plugins.map((plugin) => plugin.info),
   resolvePluginAsset: createPluginAssetResolver(plugins),
   resolveImage: createImageResolver(env.imagesDir),
+  resolveStatic: createStaticResolver(webDir),
 });
 
 let draining = false;

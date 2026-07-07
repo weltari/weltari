@@ -6,7 +6,7 @@ Purpose: the engine's one public face (Brief §1): a server-pushed SSE event str
 
 - Inputs: HTTP requests; durable events via `EventBus`; display-only sentences via `StreamBus`.
 - Outputs: SSE frames (`hello`, `event` with `id:` = log seq, `stream` without id); command replies (202/400/409).
-- Never: hold game logic (render-only clients, Brief §2.5); push an event before its row is durable; give ephemeral frames an SSE id (B6).
+- Never: hold game logic (render-only clients, Brief §2.5); push an event before its row is durable; give ephemeral frames an SSE id (B6); let `/v1/` or `/plugins/` paths fall through to the SPA fallback (a typo'd API call must fail as JSON, never as index.html).
 
 ## File table
 
@@ -15,6 +15,7 @@ Purpose: the engine's one public face (Brief §1): a server-pushed SSE event str
 | `bus.ts` | Generic in-process `Bus<T>`; `EventBus` (durable) + `StreamBus` (ephemeral) + `DevBus` (log-only trail, Guide C11). Listener throws are contained per-socket. |
 | `sse.ts` | `attachSseClient`: hello frame → subscribe-then-replay with a shared cursor (exactly-once, no gap: replay is synchronous) → live tail + heartbeat comments. `Last-Event-ID` header or `?last_event_id=` query. Dev-channel frames (`event: dev`, no id) reach only clients that connected with `?dev=1`. |
 | `server.ts` | Fastify 5 instance; `fastify-type-provider-zod` validator+serializer set once (B9); `GET /v1/events`; `POST /v1/commands/start-turn` → injected `startTurn` seam (202 / 409); `POST /v1/commands/interrupt-turn` → engine `interruptTurn` seam (202 `{committed}` / 409 `turn_not_running`) — closes the envelope at the user's last-seen sentence (UI Spec §1.4); `POST /v1/commands/end-scene` (202 + jobs_enqueued / 409) and `POST /v1/commands/open-scene` (202 / 409 `blocked_on_pending_jobs`) → scene-lifecycle seams; `POST /v1/commands/advance-time` (202 + new world time + enqueue counts / 409) → WorldClock seam. |
+| `static.ts` | `createStaticResolver(webDir)`: serves the Vite-built frontend from this same process (FINAL item 2) — traversal-contained like the plugin/image resolvers (escape attempt = null, never a fallback), SPA fallback to `index.html` for contained misses, `immutable` caching for hashed `assets/`, `no-cache` for HTML so a self-update's new bundle is picked up on reload. Registered in `server.ts` as the lowest-priority `GET /*`; dir from `WELTARI_WEB_DIR` (default: `web/dist` beside the compiled server). |
 | `../engine/event-sink.ts` | `append` = repository write then bus publish, in that order (crash-only: durable before visible). |
 | `../main.ts` | Composition root: env → logger → C6 process handlers (the only two) → storage → fixture-world seed → runner loop → HTTP listen. SIGTERM/SIGINT drain is an optimization only. Contains the placeholder canned turn until the LLM scripted turn lands. |
 
