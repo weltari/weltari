@@ -11,6 +11,10 @@ Build the first slice of Milestone 3 for Weltari in this repository (`D:\devproj
 5. `docs/Stack Session/FINAL - Stack Decision.md` §6 (Milestone 3 scope + success criteria) and items 5/6/13 (frontend, map, plugin format).
 6. `docs/builder.md` — docs rules (module page changes in the same commit).
 
+## UI design reference (owner-supplied — the visual authority)
+
+The owner designed the Scene page in Figma before this session. Exported screens live in `docs/design/` (one PNG per screen state, desktop + mobile, plus `notes.md` for behaviors images cannot show). Rules of precedence: UI Spec §1 binding constraints > the owner's design > your own judgment — implement the design faithfully and ask only where it contradicts §1 or omits a required state. If `docs/design/` is missing or incomplete when the session starts, ASK the owner before inventing visuals; build the non-visual items (plugin loader, protocol changes) first while waiting. Express all colors/fonts as CSS custom-property tokens from day one (per-world reskinning, UI Spec §1.13).
+
 ## What to build, in recommended order (M3 part 1 — packaging/update can wait for part 2)
 
 **1. The real VN Scene page** (`apps/web`) — replaces the bare Week-1 stream dump: sentence-by-sentence pacing with click / Auto-Advance, interrupt-anywhere (closes the turn envelope at the interruption point — needs an `interrupt-turn` command in `@weltari/protocol`), streaming narration from the SSE `stream` frames, the committed transcript from durable events. zustand lands now (the recorded M3 deferral): stores writable ONLY by the SSE reducer — the frontend stays render-only (Brief §2.5). Dedicated mobile layout per the Phase-2 decision.
