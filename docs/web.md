@@ -17,7 +17,7 @@ event replay on every (re)connect. On reconnect `EventSource` resumes with
 | File | What it does / talks to |
 | --- | --- |
 | `index.html` / `src/main.tsx` | Vite entry; StrictMode root; imports `theme.css`. |
-| `src/store.ts` | The zustand store — scene/turns/sublocation/art/dev-trail projections. Reducer actions (`applyEvent`, `applyStream`, `applyDev`) are called ONLY by stream.ts (structure.md contract). |
+| `src/store.ts` | The zustand store — scene/turns/sublocation/art/world-clock (time + cron replay progress + day-1 anchor)/dev-trail projections. Reducer actions (`applyEvent`, `applyStream`, `applyDev`) are called ONLY by stream.ts (structure.md contract). |
 | `src/stream.ts` | The SSE reducer: one `EventSource` (`?dev=1` opts into the dev channel), safeParse per frame, dispatch to store actions. The only store writer. |
 | `src/commands.ts` | POST helpers (start-turn, interrupt-turn, end-scene, open-scene — returns the client-generated scene id so the §1.14 cover flow can start the opening-narration turn) with validated responses; fixture identity constants. |
 | `src/usePacing.ts` | Sentence pacing (UI Spec §1.4): view-owned read cursor over the store's live-sentence buffer; click / Auto-Advance (localStorage pref); exposes the interrupt cut (`seen`). |
@@ -36,6 +36,8 @@ event replay on every (re)connect. On reconnect `EventSource` resumes with
 | `src/components/SceneCover.tsx` | The §1.14 masking cover: full-stage overlay shown from a scene-open/map-jump click until the destination's opening narration streams — continuously animated (clock-spin hands, pulsing dots, drifting veil; map jumps slide in as travel), so a 5–10 s generation window never reads as frozen. Dismissal = first streamed sentence of the masked turn, with `--wl-cover-min-duration` anti-flicker and a 30 s backstop. All durations are `--wl-cover-*` tokens. |
 | `src/components/MapModal.tsx` | The pluggable map slot: renders `<wl-map>` (a plugin custom element) in a modal — kept for in-scene use (SoftClose's Open map). |
 | `src/pages/MapPage.tsx` | The Map route (wireframe 08): `<wl-map>` full-page, zoom/search placeholder chrome (wired with map part 2), empty state when no plugin defines the tag. Pin jumps bubble `wl-map-jump` to the shell (§1.14 masked). |
+| `src/pages/GamedayPage.tsx` | The Gameday clock flow (wireframes 11–13): "— GAMEDAY N —", sun/moon dial, digital time — all READ from `world.time_advanced` (§1.11; placeholders before the first skip). Presets +1h/+6h/To-morning (≤ +48h, forward only, greyed while a scene is active) POST advance-time; the dial's advancing animation masks the cron replay until `world_cron.completed` catches up to the skip's enqueued count (§1.14 vocabulary, `--wl-gameday-*` tokens, 30 s backstop). |
+| `src/tokens.ts` | `readTokenMs` — JS reads `--wl-*` duration tokens, never owns them (structure.md rule 6). |
 | `src/components/DevOverlay.tsx` | Dev mode (?dev=1): tool calls, B6-gate rejections, gauges, loaded-plugin provenance — deliberately alien styling (never reads as play). |
 | `src/theme.css` | ALL colors/fonts/motion as CSS custom properties — the reskin surface (see below). |
 | `vite.config.mjs` | Dev proxy `/v1` → `127.0.0.1:7777`; the built app (`npm run build`) is served by Fastify itself from the same process (`http/static.ts`, FINAL item 2) — production needs zero Vite process. |

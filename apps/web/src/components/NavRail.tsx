@@ -179,9 +179,11 @@ export function NavRail(): React.JSX.Element {
       <button
         className="wl-rail-clock"
         data-active={route === '/gameday'}
-        disabled
-        title="The Gameday clock lands later in this milestone."
+        title="Advance in-game time (the Gameday clock)"
         aria-label="advance in-game time"
+        onClick={() => {
+          navigate('/gameday');
+        }}
       >
         {clockLabel(worldTime)}
       </button>

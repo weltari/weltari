@@ -11,26 +11,17 @@ import { DevOverlay } from './components/DevOverlay.js';
 import { MapModal } from './components/MapModal.js';
 import { NavRail } from './components/NavRail.js';
 import { type CoverState } from './components/SceneCover.js';
+import { GamedayPage } from './pages/GamedayPage.js';
 import { MapPage } from './pages/MapPage.js';
 import { ScenePage } from './pages/ScenePage.js';
 import { loadPluginFrontends } from './plugins.js';
 import { navigate, useRoute } from './router.js';
 import { connectStream } from './stream.js';
+import { readTokenMs } from './tokens.js';
 import { useSceneStore } from './store.js';
 import { usePacing } from './usePacing.js';
 
 const DEV_MODE = new URLSearchParams(window.location.search).get('dev') === '1';
-
-/** Duration tokens stay in theme.css (§1.14); JS reads them, never owns them. */
-function readTokenMs(token: string, fallback: number): number {
-  const raw = getComputedStyle(document.documentElement)
-    .getPropertyValue(token)
-    .trim();
-  const match = /^([\d.]+)(ms|s)$/.exec(raw);
-  if (match?.[1] === undefined) return fallback;
-  const value = Number(match[1]);
-  return match[2] === 's' ? value * 1000 : value;
-}
 
 export function App(): React.JSX.Element {
   const route = useRoute();
@@ -154,10 +145,12 @@ export function App(): React.JSX.Element {
     <div className="wl-app">
       <NavRail />
       <div className="wl-page">
-        {/* Gameday / Config pages land in this milestone's later commits;
-            until then their routes render the Scene page. */}
+        {/* The Config page lands in this milestone's later commits;
+            until then its route renders the Scene page. */}
         {route === '/map' ? (
           <MapPage mapReady={mapReady} />
+        ) : route === '/gameday' ? (
+          <GamedayPage />
         ) : (
           <ScenePage
             pacing={pacing}

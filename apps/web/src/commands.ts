@@ -2,6 +2,7 @@
 // mutates local state on a 202; it waits for the stream to push the truth
 // (render-only, Brief §2.5). Responses are validated like any boundary data.
 import {
+  AdvanceTimeAcceptedSchema,
   EndSceneAcceptedSchema,
   InterruptTurnAcceptedSchema,
   OpenSceneAcceptedSchema,
@@ -53,6 +54,21 @@ export async function postInterruptTurn(
   });
   const parsed = InterruptTurnAcceptedSchema.safeParse(raw);
   return parsed.success ? { committed: parsed.data.committed } : null;
+}
+
+/** The Gameday flow (UI Spec §1.11): skip the fictional clock forward.
+ * A 202 never mutates state — the truth arrives as world.time_advanced
+ * plus the cron replay's world_cron.completed events. */
+export async function postAdvanceTime(
+  minutes: number,
+): Promise<{ worldTime: string } | null> {
+  const raw = await post('/v1/commands/advance-time', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    minutes,
+  });
+  const parsed = AdvanceTimeAcceptedSchema.safeParse(raw);
+  return parsed.success ? { worldTime: parsed.data.world_time } : null;
 }
 
 /** The exit-scene path (control cluster): close the scene and fan out

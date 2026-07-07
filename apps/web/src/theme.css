@@ -92,6 +92,13 @@
   --wl-rail-icon: var(--wl-text-dim);
   --wl-rail-icon-active: var(--wl-accent);
   --wl-clock-blink-duration: 1.6s;
+
+  /* ---- Gameday dial (wireframes 11–13; §1.14 masks the cron replay) ---- */
+  --wl-gameday-dial-size: 15rem;
+  --wl-gameday-bead-size: 1.1rem;
+  --wl-gameday-bead-duration: 1.2s;
+  --wl-gameday-min-duration: 1400ms;
+  --wl-gameday-spin-duration: 2.2s;
 }
 
 /* ============================== app shell ============================== */
@@ -701,6 +708,129 @@ body {
   font-size: var(--wl-font-size-ui);
   font-family: var(--wl-font-ui);
   font-style: italic;
+}
+
+/* ======================= Gameday clock (11–13) ======================= */
+
+.wl-gameday {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.4rem;
+  flex: 1;
+  min-width: 0;
+  padding: 1rem;
+}
+
+.wl-gameday-title {
+  margin: 0;
+  font-family: var(--wl-font-narration);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--wl-text);
+}
+
+.wl-gameday-center {
+  display: flex;
+  align-items: center;
+  gap: 2.5rem;
+}
+
+.wl-gameday-time {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 3rem;
+  color: var(--wl-text);
+}
+
+.wl-gameday-time[data-advancing='true'] {
+  color: var(--wl-accent);
+  animation: wl-clock-blink var(--wl-clock-blink-duration) ease-in-out infinite;
+}
+
+.wl-gameday-dial {
+  position: relative;
+  width: var(--wl-gameday-dial-size);
+  height: var(--wl-gameday-dial-size);
+}
+
+.wl-dial-ring {
+  position: absolute;
+  inset: 1.4rem;
+  border: 2px solid var(--wl-border);
+  border-radius: 50%;
+}
+
+/* While a skip replays, the ring spins like the §1.14 cover clock — the
+   window between the click and the last cron occurrence never reads frozen. */
+.wl-gameday-dial[data-advancing='true'] .wl-dial-ring {
+  border-top-color: var(--wl-accent);
+  animation: wl-cover-spin var(--wl-gameday-spin-duration) linear infinite;
+}
+
+.wl-dial-glyph {
+  position: absolute;
+  color: var(--wl-text-dim);
+  font-size: 1.1rem;
+}
+
+.wl-dial-sun {
+  top: -0.2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--wl-accent);
+}
+
+.wl-dial-moon {
+  bottom: -0.2rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.wl-dial-dawn {
+  left: -0.2rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.wl-dial-wind {
+  right: -0.2rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* The bead rides an invisible arm; rotating the arm moves the bead around
+   the ring, transitioned so a skip visibly sweeps old time → new time. */
+.wl-dial-bead-arm {
+  position: absolute;
+  inset: 1.4rem;
+  transition: transform var(--wl-gameday-bead-duration) ease-in-out;
+}
+
+.wl-dial-bead {
+  position: absolute;
+  top: calc(var(--wl-gameday-bead-size) / -2);
+  left: 50%;
+  width: var(--wl-gameday-bead-size);
+  height: var(--wl-gameday-bead-size);
+  margin-left: calc(var(--wl-gameday-bead-size) / -2);
+  border-radius: 50%;
+  background: var(--wl-accent);
+  box-shadow: 0 0 10px var(--wl-accent-soft);
+}
+
+.wl-gameday-status {
+  margin: 0;
+  min-height: 1.2em;
+  color: var(--wl-text-dim);
+  font-size: var(--wl-font-size-ui);
+  font-style: italic;
+}
+
+.wl-gameday-presets {
+  display: flex;
+  gap: 0.6rem;
 }
 
 /* ============================== map page ============================== */
