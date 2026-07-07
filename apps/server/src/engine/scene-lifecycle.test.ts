@@ -187,6 +187,45 @@ describe('scene lifecycle (reflection fan-out + scoped open blocking)', () => {
     expect(otherWorld.ok).toBe(true);
   });
 
+  it('open-scene appends character.joined per KNOWN participant with scene.started (roster projection, M4)', () => {
+    const ctx = setup();
+
+    const published: string[] = [];
+    ctx.eventBus.subscribe((event) => {
+      published.push(event.type);
+    });
+
+    const opened = ctx.lifecycle.openScene({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's-roster',
+      title: 'The Rainy Inn',
+      participants: [ELIAS.character_id, 'char:nobody'],
+    });
+    expect(opened.ok).toBe(true);
+
+    const events = ctx.storage.eventLog
+      .readSince(0)
+      .filter(
+        (e) => 'scene_id' in e.payload && e.payload.scene_id === 's-roster',
+      );
+    // scene.started first, then exactly one roster row — the unknown id is
+    // skipped (an event may only name a character the engine knows, B6 ethos).
+    expect(events.map((e) => e.type)).toEqual([
+      'scene.started',
+      'character.joined',
+    ]);
+    const joined = events[1];
+    if (joined?.type === 'character.joined') {
+      expect(joined.payload.character_id).toBe(ELIAS.character_id);
+      expect(joined.payload.name).toBe(ELIAS.name);
+    } else {
+      expect.unreachable('character.joined missing');
+    }
+    // Published on the bus AFTER commit, in append order.
+    expect(published).toEqual(['scene.started', 'character.joined']);
+  });
+
   it('open-scene unblocks after the fan-out jobs commit (via the real runner + FakeLLM)', async () => {
     const ctx = setup();
     seedScene(ctx.storage);

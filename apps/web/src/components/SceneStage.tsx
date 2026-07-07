@@ -3,13 +3,6 @@
 // chip. Pure projection of store state — no game logic (Brief §2.5).
 import { useSceneStore } from '../store.js';
 
-/**
- * Placeholder cast until a character-roster projection event exists: the
- * fixture's one on-stage character. The Narrator never appears in the
- * line-up (UI Spec §1.5). Art switches arrive per character_id.
- */
-const CAST = [{ character_id: 'char:elias', name: 'Elias' }] as const;
-
 export function SceneStage(props: {
   /** The call kind of the sentence currently displayed (speaker rise). */
   speakingCall: 'narrator' | 'character' | 'narration' | null;
@@ -19,6 +12,9 @@ export function SceneStage(props: {
   const previousSublocationId = useSceneStore((s) => s.previousSublocationId);
   const sublocationName = useSceneStore((s) => s.sublocationName);
   const artByCharacter = useSceneStore((s) => s.artByCharacter);
+  // The roster projection (character.joined events) — the Narrator never
+  // appears in the line-up (UI Spec §1.5). Art switches arrive per character_id.
+  const cast = useSceneStore((s) => s.cast);
 
   return (
     <section className="wl-stage" aria-label="scene stage">
@@ -39,7 +35,7 @@ export function SceneStage(props: {
       ) : null}
 
       <div className="wl-lineup">
-        {CAST.map((member) => {
+        {cast.map((member) => {
           const artId = artByCharacter[member.character_id] ?? 'neutral';
           return (
             <figure

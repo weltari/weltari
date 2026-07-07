@@ -78,7 +78,9 @@ scene backdrops), portraits by swapping `.wl-portrait-figure` for an `<img>`.
   viewports the rail renders as a bottom bar (thumb-reachable, standard mobile
   idiom) instead of a left rail. Same component, CSS-only.
 - zustand landed (the recorded M3 deferral) — dep ledger entry, exact pin 5.0.14.
-- The line-up cast is a hardcoded fixture constant (`SceneStage.CAST`) until a
-  character-roster projection event exists.
+- ~~The line-up cast is a hardcoded fixture constant (`SceneStage.CAST`)~~ —
+  resolved in M4: the cast is a store projection of `character.joined` events
+  (protocol 0.7.0), emitted at scene open. Dev DBs seeded before 0.7.0 show an
+  empty line-up until a new scene opens (delete the dev DB to re-seed).
 - Frontend is excluded from coverage gates (Guide E3); verified by driving the
   real stack in a browser (fake LLM + fault-pause interrupt window).

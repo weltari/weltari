@@ -187,15 +187,50 @@ export function createSceneLifecycle(
         );
       }
 
-      const persisted = storage.transact(() =>
-        storage.eventLog.append({
-          world_id: command.world_id,
-          actor_id: command.actor_id,
-          type: 'scene.started',
-          payload: { scene_id: command.scene_id, title: command.title },
-        }),
+      // The roster projection (M4): one character.joined per KNOWN
+      // participant, committed atomically with scene.started — clients
+      // render the VN line-up from these, never from a fixture constant.
+      // Unknown ids are skipped like any engine-state gate would (B6 ethos):
+      // an event may only name a character the engine knows.
+      const idByName = new Map(
+        knownCharacters.map((c) => [c.character_id, c.name]),
       );
-      eventBus.publish(persisted);
+      const unknown = command.participants.filter((id) => !idByName.has(id));
+      if (unknown.length > 0) {
+        logger.warn(
+          { world_id: command.world_id, unknown },
+          'open-scene: unknown participant ids skipped from the roster',
+        );
+      }
+      const persisted = storage.transact(() => {
+        const events = [
+          storage.eventLog.append({
+            world_id: command.world_id,
+            actor_id: command.actor_id,
+            type: 'scene.started',
+            payload: { scene_id: command.scene_id, title: command.title },
+          }),
+        ];
+        for (const characterId of command.participants) {
+          const name = idByName.get(characterId);
+          if (name === undefined) continue;
+          events.push(
+            storage.eventLog.append({
+              world_id: command.world_id,
+              actor_id: command.actor_id,
+              type: 'character.joined',
+              payload: {
+                scene_id: command.scene_id,
+                character_id: characterId,
+                name,
+              },
+            }),
+          );
+        }
+        return events;
+      });
+      // Publish AFTER the transaction committed, in append order.
+      for (const event of persisted) eventBus.publish(event);
       return ok({ opened: true });
     },
   };

@@ -45,6 +45,11 @@ export interface SceneEnd {
   divider_text: string;
 }
 
+export interface CastMember {
+  character_id: string;
+  name: string;
+}
+
 export interface SceneStore {
   connected: boolean;
   protocolVersion: string | null;
@@ -52,6 +57,8 @@ export interface SceneStore {
   sceneTitle: string;
   /** Set on scene.ended — drives the soft-close button set (UI Spec §1.7). */
   sceneEnd: SceneEnd | null;
+  /** The scene's roster — character.joined since scene.started (VN line-up). */
+  cast: CastMember[];
   /** Latest world.time_advanced `to` — engine-owned fictional time, read never invented. */
   worldTime: string | null;
   /** The latest skip + how many cron occurrences it enqueued (Gameday flow). */
@@ -102,6 +109,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
   sceneId: null,
   sceneTitle: 'Weltari',
   sceneEnd: null,
+  cast: [],
   worldTime: null,
   timeAdvance: null,
   cronCompleted: 0,
@@ -135,6 +143,28 @@ export const useSceneStore = create<SceneStore>((set) => ({
           sceneId: event.payload.scene_id,
           sceneTitle: event.payload.title,
           sceneEnd: null,
+          cast: [],
+        });
+        return;
+      case 'character.joined':
+        set((state) => {
+          if (event.payload.scene_id !== state.sceneId) return {};
+          if (
+            state.cast.some(
+              (m) => m.character_id === event.payload.character_id,
+            )
+          ) {
+            return {};
+          }
+          return {
+            cast: [
+              ...state.cast,
+              {
+                character_id: event.payload.character_id,
+                name: event.payload.name,
+              },
+            ],
+          };
         });
         return;
       case 'scene.ended':
