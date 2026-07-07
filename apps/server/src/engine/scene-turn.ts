@@ -3,11 +3,22 @@
 // turn.started is durable BEFORE any LLM work; streamed text is display-only;
 // the ONLY durable narration is turn.committed at close (Guide B6). A kill or
 // failure anywhere in between voids the turn — nothing partial persists.
+//
+// M3 adds the Narrator tool surface: tool calls returned by the narrator call
+// pass gate 1 (shape, llm/tools.ts) then gate 2 (game state, scene-tools.ts);
+// valid effects are STAGED and appended atomically with turn.committed in one
+// WriteGate transaction — a rejected call writes zero rows and lives only on
+// the dev trail (I8).
 import { randomUUID } from 'node:crypto';
-import type { StartTurnCommand, TurnStep } from '@weltari/protocol';
+import type {
+  StartTurnCommand,
+  TurnStep,
+  WeltariEvent,
+} from '@weltari/protocol';
 import { ok, type AppError, type Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
-import type { StreamBus } from '../http/bus.js';
+import type { DevBus, EventBus, StreamBus } from '../http/bus.js';
+import { parseToolCall, type RawToolCall } from '../llm/tools.js';
 import type { LlmClient } from '../llm/types.js';
 import type { Storage } from '../storage/db.js';
 import {
@@ -19,14 +30,31 @@ import type { EventSink } from './event-sink.js';
 import {
   buildEliasProfile,
   buildNarratorProfile,
+  FIXTURE_ART_SETS,
+  FIXTURE_START_SUBLOCATION_ID,
+  FIXTURE_SUBLOCATIONS,
+  type SublocationDefinition,
 } from './fixture/rainy-inn.js';
 import type { FaultPointHook } from './fault-points.js';
+import {
+  appendSceneEndWithFanOut,
+  type KnownCharacter,
+} from './scene-lifecycle.js';
+import {
+  createToolStage,
+  currentSublocationId,
+  type ToolStage,
+} from './scene-tools.js';
 import { createSentenceSplitter } from './sentences.js';
 
 export interface TurnEngineOptions {
   storage: Storage;
   sink: EventSink;
   streamBus: StreamBus;
+  /** Tool-effect events commit atomically, then publish here (durable-before-visible). */
+  eventBus: EventBus;
+  /** The log-only trail: dev.tool_call / dev.tool_rejected frames (Guide C11, I8). */
+  devBus: DevBus;
   llm: LlmClient;
   logger: Logger;
   /**
@@ -37,6 +65,15 @@ export interface TurnEngineOptions {
   /** Fixture world clock — engine-owned fictional time, injected (A16). */
   worldClockText?: string;
   stablePrefixTokens?: number;
+  /** Speaker-name → character-id map for the end_scene fan-out (fixture default). */
+  knownCharacters?: readonly KnownCharacter[];
+  /** World geography for the change_sublocation state gate (fixture default). */
+  sublocations?: readonly SublocationDefinition[];
+  startSublocationId?: string;
+  /** character_id → art poses for the switch_art state gate (fixture default). */
+  artSets?: ReadonlyMap<string, readonly string[]>;
+  /** Characters present in the scene (fixture default). */
+  presentCharacterIds?: readonly string[];
 }
 
 export interface TurnEngine {
@@ -54,6 +91,8 @@ interface CallPlan {
   kind: TurnStep['call'];
   profile: CharacterProfile;
   instruction: string;
+  /** Narrator calls offer the narrator toolset (Guide B6). */
+  toolset?: 'narrator';
 }
 
 export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
@@ -61,15 +100,41 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     storage,
     sink,
     streamBus,
+    eventBus,
+    devBus,
     llm,
     logger,
     faultPoint = (): void => undefined,
     worldClockText = 'Day 1, evening, heavy rain',
     stablePrefixTokens = 800,
+    sublocations = FIXTURE_SUBLOCATIONS,
+    startSublocationId = FIXTURE_START_SUBLOCATION_ID,
+    artSets = FIXTURE_ART_SETS,
+    presentCharacterIds = ['char:elias'],
   } = options;
 
   const elias = buildEliasProfile(stablePrefixTokens);
   const narrator = buildNarratorProfile(stablePrefixTokens);
+  const knownCharacters = options.knownCharacters ?? [
+    { character_id: elias.character_id, name: elias.name },
+  ];
+
+  /** Dynamic scene options for the Narrator's instruction (tail-only — the
+   * current sublocation changes turn to turn and must never touch the prefix). */
+  function narratorToolContext(sceneId: string): string {
+    const current = currentSublocationId(storage, sceneId, startSublocationId);
+    const sublocationList = sublocations
+      .map((s) => `${s.sublocation_id} (${s.name})`)
+      .join(', ');
+    const artList = [...artSets.entries()]
+      .map(([characterId, poses]) => `${characterId}: ${poses.join('|')}`)
+      .join('; ');
+    return [
+      `Current sublocation: ${current}.`,
+      `Sublocations you may move the scene to: ${sublocationList}.`,
+      `Art poses you may switch: ${artList}.`,
+    ].join(' ');
+  }
 
   function recentTurns(sceneId: string, limit = 4): TurnLine[] {
     const lines: TurnLine[] = [];
@@ -92,7 +157,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     sceneId: string,
     priorSteps: readonly TurnStep[],
     userInput: string | undefined,
-  ): Promise<Result<TurnStep>> {
+  ): Promise<Result<{ step: TurnStep; toolCalls: readonly RawToolCall[] }>> {
     const transcript = [
       ...recentTurns(sceneId),
       ...priorSteps.map((s) => ({ speaker: s.speaker, text: s.text })),
@@ -137,14 +202,57 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       onTextDelta: (delta) => {
         splitter.push(delta);
       },
+      ...(plan.toolset === undefined ? {} : { toolset: plan.toolset }),
     });
     if (!result.ok) return result;
     splitter.flush();
     return ok({
-      call: plan.kind,
-      speaker: plan.profile.name,
-      text: result.value.text,
+      step: {
+        call: plan.kind,
+        speaker: plan.profile.name,
+        text: result.value.text,
+      },
+      toolCalls: result.value.toolCalls,
     });
+  }
+
+  /** Both B6 gates over one call's raw tool calls; valid effects stage, every
+   * rejection is a trail frame and nothing else (I8: zero rows). */
+  function runToolGates(
+    rawCalls: readonly RawToolCall[],
+    stage: ToolStage,
+    turnId: string,
+  ): void {
+    for (const raw of rawCalls) {
+      const parsed = parseToolCall(raw, logger);
+      if (!parsed.ok) {
+        devBus.publish({
+          type: 'dev.tool_rejected',
+          turn_id: turnId,
+          tool: raw.tool,
+          gate: 'schema',
+          reason: parsed.error.message,
+        });
+        continue;
+      }
+      const staged = stage.apply(parsed.value);
+      if (!staged.ok) {
+        devBus.publish({
+          type: 'dev.tool_rejected',
+          turn_id: turnId,
+          tool: parsed.value.tool,
+          gate: 'state',
+          reason: staged.error.message,
+        });
+        continue;
+      }
+      devBus.publish({
+        type: 'dev.tool_call',
+        turn_id: turnId,
+        tool: parsed.value.tool,
+        input_json: JSON.stringify(parsed.value.input),
+      });
+    }
   }
 
   return {
@@ -164,8 +272,8 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         {
           kind: 'narrator',
           profile: narrator,
-          instruction:
-            'Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias.',
+          instruction: `Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias. You may call your scene tools when the fiction calls for it. ${narratorToolContext(command.scene_id)}`,
+          toolset: 'narrator',
         },
         {
           kind: 'character',
@@ -181,30 +289,95 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         },
       ];
 
+      const stage = createToolStage(
+        {
+          storage,
+          sublocations,
+          startSublocationId,
+          artSets,
+          presentCharacterIds,
+        },
+        command.scene_id,
+      );
+
       const completion = (async (): Promise<void> => {
         const steps: TurnStep[] = [];
         for (const [index, plan] of plans.entries()) {
-          const step = await runCall(
+          const result = await runCall(
             plan,
             turnId,
             command.scene_id,
             steps,
             index === 0 ? command.text : undefined,
           );
-          if (!step.ok) {
-            voidTurn(turnId, step.error);
+          if (!result.ok) {
+            voidTurn(turnId, result.error);
             return;
           }
-          steps.push(step.value);
+          steps.push(result.value.step);
+          runToolGates(result.value.toolCalls, stage, turnId);
           if (index === 0) await faultPoint('between_calls');
         }
         await faultPoint('pre_commit');
-        sink.append({
-          world_id: command.world_id,
-          actor_id: command.actor_id,
-          type: 'turn.committed',
-          payload: { scene_id: command.scene_id, turn_id: turnId, steps },
+
+        // One WriteGate transaction: the turn text, every staged tool effect
+        // and (when end_scene staged) scene.ended + its fan-out jobs commit or
+        // vanish together (Brief §2.4). Publish only after commit.
+        const appended: WeltariEvent[] = [];
+        storage.transact(() => {
+          appended.push(
+            storage.eventLog.append({
+              world_id: command.world_id,
+              actor_id: command.actor_id,
+              type: 'turn.committed',
+              payload: { scene_id: command.scene_id, turn_id: turnId, steps },
+            }),
+          );
+          for (const effect of stage.staged()) {
+            if (effect.kind === 'sublocation') {
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: narrator.character_id,
+                  type: 'sublocation.changed',
+                  payload: {
+                    scene_id: command.scene_id,
+                    sublocation_id: effect.sublocationId,
+                    name: effect.name,
+                  },
+                }),
+              );
+            } else if (effect.kind === 'art') {
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: narrator.character_id,
+                  type: 'art.switched',
+                  payload: {
+                    scene_id: command.scene_id,
+                    character_id: effect.characterId,
+                    art_id: effect.artId,
+                  },
+                }),
+              );
+            }
+            // end_scene is appended LAST so clients see the turn + moves first.
+          }
+          const end = stage.endScene();
+          if (end?.kind === 'end_scene') {
+            const core = appendSceneEndWithFanOut(storage, knownCharacters, {
+              world_id: command.world_id,
+              actor_id: narrator.character_id,
+              scene_id: command.scene_id,
+              end_type: end.endType,
+              ...(end.dividerText === undefined
+                ? {}
+                : { divider_text: end.dividerText }),
+            });
+            appended.push(core.event);
+          }
         });
+        for (const event of appended) eventBus.publish(event);
       })();
 
       return Promise.resolve(ok({ turnId, completion }));

@@ -39,37 +39,99 @@ const reflectionPayloadSchema = z.strictObject({
   character_id: z.string().min(1),
 });
 
+function sceneEvents(storage: Storage, sceneId: string): WeltariEvent[] {
+  return storage.eventLog
+    .readSince(0, 100000)
+    .filter((e) => 'scene_id' in e.payload && e.payload.scene_id === sceneId);
+}
+
+/** Characters who actually spoke in the scene's committed turns. */
+function participantsOf(
+  events: readonly WeltariEvent[],
+  idByName: ReadonlyMap<string, string>,
+): string[] {
+  const ids = new Set<string>();
+  for (const event of events) {
+    if (event.type !== 'turn.committed') continue;
+    for (const step of event.payload.steps) {
+      if (step.call !== 'character') continue;
+      const id = idByName.get(step.speaker);
+      if (id !== undefined) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+export interface SceneEndRequest {
+  world_id: string;
+  actor_id: string;
+  scene_id: string;
+  /** Present on Narrator end_scene tool closes; absent on the bare HTTP command. */
+  end_type?: 'rest' | 'continuation' | 'travel';
+  divider_text?: string;
+}
+
+/**
+ * The atomicity core (Brief §2.4): scene.ended + one reflection job per
+ * participant + one World Agent job. MUST run inside storage.transact —
+ * callers are the HTTP end-scene command and the Narrator's end_scene tool
+ * (which commits it in the same transaction as turn.committed). The caller
+ * publishes the returned event AFTER its transaction commits.
+ */
+export function appendSceneEndWithFanOut(
+  storage: Storage,
+  knownCharacters: readonly KnownCharacter[],
+  request: SceneEndRequest,
+): { event: WeltariEvent; jobsEnqueued: number } {
+  const idByName = new Map(
+    knownCharacters.map((c) => [c.name, c.character_id]),
+  );
+  const participants = participantsOf(
+    sceneEvents(storage, request.scene_id),
+    idByName,
+  );
+  let jobsEnqueued = 0;
+  const event = storage.eventLog.append({
+    world_id: request.world_id,
+    actor_id: request.actor_id,
+    type: 'scene.ended',
+    payload: {
+      scene_id: request.scene_id,
+      participants,
+      ...(request.end_type === undefined ? {} : { end_type: request.end_type }),
+      ...(request.divider_text === undefined
+        ? {}
+        : { divider_text: request.divider_text }),
+    },
+  });
+  for (const characterId of participants) {
+    const job = storage.ledger.enqueue({
+      idempotency_key: `reflection:${characterId}:${request.scene_id}`,
+      world_id: request.world_id,
+      type: 'reflection',
+      payload: { scene_id: request.scene_id, character_id: characterId },
+    });
+    if (job !== null) jobsEnqueued += 1;
+  }
+  const worldAgent = storage.ledger.enqueue({
+    idempotency_key: `world_agent:${request.scene_id}`,
+    world_id: request.world_id,
+    type: 'world_agent',
+    payload: { scene_id: request.scene_id },
+    serial_group: `world_agent:${request.world_id}`,
+  });
+  if (worldAgent !== null) jobsEnqueued += 1;
+  return { event, jobsEnqueued };
+}
+
 export function createSceneLifecycle(
   options: SceneLifecycleOptions,
 ): SceneLifecycle {
   const { storage, eventBus, logger, knownCharacters } = options;
-  const idByName = new Map(
-    knownCharacters.map((c) => [c.name, c.character_id]),
-  );
-
-  function sceneEvents(sceneId: string): WeltariEvent[] {
-    return storage.eventLog
-      .readSince(0, 100000)
-      .filter((e) => 'scene_id' in e.payload && e.payload.scene_id === sceneId);
-  }
-
-  /** Characters who actually spoke in the scene's committed turns. */
-  function participantsOf(events: readonly WeltariEvent[]): string[] {
-    const ids = new Set<string>();
-    for (const event of events) {
-      if (event.type !== 'turn.committed') continue;
-      for (const step of event.payload.steps) {
-        if (step.call !== 'character') continue;
-        const id = idByName.get(step.speaker);
-        if (id !== undefined) ids.add(id);
-      }
-    }
-    return [...ids];
-  }
 
   return {
     endScene(command: EndSceneCommand): Result<{ jobsEnqueued: number }> {
-      const events = sceneEvents(command.scene_id);
+      const events = sceneEvents(storage, command.scene_id);
       if (!events.some((e) => e.type === 'scene.started')) {
         return err(
           new OperationalError('scene_not_found', 'no scene.started for id'),
@@ -81,34 +143,9 @@ export function createSceneLifecycle(
         );
       }
 
-      const participants = participantsOf(events);
-      let jobsEnqueued = 0;
-      const persisted = storage.transact(() => {
-        const event = storage.eventLog.append({
-          world_id: command.world_id,
-          actor_id: command.actor_id,
-          type: 'scene.ended',
-          payload: { scene_id: command.scene_id, participants },
-        });
-        for (const characterId of participants) {
-          const job = storage.ledger.enqueue({
-            idempotency_key: `reflection:${characterId}:${command.scene_id}`,
-            world_id: command.world_id,
-            type: 'reflection',
-            payload: { scene_id: command.scene_id, character_id: characterId },
-          });
-          if (job !== null) jobsEnqueued += 1;
-        }
-        const worldAgent = storage.ledger.enqueue({
-          idempotency_key: `world_agent:${command.scene_id}`,
-          world_id: command.world_id,
-          type: 'world_agent',
-          payload: { scene_id: command.scene_id },
-          serial_group: `world_agent:${command.world_id}`,
-        });
-        if (worldAgent !== null) jobsEnqueued += 1;
-        return event;
-      });
+      const { event: persisted, jobsEnqueued } = storage.transact(() =>
+        appendSceneEndWithFanOut(storage, knownCharacters, command),
+      );
       // Publish AFTER the transaction committed — the bus mirrors durable truth.
       eventBus.publish(persisted);
       logger.info(
@@ -123,7 +160,7 @@ export function createSceneLifecycle(
     },
 
     openScene(command: OpenSceneCommand): Result<{ opened: true }> {
-      const events = sceneEvents(command.scene_id);
+      const events = sceneEvents(storage, command.scene_id);
       if (events.some((e) => e.type === 'scene.started')) {
         return err(
           new OperationalError('scene_already_open', 'scene id already used'),

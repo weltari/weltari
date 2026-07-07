@@ -117,24 +117,30 @@ const faultPoint: FaultPointHook | undefined = env.emitFaultPoints
     }
   : undefined;
 
+const elias = buildEliasProfile(env.prefixTokens);
+const narrator = buildNarratorProfile(env.prefixTokens);
+const knownCharacters = [
+  { character_id: elias.character_id, name: elias.name },
+];
+
 const engine = createTurnEngine({
   storage,
   sink,
   streamBus,
+  eventBus,
+  devBus,
   llm,
   logger,
   stablePrefixTokens: env.prefixTokens,
+  knownCharacters,
   ...(faultPoint === undefined ? {} : { faultPoint }),
 });
-
-const elias = buildEliasProfile(env.prefixTokens);
-const narrator = buildNarratorProfile(env.prefixTokens);
 
 const lifecycle = createSceneLifecycle({
   storage,
   eventBus,
   logger,
-  knownCharacters: [{ character_id: elias.character_id, name: elias.name }],
+  knownCharacters,
 });
 
 async function startTurn(

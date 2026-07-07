@@ -9,6 +9,35 @@ export const FIXTURE_WORLD_ID = 'w1';
 export const FIXTURE_SCENE_ID = 's1';
 export const FIXTURE_SCENE_TITLE = 'The Rainy Inn';
 
+export interface SublocationDefinition {
+  sublocation_id: string;
+  name: string;
+}
+
+/**
+ * Fixture sublocations (M3): the change_sublocation tool's engine-state gate
+ * accepts only these ids; the client maps each id to a placeholder backdrop
+ * until painter-generated backdrops exist.
+ */
+export const FIXTURE_SUBLOCATIONS: readonly SublocationDefinition[] = [
+  { sublocation_id: 'subloc:common_room', name: 'The Common Room' },
+  { sublocation_id: 'subloc:cellar', name: 'The Flooded Cellar' },
+  { sublocation_id: 'subloc:shrine', name: 'The Old Shrine' },
+];
+
+/** Every fixture scene opens here (the projection default before any sublocation.changed). */
+export const FIXTURE_START_SUBLOCATION_ID = 'subloc:common_room';
+
+/**
+ * Fixture art sets (M3): named poses per character id. The switch_art tool's
+ * engine-state gate accepts only ids from the character's set; the client
+ * renders a placeholder per pose until real art exists. The Narrator has no
+ * art — it never appears in the line-up (UI Spec §1.5).
+ */
+export const FIXTURE_ART_SETS: ReadonlyMap<string, readonly string[]> = new Map(
+  [['char:elias', ['neutral', 'smile', 'worried', 'working']]],
+);
+
 /**
  * Fixture world-cron table (fictional time): the lamplighter rounds are a pure
  * code projection every fictional dawn; the evening rumor is an LLM-class
