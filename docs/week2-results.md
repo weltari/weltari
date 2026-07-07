@@ -21,4 +21,4 @@ Measured with `tools/kill-harness.mjs` (extended M2 fault table), `tools/m2-rss-
 ## Notes
 
 - Job leases are 2 s in the harness (`WELTARI_LEASE_SECONDS`) so a killed-mid-job lease expires within one cycle; production default stays 60 s.
-- The real-provider spot check (Telegram echo + one real-LLM reflection) is pending the owner's bot token / remaining OpenRouter budget — mechanics are fully covered by the fake.
+- Real-provider spot checks passed 2026-07-07: a real-LLM turn + scene-end fan-out committed an in-character `reflection.committed` and `world_agent.committed` (`anthropic/claude-sonnet-4.5`, pinned provider); a live Telegram message to the owner's test bot ran a real turn end-to-end and the transcript echoed back with zero send failures (dedup row recorded). Token was env-only and is to be revoked by the owner; cost a few cents of the remaining OpenRouter budget.
