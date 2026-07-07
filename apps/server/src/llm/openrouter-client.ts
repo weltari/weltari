@@ -1,13 +1,38 @@
 // The only file that touches the AI SDK + OpenRouter provider (fence A11).
 // Catches SDK exceptions at the edge and returns err(operational) — B-llm
 // boundary code never throws for provider failures (Guide C2).
-import { streamText } from 'ai';
+import { streamText, tool, type ToolSet } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { z } from 'zod';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
 import type { ModelRegistry } from './model-registry.js';
+import {
+  ChangeSublocationToolSchema,
+  EndSceneToolSchema,
+  NARRATOR_TOOL_DESCRIPTIONS,
+  SwitchArtToolSchema,
+  type RawToolCall,
+} from './tools.js';
 import type { LlmCall, LlmCallResult, LlmClient } from './types.js';
+
+// The SDK-side half of gate 1: the provider sees these Zod inputSchemas and
+// malformed shapes die inside the SDK. The engine still re-parses every
+// returned call with our own safeParse (Guide B6 — never trust provider JSON).
+const NARRATOR_TOOLS: ToolSet = {
+  end_scene: tool({
+    description: NARRATOR_TOOL_DESCRIPTIONS.end_scene,
+    inputSchema: EndSceneToolSchema,
+  }),
+  change_sublocation: tool({
+    description: NARRATOR_TOOL_DESCRIPTIONS.change_sublocation,
+    inputSchema: ChangeSublocationToolSchema,
+  }),
+  switch_art: tool({
+    description: NARRATOR_TOOL_DESCRIPTIONS.switch_art,
+    inputSchema: SwitchArtToolSchema,
+  }),
+};
 
 export interface OpenRouterClientOptions {
   apiKey: string;
@@ -87,6 +112,11 @@ export function createOpenRouterClient(
           temperature: route.temperature,
           maxOutputTokens: route.maxOutputTokens,
           abortSignal: AbortSignal.timeout(timeoutMs),
+          // No execute functions: calls come back as data for the B6 gates —
+          // the SDK must never run a world mutation itself.
+          ...(call.toolset === 'narrator'
+            ? { tools: NARRATOR_TOOLS, toolChoice: 'auto' }
+            : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable
           // prefix, never user input, so the injection warning does not apply.
@@ -109,6 +139,14 @@ export function createOpenRouterClient(
             ),
           );
         }
+
+        const toolCalls: RawToolCall[] =
+          call.toolset === undefined
+            ? []
+            : (await result.toolCalls).map((c) => ({
+                tool: c.toolName,
+                input: c.input,
+              }));
 
         const usage = usageSchema.safeParse(await result.usage);
         const metadata = metadataSchema.safeParse(
@@ -149,6 +187,7 @@ export function createOpenRouterClient(
           usage: { inputTokens, outputTokens, cachedInputTokens },
           model: route.model,
           durationMs,
+          toolCalls,
         });
       } catch (thrown) {
         return err(

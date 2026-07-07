@@ -2,6 +2,7 @@
 // SDK is fenced in here (Guide A11), so a provider/SDK swap never touches the
 // engine. Tests plug a FakeLlmClient in at the same seam (Guide E4).
 import type { Result } from '../errors.js';
+import type { RawToolCall } from './tools.js';
 
 export type CallKind =
   'narrator' | 'character' | 'narration' | 'reflection' | 'world_agent';
@@ -17,6 +18,11 @@ export interface LlmCall {
   prompt: string;
   /** Called with raw text deltas as they stream. */
   onTextDelta: (delta: string) => void;
+  /**
+   * Offer a toolset to the model ('narrator' = end_scene / change_sublocation
+   * / switch_art). Returned calls are RAW — the caller must run both B6 gates.
+   */
+  toolset?: 'narrator';
 }
 
 export interface LlmUsage {
@@ -31,6 +37,8 @@ export interface LlmCallResult {
   usage: LlmUsage;
   model: string;
   durationMs: number;
+  /** Tool calls the model made — unvalidated boundary data (B-llm, Guide B6). */
+  toolCalls: readonly RawToolCall[];
 }
 
 export interface LlmClient {

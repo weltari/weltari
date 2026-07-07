@@ -3,9 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import type { StreamSentence } from '@weltari/protocol';
+import type { DevEvent, StreamSentence } from '@weltari/protocol';
 import { err, OperationalError, type Result } from '../errors.js';
-import { Bus, type EventBus, type StreamBus } from '../http/bus.js';
+import {
+  Bus,
+  type DevBus,
+  type EventBus,
+  type StreamBus,
+} from '../http/bus.js';
 import { createFakeLlmClient } from '../llm/fake-client.js';
 import type { LlmCall, LlmCallResult, LlmClient } from '../llm/types.js';
 import { createRootLogger } from '../observability/logger.js';
@@ -29,6 +34,7 @@ interface Ctx {
   faults: FaultPoint[];
   engine: ReturnType<typeof createTurnEngine>;
   llmCalls: LlmCall[];
+  devFrames: DevEvent[];
 }
 
 function setup(llmOverride?: LlmClient): Ctx {
@@ -50,17 +56,23 @@ function setup(llmOverride?: LlmClient): Ctx {
     },
   };
 
+  const devBus: DevBus = new Bus(logger);
+  const devFrames: DevEvent[] = [];
+  devBus.subscribe((frame) => devFrames.push(frame));
+
   const engine = createTurnEngine({
     storage,
     sink: createEventSink(storage, eventBus),
     streamBus,
+    eventBus,
+    devBus,
     llm: recording,
     logger,
     faultPoint: (p): void => {
       faults.push(p);
     },
   });
-  return { storage, streamFrames, faults, engine, llmCalls };
+  return { storage, streamFrames, faults, engine, llmCalls, devFrames };
 }
 
 const COMMAND = {
@@ -146,4 +158,98 @@ describe('scripted 3-call scene turn', () => {
     if (started.ok) await started.value.completion;
     return ctx;
   }
+});
+
+describe('narrator tool pipeline (B6 two gates)', () => {
+  async function runTurn(ctx: Ctx, text: string): Promise<void> {
+    const started = await ctx.engine.startTurn({ ...COMMAND, text });
+    expect(started.ok).toBe(true);
+    if (started.ok) await started.value.completion;
+  }
+
+  function seedSceneStarted(ctx: Ctx): void {
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'scene.started',
+      payload: { scene_id: 's1', title: 'The Rainy Inn' },
+    });
+  }
+
+  it('change_sublocation commits sublocation.changed atomically after turn.committed', async () => {
+    const ctx = setup();
+    await runTurn(ctx, '!move subloc:cellar');
+    const events = ctx.storage.eventLog.readSince(0);
+    expect(events.map((e) => e.type)).toEqual([
+      'turn.started',
+      'turn.committed',
+      'sublocation.changed',
+    ]);
+    const moved = events[2];
+    if (moved?.type === 'sublocation.changed') {
+      expect(moved.payload.sublocation_id).toBe('subloc:cellar');
+      expect(moved.payload.name).toBe('The Flooded Cellar');
+      expect(moved.actor_id).toBe('char:narrator');
+    }
+    expect(
+      ctx.devFrames.filter((f) => f.type === 'dev.tool_call'),
+    ).toHaveLength(1);
+    ctx.storage.close();
+  });
+
+  it('switch_art commits a durable art.switched event', async () => {
+    const ctx = setup();
+    await runTurn(ctx, '!art char:elias smile');
+    const events = ctx.storage.eventLog.readSince(0);
+    const art = events.find((e) => e.type === 'art.switched');
+    expect(art).toBeDefined();
+    if (art?.type === 'art.switched') {
+      expect(art.payload).toMatchObject({
+        scene_id: 's1',
+        character_id: 'char:elias',
+        art_id: 'smile',
+      });
+    }
+    ctx.storage.close();
+  });
+
+  it('end_scene commits scene.ended LAST with end_type + fan-out jobs in one transaction', async () => {
+    const ctx = setup();
+    seedSceneStarted(ctx);
+    await runTurn(ctx, '!end continuation');
+    const events = ctx.storage.eventLog.readSince(0);
+    expect(events.map((e) => e.type)).toEqual([
+      'scene.started',
+      'turn.started',
+      'turn.committed',
+      'scene.ended',
+    ]);
+    const ended = events[3];
+    if (ended?.type === 'scene.ended') {
+      expect(ended.payload.end_type).toBe('continuation');
+      expect(ended.payload.divider_text).toBe('— the rain eases —');
+      // Elias spoke in THIS turn's committed steps — the fan-out sees it
+      // because turn.committed and scene.ended share one transaction.
+      expect(ended.payload.participants).toEqual(['char:elias']);
+    }
+    expect(ctx.storage.ledger.countByKey('reflection:char:elias:s1')).toBe(1);
+    expect(ctx.storage.ledger.countByKey('world_agent:s1')).toBe(1);
+    ctx.storage.close();
+  });
+
+  it('a second change_sublocation in one turn moves again; same target is state-rejected', async () => {
+    const ctx = setup();
+    await runTurn(ctx, '!move subloc:cellar');
+    await runTurn(ctx, '!move subloc:cellar'); // already there now — gate 2 rejects
+    const events = ctx.storage.eventLog.readSince(0);
+    expect(events.filter((e) => e.type === 'sublocation.changed')).toHaveLength(
+      1,
+    );
+    const rejected = ctx.devFrames.find((f) => f.type === 'dev.tool_rejected');
+    expect(rejected).toBeDefined();
+    if (rejected?.type === 'dev.tool_rejected') {
+      expect(rejected.gate).toBe('state');
+    }
+    ctx.storage.close();
+  });
 });
