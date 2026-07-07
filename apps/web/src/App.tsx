@@ -11,6 +11,7 @@ import { DevOverlay } from './components/DevOverlay.js';
 import { MapModal } from './components/MapModal.js';
 import { NavRail } from './components/NavRail.js';
 import { type CoverState } from './components/SceneCover.js';
+import { ConfigPage } from './pages/ConfigPage.js';
 import { GamedayPage } from './pages/GamedayPage.js';
 import { MapPage } from './pages/MapPage.js';
 import { ScenePage } from './pages/ScenePage.js';
@@ -145,12 +146,12 @@ export function App(): React.JSX.Element {
     <div className="wl-app">
       <NavRail />
       <div className="wl-page">
-        {/* The Config page lands in this milestone's later commits;
-            until then its route renders the Scene page. */}
         {route === '/map' ? (
           <MapPage mapReady={mapReady} />
         ) : route === '/gameday' ? (
           <GamedayPage />
+        ) : route === '/config' ? (
+          <ConfigPage plugins={plugins} />
         ) : (
           <ScenePage
             pacing={pacing}

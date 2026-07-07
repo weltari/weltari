@@ -3,6 +3,8 @@
 // (render-only, Brief §2.5). Responses are validated like any boundary data.
 import {
   AdvanceTimeAcceptedSchema,
+  ApplyUpdateAcceptedSchema,
+  CommandRejectedSchema,
   EndSceneAcceptedSchema,
   InterruptTurnAcceptedSchema,
   OpenSceneAcceptedSchema,
@@ -54,6 +56,38 @@ export async function postInterruptTurn(
   });
   const parsed = InterruptTurnAcceptedSchema.safeParse(raw);
   return parsed.success ? { committed: parsed.data.committed } : null;
+}
+
+export type ApplyUpdateResult =
+  { ok: true; jobKey: string } | { ok: false; error: string };
+
+/** The update surface (Config, FINAL item 12): enqueue the verify-and-stage
+ * job. A 409 carries the refusal code (e.g. updates_disabled) — the Config
+ * page shows it honestly instead of pretending the button worked. */
+export async function postApplyUpdate(
+  version: string,
+): Promise<ApplyUpdateResult> {
+  const response = await fetch('/v1/commands/apply-update', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      world_id: WORLD_ID,
+      actor_id: ACTOR_ID,
+      version,
+    }),
+  });
+  const raw: unknown = await response.json();
+  if (response.ok) {
+    const accepted = ApplyUpdateAcceptedSchema.safeParse(raw);
+    return accepted.success
+      ? { ok: true, jobKey: accepted.data.job_key }
+      : { ok: false, error: 'malformed_response' };
+  }
+  const rejected = CommandRejectedSchema.safeParse(raw);
+  return {
+    ok: false,
+    error: rejected.success ? rejected.data.error : 'request_failed',
+  };
 }
 
 /** The Gameday flow (UI Spec §1.11): skip the fictional clock forward.

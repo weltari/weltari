@@ -10,6 +10,30 @@ import type {
   WeltariEvent,
 } from '@weltari/protocol';
 
+export interface UpdateAvailable {
+  version: string;
+  current_version: string;
+  release_url?: string | undefined;
+}
+
+export interface UpdateStaged {
+  version: string;
+  previous_version: string;
+  sha256: string;
+}
+
+export interface PluginRejection {
+  plugin: string;
+  reason: string;
+  detail: string;
+}
+
+export interface UpdateJobError {
+  code: string;
+  message: string;
+  parked: boolean;
+}
+
 export interface CommittedTurn {
   turn_id: string;
   steps: TurnStep[];
@@ -53,6 +77,14 @@ export interface SceneStore {
   liveSentences: StreamSentence[];
   /** Dev channel ring buffer (?dev=1 only) — the log-only trail (UI Spec §2.8). */
   devFrames: DevEvent[];
+  /** Latest update.available — the Config badge (untrusted metadata, B12). */
+  updateAvailable: UpdateAvailable | null;
+  /** Latest update.staged — "restart to apply" (Config surface). */
+  updateStaged: UpdateStaged | null;
+  /** update_apply job failures — surfaced honestly on Config, cleared by a stage. */
+  updateJobError: UpdateJobError | null;
+  /** Plugins refused at load (B10) — Config shows them calmly, never hides them. */
+  pluginRejections: PluginRejection[];
 
   // ---- reducer actions: called ONLY from stream.ts ----
   setConnected(connected: boolean): void;
@@ -83,6 +115,10 @@ export const useSceneStore = create<SceneStore>((set) => ({
   liveTurnId: null,
   liveSentences: [],
   devFrames: [],
+  updateAvailable: null,
+  updateStaged: null,
+  updateJobError: null,
+  pluginRejections: [],
 
   setConnected(connected: boolean): void {
     set({ connected });
@@ -170,16 +206,36 @@ export const useSceneStore = create<SceneStore>((set) => ({
       case 'world_cron.completed':
         set((state) => ({ cronCompleted: state.cronCompleted + 1 }));
         return;
+      case 'update.available':
+        set({ updateAvailable: event.payload });
+        return;
+      case 'update.staged':
+        set({ updateStaged: event.payload, updateJobError: null });
+        return;
+      case 'plugin.rejected':
+        set((state) => ({
+          pluginRejections: [...state.pluginRejections, event.payload],
+        }));
+        return;
+      case 'job.failed':
+      case 'job.parked':
+        // Only the update path surfaces job errors today (Config page);
+        // a general job-status UI is a later milestone.
+        if (event.payload.job_type === 'update_apply') {
+          set({
+            updateJobError: {
+              code: event.payload.error.code,
+              message: event.payload.error.message,
+              parked: event.type === 'job.parked',
+            },
+          });
+        }
+        return;
       // No projection (yet): these surfaces arrive in later milestones
       // (map refresh, feed, job status UI).
       case 'reflection.committed':
       case 'world_agent.committed':
       case 'painter.completed':
-      case 'plugin.rejected':
-      case 'update.available':
-      case 'update.staged':
-      case 'job.failed':
-      case 'job.parked':
         return;
     }
   },

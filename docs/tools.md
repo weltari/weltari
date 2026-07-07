@@ -15,6 +15,8 @@ Purpose: the permanent crash-torture rig (Invariant I4; owner mandate: Week-1 ch
 
 | `tools/check-tests-accompany.mjs` | E2 gate: `git diff` against the PR base — a new `apps/server/src` or `packages/*/src` file with no test file added/modified in the same range exits 1. Runs in the PR-only `tests-accompany` CI job. |
 
+| `tools/update-fixture.mjs` | Manual dev fixture (M4, Config update surface): the kill harness's signed-release trio as a standalone local server — `node tools/update-fixture.mjs [version] [port]` prints the `WELTARI_UPDATE_RELEASES_URL` + `WELTARI_UPDATE_PUBKEY` to start the server with; the Config page then shows the real update.available → Apply → update.staged round-trip. Fresh keypair per run — nothing it signs verifies anywhere else. |
+
 ## CI wiring
 
 - `.github/workflows/ci.yml` → `kill-harness` job, `CYCLES=25`, every push/PR.
