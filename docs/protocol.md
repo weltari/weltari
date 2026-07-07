@@ -17,6 +17,7 @@ Purpose: the language-neutral wire contract between the engine and every client 
 | `src/stream.ts` | Ephemeral SSE frames (`hello`, `stream` sentence) — display-only, never durable, never carry an SSE `id:` (B6). |
 | `src/dev.ts` | Dev-channel frame union (`dev.gauges`, `dev.tool_call`, `dev.tool_rejected`) — the log-only trail for dev mode (UI Spec §2.8, Guide C11); ephemeral like `stream`, sent only to clients that opted in with `?dev=1`. `dev.tool_rejected` is the I8 trail subject: a B6-gate rejection lives only here, zero rows written. |
 | `src/commands.ts` | POST command bodies + responses (`start-turn`, `interrupt-turn` — closes the envelope at the user's last-seen sentence, `end-scene`, `open-scene`, `advance-time`, `paint-region`), user text capped at 8 KB (B7). |
+| `src/plugins.ts` | `GET /v1/plugins` wire shapes: `PluginInfo` (name, version, provenance incl. content sha256, zero-build asset URLs) + `PluginList`. The durable `plugin.rejected` event lives in events.ts. |
 | `scripts/emit.mjs` | Emits `schemas/*.json` via `z.toJSONSchema` (`npm run protocol:emit`); CI diffs the output against the committed copies. |
 | `src/*.test.ts` | Valid + extra-key + boundary fixtures per schema (B5 test rule). |
 
