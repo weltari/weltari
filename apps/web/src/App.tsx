@@ -11,9 +11,10 @@ import { DevOverlay } from './components/DevOverlay.js';
 import { MapModal } from './components/MapModal.js';
 import { NavRail } from './components/NavRail.js';
 import { type CoverState } from './components/SceneCover.js';
+import { MapPage } from './pages/MapPage.js';
 import { ScenePage } from './pages/ScenePage.js';
 import { loadPluginFrontends } from './plugins.js';
-import { navigate } from './router.js';
+import { navigate, useRoute } from './router.js';
 import { connectStream } from './stream.js';
 import { useSceneStore } from './store.js';
 import { usePacing } from './usePacing.js';
@@ -32,6 +33,7 @@ function readTokenMs(token: string, fallback: number): number {
 }
 
 export function App(): React.JSX.Element {
+  const route = useRoute();
   const pacing = usePacing();
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [mapReady, setMapReady] = useState(false);
@@ -152,19 +154,23 @@ export function App(): React.JSX.Element {
     <div className="wl-app">
       <NavRail />
       <div className="wl-page">
-        {/* Map / Gameday / Config pages land in this milestone's later
-            commits; until then every route renders the Scene page. */}
-        <ScenePage
-          pacing={pacing}
-          cover={cover}
-          onOpenScene={(title) => {
-            openSceneCovered(title, 'scene-open');
-          }}
-          mapReady={mapReady}
-          onOpenMap={() => {
-            setMapOpen(true);
-          }}
-        />
+        {/* Gameday / Config pages land in this milestone's later commits;
+            until then their routes render the Scene page. */}
+        {route === '/map' ? (
+          <MapPage mapReady={mapReady} />
+        ) : (
+          <ScenePage
+            pacing={pacing}
+            cover={cover}
+            onOpenScene={(title) => {
+              openSceneCovered(title, 'scene-open');
+            }}
+            mapReady={mapReady}
+            onOpenMap={() => {
+              setMapOpen(true);
+            }}
+          />
+        )}
       </div>
 
       <MapModal
