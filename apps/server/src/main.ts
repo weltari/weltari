@@ -278,6 +278,7 @@ const app = createHttpServer({
   devBus,
   logger,
   startTurn,
+  interruptTurn: (command) => engine.interruptTurn(command),
   endScene: (command) => lifecycle.endScene(command),
   openScene: (command) => lifecycle.openScene(command),
   advanceTime: (command) => worldClock.advanceTime(command),

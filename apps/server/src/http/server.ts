@@ -13,6 +13,8 @@ import {
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
+  InterruptTurnAcceptedSchema,
+  InterruptTurnCommandSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
@@ -25,6 +27,8 @@ import {
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,
+  type InterruptTurnAccepted,
+  type InterruptTurnCommand,
   type OpenSceneAccepted,
   type OpenSceneCommand,
   type PaintRegionAccepted,
@@ -46,6 +50,10 @@ export interface HttpDeps {
   logger: Logger;
   /** The scene engine seam: opens the turn envelope durably before returning. */
   startTurn: (command: StartTurnCommand) => Promise<Result<{ turnId: string }>>;
+  /** Interrupt-anywhere: closes the envelope at the user's last-seen sentence. */
+  interruptTurn: (
+    command: InterruptTurnCommand,
+  ) => Result<{ committed: boolean }>;
   /** Scene lifecycle seams (Milestone 2): atomic fan-out + scoped open blocking. */
   endScene: (command: EndSceneCommand) => Result<{ jobsEnqueued: number }>;
   openScene: (command: OpenSceneCommand) => Result<{ opened: true }>;
@@ -117,6 +125,40 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
       return reply
         .code(202)
         .send({ accepted: true, turn_id: result.value.turnId });
+    },
+  );
+
+  app.post(
+    '/v1/commands/interrupt-turn',
+    {
+      schema: {
+        body: InterruptTurnCommandSchema,
+        response: {
+          202: InterruptTurnAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.interruptTurn(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'interrupt-turn rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: InterruptTurnAccepted = {
+        accepted: true,
+        committed: result.value.committed,
+      };
+      return accepted;
     },
   );
 

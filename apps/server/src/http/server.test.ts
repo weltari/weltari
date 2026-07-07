@@ -82,6 +82,8 @@ async function readFrames(response: Response, count: number): Promise<Frame[]> {
   return frames;
 }
 
+let setupCount = 0;
+
 describe('HTTP layer (SSE + commands)', () => {
   let app: FastifyInstance | null = null;
   let storage: Storage | null = null;
@@ -149,6 +151,10 @@ describe('HTTP layer (SSE + commands)', () => {
       devBus,
       logger,
       startTurn,
+      interruptTurn: (command) =>
+        command.turn_id === 'gone'
+          ? err(new OperationalError('turn_not_running', 'no such turn'))
+          : ok({ committed: command.seen !== undefined }),
       // Scene lifecycle stubs: 'blocked' scene id exercises the 409 path.
       endScene: (command) =>
         command.scene_id === 'blocked'
@@ -171,7 +177,26 @@ describe('HTTP layer (SSE + commands)', () => {
         ok({ jobKey: `painter:${command.image_id}:${command.request_id}` }),
       heartbeatMs: 60000,
     });
-    await app.listen({ port: 0, host: '127.0.0.1' });
+    // Windows: listen({port: 0}) draws from the ephemeral range (49152+),
+    // where outbound sockets roam — connects to such a port intermittently
+    // fail with EADDRINUSE. Stay below that range: deterministic PID-based
+    // port (parallel vitest workers have distinct pids), retry on bind clash.
+    // setupCount keeps every test on a FRESH port so undici's keep-alive pool
+    // can never hand back a stale connection to a closed server (ECONNRESET).
+    setupCount += 1;
+    const basePort = 20000 + (process.pid % 5000) + setupCount * 7;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await app.listen({ port: basePort + attempt, host: '127.0.0.1' });
+        break;
+      } catch (thrown) {
+        const taken =
+          thrown instanceof Error &&
+          'code' in thrown &&
+          thrown.code === 'EADDRINUSE';
+        if (!taken || attempt >= 50) throw thrown;
+      }
+    }
     const address = app.server.address();
     if (address === null || typeof address === 'string')
       throw new Error('no port');
@@ -195,6 +220,43 @@ describe('HTTP layer (SSE + commands)', () => {
       bus.publish(event);
     }
   }
+
+  it('interrupt-turn -> 202 with committed; unknown turn -> 409', async () => {
+    const ctx = await setup();
+    const accepted = await fetchRetry(
+      `${ctx.baseUrl}/v1/commands/interrupt-turn`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          turn_id: 't-live',
+          seen: { call: 'narrator', sentence_index: 1 },
+        }),
+      },
+    );
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toEqual({ accepted: true, committed: true });
+
+    const refused = await fetchRetry(
+      `${ctx.baseUrl}/v1/commands/interrupt-turn`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          turn_id: 'gone',
+        }),
+      },
+    );
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      accepted: false,
+      error: 'turn_not_running',
+    });
+  });
 
   it('hello frame carries protocol_version and the current log head', async () => {
     const ctx = await setup();
