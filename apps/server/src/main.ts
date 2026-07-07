@@ -3,11 +3,14 @@
 // world if the log is empty, start HTTP + runner loops.
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { StartTurnCommand } from '@weltari/protocol';
+import type { ApplyUpdateCommand, StartTurnCommand } from '@weltari/protocol';
+import { readAppVersion } from './boundary/config/app-version.js';
 import { readEnvOrExplain } from './boundary/config/env.js';
 import { createPluginAssetResolver } from './boundary/plugins/assets.js';
 import { loadPlugins } from './boundary/plugins/loader.js';
-import { OperationalError, type Result } from './errors.js';
+import { cleanStaleStaging, type FetchLike } from './boundary/update/stage.js';
+import { normalizeVersion } from './boundary/update/version.js';
+import { err, ok, OperationalError, type Result } from './errors.js';
 import { createEventSink, type EventSink } from './engine/event-sink.js';
 import type { FaultPointHook } from './engine/fault-points.js';
 import {
@@ -28,12 +31,15 @@ import { createHttpServer } from './http/server.js';
 import { createStaticResolver } from './http/static.js';
 import { createPainterHandler } from './ledger/handlers/painter.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
+import { createUpdateApplyHandler } from './ledger/handlers/update-apply.js';
+import { createUpdateCheckHandler } from './ledger/handlers/update-check.js';
 import { createWorldAgentHandler } from './ledger/handlers/world-agent.js';
 import {
   createWorldCronCodeHandler,
   createWorldCronLlmHandler,
 } from './ledger/handlers/world-cron.js';
 import { createRunner } from './ledger/runner.js';
+import { createScheduler } from './ledger/scheduler.js';
 import { createPaintRegionCommand } from './painter/commands.js';
 import { createImageResolver } from './painter/images.js';
 import { createFakeLlmClient } from './llm/fake-client.js';
@@ -222,6 +228,22 @@ const gatewayHost = createGatewayHost({
   runTurn: runGatewayTurn,
 });
 
+// Self-update (FINAL item 12, Guide B12). No public key = disabled entirely —
+// the safe default until the owner mints a minisign keypair. Startup IS
+// recovery: a stale vNext (kill mid-download) is deleted before anything runs.
+const appVersion =
+  env.appVersion ??
+  readAppVersion(resolve(import.meta.dirname, '../package.json'), logger);
+const updatesEnabled = env.updatePubkey !== undefined;
+cleanStaleStaging(env.versionsDir, logger);
+const updateFetch: FetchLike = async (url) =>
+  fetch(url, {
+    headers: {
+      accept: 'application/vnd.github+json',
+      'user-agent': 'weltari-updater',
+    },
+  });
+
 const runner = createRunner({
   storage,
   handlers: {
@@ -261,6 +283,30 @@ const runner = createRunner({
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
+    ...(env.updatePubkey === undefined
+      ? {}
+      : {
+          update_check: createUpdateCheckHandler({
+            storage,
+            sink,
+            logger,
+            currentVersion: appVersion,
+            releasesUrl: env.updateReleasesUrl,
+            fetchFn: updateFetch,
+          }),
+          update_apply: createUpdateApplyHandler({
+            storage,
+            sink,
+            logger,
+            currentVersion: appVersion,
+            releasesUrl: env.updateReleasesUrl,
+            fetchFn: updateFetch,
+            versionsDir: env.versionsDir,
+            publicKeyBase64: env.updatePubkey,
+            maxArtifactBytes: env.updateMaxBytes,
+            ...(faultPoint === undefined ? {} : { faultPoint }),
+          }),
+        }),
   },
   nowIso: (): string => new Date().toISOString(),
   workerId: `worker-${String(process.pid)}`,
@@ -270,7 +316,33 @@ const runner = createRunner({
   },
 });
 
+// Croner-scheduled release check + one check shortly after every boot
+// (FINAL item 12: "startup + croner job"). croner only writes ledger rows.
+const updateScheduler = updatesEnabled
+  ? createScheduler(
+      storage,
+      [
+        {
+          pattern: env.updateCheckCron,
+          jobType: 'update_check',
+          worldId: FIXTURE_WORLD_ID,
+        },
+      ],
+      (): string => new Date().toISOString(),
+    )
+  : null;
+if (updatesEnabled) {
+  storage.ledger.enqueue({
+    idempotency_key: `update_check:boot:${new Date().toISOString()}`,
+    world_id: FIXTURE_WORLD_ID,
+    type: 'update_check',
+    payload: null,
+    run_at: new Date().toISOString(),
+  });
+}
+
 const runnerInterval = setInterval(() => {
+  updateScheduler?.tick();
   catchAndLog(runner.tick(), logger, 'runner.tick');
 }, 1000);
 
@@ -300,6 +372,34 @@ if (!existsSync(webDir)) {
   logger.warn({ webDir }, 'web dist not found — static frontend disabled');
 }
 
+/** The apply-update seam: enqueue the (serial, idempotent) update_apply job. */
+function applyUpdate(command: ApplyUpdateCommand): Result<{ jobKey: string }> {
+  if (!updatesEnabled) {
+    return err(
+      new OperationalError(
+        'updates_disabled',
+        'no update verification key configured (WELTARI_UPDATE_PUBKEY)',
+      ),
+    );
+  }
+  const version = normalizeVersion(command.version);
+  if (version === null) {
+    return err(
+      new OperationalError('version_invalid', 'version is not plain semver'),
+    );
+  }
+  const jobKey = `update_apply:${version}`;
+  storage.ledger.enqueue({
+    idempotency_key: jobKey,
+    world_id: command.world_id,
+    type: 'update_apply',
+    payload: { version },
+    run_at: new Date().toISOString(),
+    serial_group: 'update_apply',
+  });
+  return ok({ jobKey });
+}
+
 const app = createHttpServer({
   eventLog: storage.eventLog,
   eventBus,
@@ -312,6 +412,7 @@ const app = createHttpServer({
   openScene: (command) => lifecycle.openScene(command),
   advanceTime: (command) => worldClock.advanceTime(command),
   paintRegion: createPaintRegionCommand(storage),
+  applyUpdate,
   plugins: plugins.map((plugin) => plugin.info),
   resolvePluginAsset: createPluginAssetResolver(plugins),
   resolveImage: createImageResolver(env.imagesDir),

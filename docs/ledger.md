@@ -26,6 +26,8 @@ Per-world serialization: rows carry `serial_group` (e.g. `world_agent:<world_id>
 | `ledger/scheduler.ts` | croner wrapper: computes next occurrence (UTC), writes a future-dated ledger row keyed `cron:<type>:<world>:<occurrence>` — idempotent across restarts. Also the pure fictional-calendar helpers the engine's WorldClock uses (`addMinutesIso`, `occurrencesBetween` — croner never reads the wall clock there). |
 | `ledger/handlers/world-cron.ts` | Time-skip replay handlers (`world_cron.code` / `world_cron.llm`): idempotent per (cron_type, scheduled_for) via the committed event; code = pure projection, llm = FakeLLM/real narration; fault point `mid_cron` before the commit append. |
 | `ledger/handlers/painter.ts` | Painter job handler — documented in [painter.md](painter.md). |
+| `ledger/handlers/update-check.ts` | update_check job (startup + croner, FINAL item 12): fetch the release channel, `validateAt('update', …)`, announce a strictly-newer version as ONE `update.available` event (idempotent). Never downloads — see [update.md](update.md). |
+| `ledger/handlers/update-apply.ts` | update_apply job (serial_group `update_apply`): re-fetch release, download artifact trio, verify SHA-256 + minisign, stage + pointer flip (B12), append `update.staged` once — kill -9 retries converge. Fault point `mid_update` inside stageUpdate. |
 | `../migrations/0002_jobs.sql` | `ledger_jobs` table: states CHECK, idempotency UNIQUE, lease columns, `serial_group`, claim indexes. |
 
 ## Events consumed/emitted

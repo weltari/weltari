@@ -106,6 +106,8 @@ describe('GET /* (the SPA wildcard route)', () => {
       advanceTime: () =>
         err(new OperationalError('skip_too_large', 'test stub')),
       paintRegion: () => ok({ jobKey: 'painter:x:y' }),
+      applyUpdate: () =>
+        err(new OperationalError('updates_disabled', 'test stub')),
       ...(resolveStatic === undefined ? {} : { resolveStatic }),
     });
     return app;
