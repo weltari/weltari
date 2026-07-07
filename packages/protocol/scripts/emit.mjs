@@ -7,6 +7,8 @@ import { z } from 'zod';
 import {
   AdvanceTimeAcceptedSchema,
   AdvanceTimeCommandSchema,
+  ApplyUpdateAcceptedSchema,
+  ApplyUpdateCommandSchema,
   CommandRejectedSchema,
   DevEventSchema,
   EndSceneAcceptedSchema,
@@ -45,6 +47,8 @@ const files = {
   'advance-time-accepted.json': AdvanceTimeAcceptedSchema,
   'paint-region-command.json': PaintRegionCommandSchema,
   'paint-region-accepted.json': PaintRegionAcceptedSchema,
+  'apply-update-command.json': ApplyUpdateCommandSchema,
+  'apply-update-accepted.json': ApplyUpdateAcceptedSchema,
   'command-rejected.json': CommandRejectedSchema,
   'plugin-list.json': PluginListSchema,
 };

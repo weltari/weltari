@@ -272,6 +272,43 @@ export const PluginRejectedEventSchema = z.strictObject({
   }),
 });
 
+/**
+ * A newer release exists on the update channel (FINAL item 12). The release
+ * metadata was safeParse'd but is still UNTRUSTED (Guide B12) — nothing is
+ * downloaded or trusted until the apply path verifies SHA-256 + minisign.
+ * Emitted by: the update_check job (startup + croner). Consumed by: clients
+ * (Config badge / "update available" notice).
+ */
+export const UpdateAvailableEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('update.available'),
+  payload: z.strictObject({
+    /** The release version tag, e.g. "0.2.0". */
+    version: z.string().min(1),
+    current_version: z.string().min(1),
+    /** Human release page — untrusted metadata, display only. */
+    release_url: z.string().min(1).optional(),
+  }),
+});
+
+/**
+ * A verified update was staged and the `current` pointer flipped — the new
+ * version starts on the next restart (FINAL item 12). Emitted by: the
+ * update_apply job strictly AFTER SHA-256 + minisign verification passed
+ * (Guide B12: the pointer-flip path takes a VerifiedArtifact only the
+ * verifier constructs). Consumed by: clients ("restart to apply").
+ */
+export const UpdateStagedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('update.staged'),
+  payload: z.strictObject({
+    version: z.string().min(1),
+    previous_version: z.string().min(1),
+    /** Hex SHA-256 of the verified artifact. */
+    sha256: z.string().length(64),
+  }),
+});
+
 /** Truncated error surface for the UI — never prompt content (Guide C7/C12). */
 export const JobErrorSchema = z.strictObject({
   kind: z.enum(['operational', 'bug', 'corrupt_state']),
@@ -323,6 +360,8 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   WorldCronCompletedEventSchema,
   PainterCompletedEventSchema,
   PluginRejectedEventSchema,
+  UpdateAvailableEventSchema,
+  UpdateStagedEventSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,
 ]);

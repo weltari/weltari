@@ -10,8 +10,10 @@
  * 0.3.0: plugin.rejected event; GET /v1/plugins wire shapes (PluginInfo).
  * 0.4.0: sublocation.changed optional map_position (map connector surface);
  * GET /v1/images/* serves painter outputs (tile source).
+ * 0.5.0: update.available + update.staged events; apply-update command
+ * (self-update path, FINAL item 12 / Guide B12).
  */
-export const PROTOCOL_VERSION = '0.4.0';
+export const PROTOCOL_VERSION = '0.5.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -30,6 +32,8 @@ export {
   TurnCommittedEventSchema,
   TurnStartedEventSchema,
   TurnStepSchema,
+  UpdateAvailableEventSchema,
+  UpdateStagedEventSchema,
   WeltariEventSchema,
   WorldAgentCommittedEventSchema,
   WorldCronCompletedEventSchema,
@@ -64,6 +68,8 @@ export {
 export {
   AdvanceTimeAcceptedSchema,
   AdvanceTimeCommandSchema,
+  ApplyUpdateAcceptedSchema,
+  ApplyUpdateCommandSchema,
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
@@ -77,6 +83,8 @@ export {
   StartTurnCommandSchema,
   type AdvanceTimeAccepted,
   type AdvanceTimeCommand,
+  type ApplyUpdateAccepted,
+  type ApplyUpdateCommand,
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,

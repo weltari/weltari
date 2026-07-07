@@ -148,12 +148,14 @@ export const useSceneStore = create<SceneStore>((set) => ({
         set({ worldTime: event.payload.to });
         return;
       // No scene-page projection (yet): these surfaces arrive in later
-      // milestones (map refresh, feed, job status UI).
+      // milestones (map refresh, feed, job status UI, Config update badge).
       case 'reflection.committed':
       case 'world_agent.committed':
       case 'world_cron.completed':
       case 'painter.completed':
       case 'plugin.rejected':
+      case 'update.available':
+      case 'update.staged':
       case 'job.failed':
       case 'job.parked':
         return;
