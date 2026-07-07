@@ -22,7 +22,7 @@ Purpose: normalize provider streaming/usage quirks behind one owned seam (`LlmCl
 
 | File | What it does / talks to |
 | --- | --- |
-| `engine/scene-turn.ts` | The scripted turn: `turn.started` durable first → Narrator (with the narrator toolset) → character → narration (sequential, each streamed sentence-by-sentence to StreamBus) → ONE transaction committing `turn.committed` + staged tool events (+ scene.ended with fan-out when end_scene staged), published after commit. Any failure voids the turn — zero partial durable rows (B6). Fault-point hooks `mid_stream`/`between_calls`/`pre_commit` for the kill harness. |
+| `engine/scene-turn.ts` | The scripted turn: `turn.started` durable first → Narrator (with the narrator toolset) → character → narration (sequential, each streamed sentence-by-sentence to StreamBus) → ONE transaction committing `turn.committed` + staged tool events (+ scene.ended with fan-out when end_scene staged), published after commit. Any failure voids the turn — zero partial durable rows (B6). `interruptTurn` closes the envelope immediately at the user's last-seen sentence: truncated `turn.committed` (marked `interrupted`), staged tool effects discarded, later LLM output finishes into the void. Fault-point hooks `mid_stream`/`between_calls`/`pre_commit` for the kill harness. |
 | `engine/sentences.ts` | Incremental sentence splitter (deltas in → whole sentences out). |
 
 ## Events consumed/emitted

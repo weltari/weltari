@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import type { DevEvent, StreamSentence } from '@weltari/protocol';
-import { err, OperationalError, type Result } from '../errors.js';
+import { err, ok, OperationalError, type Result } from '../errors.js';
 import {
   Bus,
   type DevBus,
@@ -158,6 +158,140 @@ describe('scripted 3-call scene turn', () => {
     if (started.ok) await started.value.completion;
     return ctx;
   }
+});
+
+describe('interrupt-anywhere (criterion c: nothing after the point is durable)', () => {
+  /** A narrator call that streams two sentences, then BLOCKS until released —
+   * the test interrupts inside that window, deterministically. */
+  function gatedClient(): {
+    client: LlmClient;
+    narratorStreamed: Promise<void>;
+    release: () => void;
+  } {
+    let signalStreamed = (): void => undefined;
+    const narratorStreamed = new Promise<void>((resolve) => {
+      signalStreamed = resolve;
+    });
+    let releaseGate = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const fake = createFakeLlmClient();
+    const client: LlmClient = {
+      async streamCall(call): Promise<Result<LlmCallResult>> {
+        if (call.kind !== 'narrator') return fake.streamCall(call);
+        call.onTextDelta('First beat lands. Second beat follows. ');
+        signalStreamed();
+        await gate;
+        call.onTextDelta('Third beat never displays.');
+        return ok({
+          text: 'First beat lands. Second beat follows. Third beat never displays.',
+          usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+          model: 'fake/gated',
+          durationMs: 0,
+          // The narrator ALSO tries a world change — the interrupt must void it.
+          toolCalls: [
+            {
+              tool: 'change_sublocation',
+              input: { sublocation_id: 'subloc:cellar' },
+            },
+          ],
+        });
+      },
+    };
+    return { client, narratorStreamed, release: releaseGate };
+  }
+
+  it('closes the envelope at the seen sentence; later text and tool effects never persist', async () => {
+    const gated = gatedClient();
+    const ctx = setup(gated.client);
+    const started = await ctx.engine.startTurn(COMMAND);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await gated.narratorStreamed;
+    const interrupt = ctx.engine.interruptTurn({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: started.value.turnId,
+      seen: { call: 'narrator', sentence_index: 0 },
+    });
+    expect(interrupt.ok).toBe(true);
+    if (interrupt.ok) expect(interrupt.value.committed).toBe(true);
+
+    gated.release();
+    await started.value.completion;
+
+    const events = ctx.storage.eventLog.readSince(0);
+    expect(events.map((e) => e.type)).toEqual([
+      'turn.started',
+      'turn.committed',
+    ]);
+    const committed = events[1];
+    if (committed?.type === 'turn.committed') {
+      expect(committed.payload.interrupted).toBe(true);
+      // Only the sentence the user saw — sentence 1+ and later calls are gone.
+      expect(committed.payload.steps).toEqual([
+        { call: 'narrator', speaker: 'Narrator', text: 'First beat lands.' },
+      ]);
+    }
+    // The staged change_sublocation was discarded: no durable world change.
+    expect(events.some((e) => e.type === 'sublocation.changed')).toBe(false);
+    // No stream frames for calls that never displayed.
+    expect(ctx.streamFrames.filter((f) => f.call !== 'narrator')).toHaveLength(
+      0,
+    );
+    ctx.storage.close();
+  });
+
+  it('interrupt before anything displayed voids the turn (committed: false)', async () => {
+    const gated = gatedClient();
+    const ctx = setup(gated.client);
+    const started = await ctx.engine.startTurn(COMMAND);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await gated.narratorStreamed;
+    const interrupt = ctx.engine.interruptTurn({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: started.value.turnId,
+      // no `seen`: the user typed before reading anything
+    });
+    expect(interrupt.ok).toBe(true);
+    if (interrupt.ok) expect(interrupt.value.committed).toBe(false);
+
+    gated.release();
+    await started.value.completion;
+    const events = ctx.storage.eventLog.readSince(0);
+    expect(events.map((e) => e.type)).toEqual(['turn.started']); // void (B6)
+    ctx.storage.close();
+  });
+
+  it('a finished or unknown turn refuses interruption', async () => {
+    const ctx = setup();
+    const started = await ctx.engine.startTurn(COMMAND);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    await started.value.completion; // turn is closed now
+
+    const late = ctx.engine.interruptTurn({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: started.value.turnId,
+      seen: { call: 'narrator', sentence_index: 0 },
+    });
+    expect(late.ok).toBe(false);
+    if (!late.ok) expect(late.error.code).toBe('turn_not_running');
+
+    const unknown = ctx.engine.interruptTurn({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: 'no-such-turn',
+    });
+    expect(unknown.ok).toBe(false);
+    ctx.storage.close();
+  });
 });
 
 describe('narrator tool pipeline (B6 two gates)', () => {

@@ -11,11 +11,18 @@
 // the dev trail (I8).
 import { randomUUID } from 'node:crypto';
 import type {
+  InterruptTurnCommand,
   StartTurnCommand,
   TurnStep,
   WeltariEvent,
 } from '@weltari/protocol';
-import { ok, type AppError, type Result } from '../errors.js';
+import {
+  err,
+  ok,
+  OperationalError,
+  type AppError,
+  type Result,
+} from '../errors.js';
 import type { Logger } from '../observability/logger.js';
 import type { DevBus, EventBus, StreamBus } from '../http/bus.js';
 import { parseToolCall, type RawToolCall } from '../llm/tools.js';
@@ -84,6 +91,52 @@ export interface TurnEngine {
   startTurn(
     command: StartTurnCommand,
   ): Promise<Result<{ turnId: string; completion: Promise<void> }>>;
+  /**
+   * Interrupt-anywhere (UI Spec §1.4): closes the envelope NOW at the user's
+   * last-seen sentence. Commits a truncated turn.committed (marked
+   * `interrupted`) built from the sentences that actually streamed; discards
+   * every staged tool effect; still-running LLM work finishes into the void.
+   * `committed` false = nothing was displayed yet, the turn voided entirely.
+   */
+  interruptTurn(command: InterruptTurnCommand): Result<{ committed: boolean }>;
+}
+
+/** What the engine remembers about a live turn — the interrupt cut source. */
+interface RunningTurn {
+  command: StartTurnCommand;
+  /** Streamed sentences per call, in call order (the display-only record). */
+  recorded: { call: TurnStep['call']; speaker: string; sentences: string[] }[];
+  stage: ToolStage;
+  interrupted: boolean;
+  /** True once ANY turn.committed was written (normal or interrupt path). */
+  closed: boolean;
+}
+
+/**
+ * Steps the user actually saw: calls before the cut in full, the cut call up
+ * to (and including) the seen sentence, nothing after. Clamped to what really
+ * streamed — a client naming an unseen sentence cannot mint text.
+ */
+function truncateAtSeen(
+  recorded: RunningTurn['recorded'],
+  seen: NonNullable<InterruptTurnCommand['seen']>,
+): TurnStep[] {
+  const steps: TurnStep[] = [];
+  for (const rec of recorded) {
+    const isCut = rec.call === seen.call;
+    const sentences = isCut
+      ? rec.sentences.slice(0, seen.sentence_index + 1)
+      : rec.sentences;
+    if (sentences.length > 0) {
+      steps.push({
+        call: rec.call,
+        speaker: rec.speaker,
+        text: sentences.join(' '),
+      });
+    }
+    if (isCut) break;
+  }
+  return steps;
 }
 
 interface CallPlan {
@@ -153,6 +206,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
 
   async function runCall(
     plan: CallPlan,
+    turn: RunningTurn,
     turnId: string,
     sceneId: string,
     priorSteps: readonly TurnStep[],
@@ -170,16 +224,28 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       wiki: [],
     });
 
+    const record: RunningTurn['recorded'][number] = {
+      call: plan.kind,
+      speaker: plan.profile.name,
+      sentences: [],
+    };
+    turn.recorded.push(record);
+
     let sentenceIndex = 0;
     let firstSentenceSeen = false;
     const splitter = createSentenceSplitter((sentence) => {
-      streamBus.publish({
-        turn_id: turnId,
-        call: plan.kind,
-        speaker: plan.profile.name,
-        text: sentence,
-        index: sentenceIndex,
-      });
+      record.sentences.push(sentence);
+      // Post-interrupt sentences never display — and never commit (the
+      // interrupt already closed the envelope at the seen cut).
+      if (!turn.interrupted) {
+        streamBus.publish({
+          turn_id: turnId,
+          call: plan.kind,
+          speaker: plan.profile.name,
+          text: sentence,
+          index: sentenceIndex,
+        });
+      }
       sentenceIndex += 1;
       if (!firstSentenceSeen) {
         firstSentenceSeen = true;
@@ -255,6 +321,8 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     }
   }
 
+  const running = new Map<string, RunningTurn>();
+
   return {
     async startTurn(
       command: StartTurnCommand,
@@ -300,16 +368,29 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         command.scene_id,
       );
 
+      const turn: RunningTurn = {
+        command,
+        recorded: [],
+        stage,
+        interrupted: false,
+        closed: false,
+      };
+      running.set(turnId, turn);
+
       const completion = (async (): Promise<void> => {
         const steps: TurnStep[] = [];
         for (const [index, plan] of plans.entries()) {
           const result = await runCall(
             plan,
+            turn,
             turnId,
             command.scene_id,
             steps,
             index === 0 ? command.text : undefined,
           );
+          // The interrupt already closed the envelope — everything from here
+          // on (text and tool calls alike) finishes into the void (B6).
+          if (turn.interrupted) return;
           if (!result.ok) {
             voidTurn(turnId, result.error);
             return;
@@ -319,6 +400,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
           if (index === 0) await faultPoint('between_calls');
         }
         await faultPoint('pre_commit');
+        if (turn.interrupted || turn.closed) return;
 
         // One WriteGate transaction: the turn text, every staged tool effect
         // and (when end_scene staged) scene.ended + its fan-out jobs commit or
@@ -377,10 +459,66 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
             appended.push(core.event);
           }
         });
+        turn.closed = true;
         for (const event of appended) eventBus.publish(event);
-      })();
+      })().finally(() => {
+        running.delete(turnId);
+      });
 
       return Promise.resolve(ok({ turnId, completion }));
+    },
+
+    interruptTurn(
+      command: InterruptTurnCommand,
+    ): Result<{ committed: boolean }> {
+      const turn = running.get(command.turn_id);
+      if (turn === undefined || turn.closed || turn.interrupted) {
+        return err(
+          new OperationalError(
+            'turn_not_running',
+            `turn ${command.turn_id} is not open for interruption`,
+          ),
+        );
+      }
+      turn.interrupted = true;
+      // The user cut the Narrator off: staged world changes never happened.
+      turn.stage.discard();
+
+      const steps =
+        command.seen === undefined
+          ? []
+          : truncateAtSeen(turn.recorded, command.seen);
+      if (steps.length === 0) {
+        // Nothing was displayed — the envelope closes as a void (recovery
+        // already treats started-without-committed as void).
+        turn.closed = true;
+        logger.info(
+          { turn_id: command.turn_id },
+          'turn interrupted before display: voided',
+        );
+        return ok({ committed: false });
+      }
+
+      const persisted = storage.transact(() =>
+        storage.eventLog.append({
+          world_id: turn.command.world_id,
+          actor_id: command.actor_id,
+          type: 'turn.committed',
+          payload: {
+            scene_id: turn.command.scene_id,
+            turn_id: command.turn_id,
+            steps,
+            interrupted: true,
+          },
+        }),
+      );
+      turn.closed = true;
+      eventBus.publish(persisted);
+      logger.info(
+        { turn_id: command.turn_id, steps: steps.length },
+        'turn interrupted: truncated commit',
+      );
+      return ok({ committed: true });
     },
   };
 
