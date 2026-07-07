@@ -234,7 +234,13 @@ const gatewayHost = createGatewayHost({
 const appVersion =
   env.appVersion ??
   readAppVersion(resolve(import.meta.dirname, '../package.json'), logger);
-const updatesEnabled = env.updatePubkey !== undefined;
+// Notify vs apply (FINAL item 12): checking needs no key (it never
+// downloads); applying needs the key AND a native install — Docker images
+// run notify-and-let-host-pull (WELTARI_UPDATE_NOTIFY_ONLY=1).
+const updateNotifyEnabled =
+  env.updatePubkey !== undefined || env.updateNotifyOnly;
+const updateApplyEnabled =
+  env.updatePubkey !== undefined && !env.updateNotifyOnly;
 cleanStaleStaging(env.versionsDir, logger);
 const updateFetch: FetchLike = async (url) =>
   fetch(url, {
@@ -283,9 +289,8 @@ const runner = createRunner({
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
-    ...(env.updatePubkey === undefined
-      ? {}
-      : {
+    ...(updateNotifyEnabled
+      ? {
           update_check: createUpdateCheckHandler({
             storage,
             sink,
@@ -294,6 +299,10 @@ const runner = createRunner({
             releasesUrl: env.updateReleasesUrl,
             fetchFn: updateFetch,
           }),
+        }
+      : {}),
+    ...(updateApplyEnabled && env.updatePubkey !== undefined
+      ? {
           update_apply: createUpdateApplyHandler({
             storage,
             sink,
@@ -306,7 +315,8 @@ const runner = createRunner({
             maxArtifactBytes: env.updateMaxBytes,
             ...(faultPoint === undefined ? {} : { faultPoint }),
           }),
-        }),
+        }
+      : {}),
   },
   nowIso: (): string => new Date().toISOString(),
   workerId: `worker-${String(process.pid)}`,
@@ -318,7 +328,7 @@ const runner = createRunner({
 
 // Croner-scheduled release check + one check shortly after every boot
 // (FINAL item 12: "startup + croner job"). croner only writes ledger rows.
-const updateScheduler = updatesEnabled
+const updateScheduler = updateNotifyEnabled
   ? createScheduler(
       storage,
       [
@@ -331,7 +341,7 @@ const updateScheduler = updatesEnabled
       (): string => new Date().toISOString(),
     )
   : null;
-if (updatesEnabled) {
+if (updateNotifyEnabled) {
   storage.ledger.enqueue({
     idempotency_key: `update_check:boot:${new Date().toISOString()}`,
     world_id: FIXTURE_WORLD_ID,
@@ -374,11 +384,11 @@ if (!existsSync(webDir)) {
 
 /** The apply-update seam: enqueue the (serial, idempotent) update_apply job. */
 function applyUpdate(command: ApplyUpdateCommand): Result<{ jobKey: string }> {
-  if (!updatesEnabled) {
+  if (!updateApplyEnabled) {
     return err(
       new OperationalError(
         'updates_disabled',
-        'no update verification key configured (WELTARI_UPDATE_PUBKEY)',
+        'apply is off: no WELTARI_UPDATE_PUBKEY, or notify-only mode (Docker)',
       ),
     );
   }

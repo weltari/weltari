@@ -54,8 +54,11 @@ staged once).
 ## Configuration
 
 - `WELTARI_UPDATE_PUBKEY` — the minisign public key (base64 body line).
-  **Absent = updates disabled entirely** (safe default until the owner
-  generates a keypair: `minisign -G`).
+  **Absent = updates disabled** (safe default until the owner generates a
+  keypair: `minisign -G`).
+- `WELTARI_UPDATE_NOTIFY_ONLY=1` — notify-and-let-host-pull (the Docker
+  image sets this): the release check runs without a key (it never
+  downloads), `apply-update` always 409s.
 - `WELTARI_UPDATE_RELEASES_URL` — default
   `https://api.github.com/repos/weltari/weltari/releases/latest`; the kill
   harness points it at a local fixture server.

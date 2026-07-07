@@ -42,6 +42,9 @@ const envSchema = z.object({
   /** Minisign public key (base64 body line). ABSENT = self-update disabled
    * entirely — the safe default until the owner generates a keypair (B12). */
   WELTARI_UPDATE_PUBKEY: z.string().min(1).optional(),
+  /** '1' = notify-and-let-host-pull (Docker, FINAL item 12): the release
+   * check runs (no key needed — it never downloads), apply always 409s. */
+  WELTARI_UPDATE_NOTIFY_ONLY: z.string().optional(),
   /** Release channel; the kill harness points this at a local fixture server. */
   WELTARI_UPDATE_RELEASES_URL: z
     .string()
@@ -79,6 +82,7 @@ export interface Env {
   webDir: string | undefined;
   gaugeIntervalMs: number;
   updatePubkey: string | undefined;
+  updateNotifyOnly: boolean;
   updateReleasesUrl: string;
   versionsDir: string;
   appVersion: string | undefined;
@@ -131,6 +135,7 @@ export function readEnv(
       webDir: parsed.data.WELTARI_WEB_DIR,
       gaugeIntervalMs: parsed.data.WELTARI_GAUGE_INTERVAL_MS,
       updatePubkey: parsed.data.WELTARI_UPDATE_PUBKEY,
+      updateNotifyOnly: parsed.data.WELTARI_UPDATE_NOTIFY_ONLY === '1',
       updateReleasesUrl: parsed.data.WELTARI_UPDATE_RELEASES_URL,
       versionsDir: parsed.data.WELTARI_VERSIONS_DIR,
       appVersion: parsed.data.WELTARI_APP_VERSION,
