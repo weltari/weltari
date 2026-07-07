@@ -10,6 +10,8 @@ import {
 import {
   AdvanceTimeAcceptedSchema,
   AdvanceTimeCommandSchema,
+  ApplyUpdateAcceptedSchema,
+  ApplyUpdateCommandSchema,
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
@@ -25,6 +27,8 @@ import {
   StartTurnCommandSchema,
   type AdvanceTimeAccepted,
   type AdvanceTimeCommand,
+  type ApplyUpdateAccepted,
+  type ApplyUpdateCommand,
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,
@@ -71,6 +75,9 @@ export interface HttpDeps {
   }>;
   /** Painter seam: enqueue one region composite job (FINAL item 10). */
   paintRegion: (command: PaintRegionCommand) => Result<{ jobKey: string }>;
+  /** Updater seam (FINAL item 12): enqueue the update_apply job — 409 when
+   * updates are disabled (no verification key / Docker notify-only mode). */
+  applyUpdate: (command: ApplyUpdateCommand) => Result<{ jobKey: string }>;
   /**
    * Read-only painter-output serving (GET /v1/images/*): resolves a path
    * RELATIVE to the images dir, contained to it; null = 404. The event
@@ -371,6 +378,37 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
       }
       reply.code(202);
       const accepted: PaintRegionAccepted = {
+        accepted: true,
+        job_key: result.value.jobKey,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/apply-update',
+    {
+      schema: {
+        body: ApplyUpdateCommandSchema,
+        response: {
+          202: ApplyUpdateAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.applyUpdate(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'apply-update rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: ApplyUpdateAccepted = {
         accepted: true,
         job_key: result.value.jobKey,
       };

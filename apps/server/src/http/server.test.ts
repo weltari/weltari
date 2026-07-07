@@ -176,6 +176,11 @@ describe('HTTP layer (SSE + commands)', () => {
             }),
       paintRegion: (command) =>
         ok({ jobKey: `painter:${command.image_id}:${command.request_id}` }),
+      // 'disabled' exercises the 409 path (no verification key configured).
+      applyUpdate: (command) =>
+        command.version === 'disabled'
+          ? err(new OperationalError('updates_disabled', 'no key'))
+          : ok({ jobKey: `update_apply:${command.version}` }),
       heartbeatMs: 60000,
     });
     // Windows: listen({port: 0}) draws from the ephemeral range (49152+),
@@ -221,6 +226,45 @@ describe('HTTP layer (SSE + commands)', () => {
       bus.publish(event);
     }
   }
+
+  it('apply-update -> 202 with job_key; disabled updates -> 409', async () => {
+    const ctx = await setup();
+    const accepted = await fetchRetry(
+      `${ctx.baseUrl}/v1/commands/apply-update`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          version: '0.2.0',
+        }),
+      },
+    );
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toEqual({
+      accepted: true,
+      job_key: 'update_apply:0.2.0',
+    });
+
+    const rejected = await fetchRetry(
+      `${ctx.baseUrl}/v1/commands/apply-update`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          version: 'disabled',
+        }),
+      },
+    );
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toEqual({
+      accepted: false,
+      error: 'updates_disabled',
+    });
+  });
 
   it('interrupt-turn -> 202 with committed; unknown turn -> 409', async () => {
     const ctx = await setup();

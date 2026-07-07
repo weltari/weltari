@@ -39,6 +39,26 @@ const envSchema = z.object({
   WELTARI_WEB_DIR: z.string().min(1).optional(),
   /** Gauge cadence (C13). Default 15 s; the RSS criteria runner shortens it. */
   WELTARI_GAUGE_INTERVAL_MS: z.coerce.number().int().positive().default(15000),
+  /** Minisign public key (base64 body line). ABSENT = self-update disabled
+   * entirely — the safe default until the owner generates a keypair (B12). */
+  WELTARI_UPDATE_PUBKEY: z.string().min(1).optional(),
+  /** Release channel; the kill harness points this at a local fixture server. */
+  WELTARI_UPDATE_RELEASES_URL: z
+    .string()
+    .min(1)
+    .default('https://api.github.com/repos/weltari/weltari/releases/latest'),
+  /** Version directories + the `current` pointer live here (FINAL item 12). */
+  WELTARI_VERSIONS_DIR: z.string().min(1).default('versions'),
+  /** Running-version override (harness); default = server package.json version. */
+  WELTARI_APP_VERSION: z.string().min(1).optional(),
+  /** Cron pattern (UTC) for the periodic release check. */
+  WELTARI_UPDATE_CHECK_CRON: z.string().min(1).default('0 8 * * *'),
+  /** Download cap for update artifacts (B12: untrusted metadata, capped IO). */
+  WELTARI_UPDATE_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(134217728),
 });
 
 export interface Env {
@@ -58,6 +78,12 @@ export interface Env {
   pluginsDir: string;
   webDir: string | undefined;
   gaugeIntervalMs: number;
+  updatePubkey: string | undefined;
+  updateReleasesUrl: string;
+  versionsDir: string;
+  appVersion: string | undefined;
+  updateCheckCron: string;
+  updateMaxBytes: number;
 }
 
 export type EnvResult =
@@ -104,6 +130,12 @@ export function readEnv(
       pluginsDir: parsed.data.WELTARI_PLUGINS_DIR,
       webDir: parsed.data.WELTARI_WEB_DIR,
       gaugeIntervalMs: parsed.data.WELTARI_GAUGE_INTERVAL_MS,
+      updatePubkey: parsed.data.WELTARI_UPDATE_PUBKEY,
+      updateReleasesUrl: parsed.data.WELTARI_UPDATE_RELEASES_URL,
+      versionsDir: parsed.data.WELTARI_VERSIONS_DIR,
+      appVersion: parsed.data.WELTARI_APP_VERSION,
+      updateCheckCron: parsed.data.WELTARI_UPDATE_CHECK_CRON,
+      updateMaxBytes: parsed.data.WELTARI_UPDATE_MAX_BYTES,
     },
   };
 }
