@@ -44,7 +44,10 @@ import {
 } from './ledger/handlers/world-cron.js';
 import { createRunner } from './ledger/runner.js';
 import { createScheduler } from './ledger/scheduler.js';
-import { createPaintRegionCommand } from './painter/commands.js';
+import {
+  createPaintRegionCommand,
+  enqueueSquarePaint,
+} from './painter/commands.js';
 import { createImageResolver } from './painter/images.js';
 import { createStubImageSource } from './painter/image-source.js';
 import { createFakeLlmClient } from './llm/fake-client.js';
@@ -121,6 +124,17 @@ if (storage.eventLog.lastId() === 0) {
     });
   }
   logger.info({ world_id: FIXTURE_WORLD_ID }, 'seeded fixture world');
+}
+// The fixture trio paints like any materialized square (M5). Boot-time, not
+// seed-time, ON PURPOSE: the enqueue dedupes forever on its square key, so
+// this is a no-op every boot after the first — and it heals pre-M5 dev DBs
+// whose trio predates eager painting.
+for (const sublocation of FIXTURE_SUBLOCATIONS) {
+  enqueueSquarePaint(
+    storage,
+    FIXTURE_WORLD_ID,
+    squareOf(sublocation.map_position),
+  );
 }
 
 const registry = createModelRegistry({

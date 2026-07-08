@@ -174,6 +174,33 @@ describe('materialize job handler (B6 double gate)', () => {
     ).rejects.toMatchObject({ kind: 'corrupt_state' });
   });
 
+  it('a successful materialize eagerly enqueues ONE painter job for its square (M5)', async () => {
+    const ctx = setup();
+    const job = jobWith({ square: { col: 5, row: 1 } });
+    await ctx.handler(job);
+    await ctx.handler(job); // retry converges: still one paint job
+
+    const paint = ctx.storage.ledger.claimNext('test-worker');
+    expect(paint?.type).toBe('painter');
+    expect(paint?.idempotency_key).toBe('painter:map:w1:sq-5-1');
+    // Square (5,1) on the 512² base with the 8×8 grid → 64 px rect at (320,64).
+    expect(paint?.payload).toEqual({
+      image_id: 'map:w1',
+      region: { x: 320, y: 64, width: 64, height: 64 },
+    });
+    // …and exactly one: nothing else is claimable.
+    expect(ctx.storage.ledger.claimNext('test-worker')).toBeNull();
+  });
+
+  it('the occupied no-op path still enqueues the paint (heals a kill between event and enqueue)', async () => {
+    const ctx = setup();
+    // subloc:common_room (0.42, 0.55) sits in square (3, 4) — occupied.
+    await ctx.handler(jobWith({ square: { col: 3, row: 4 } }));
+    const paint = ctx.storage.ledger.claimNext('test-worker');
+    expect(paint?.type).toBe('painter');
+    expect(paint?.idempotency_key).toBe('painter:map:w1:sq-3-4');
+  });
+
   it('LLM failure surfaces as operational — nothing durable (B6)', async () => {
     const failing: LlmClient = {
       streamCall: async () =>

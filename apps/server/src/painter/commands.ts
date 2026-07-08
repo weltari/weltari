@@ -2,9 +2,15 @@
 // command only writes the ledger row; every pixel is the job handler's
 // business. Region lease = serial_group per (image, region): two jobs for the
 // same region can never run concurrently (FINAL item 10).
-import type { PaintRegionCommand } from '@weltari/protocol';
+import {
+  MAP_FOG_GRID,
+  type ImageRegion,
+  type MapSquare,
+  type PaintRegionCommand,
+} from '@weltari/protocol';
 import { ok, type Result } from '../errors.js';
 import type { Storage } from '../storage/db.js';
+import { BASE_IMAGE_SIZE } from './painter.js';
 
 export function regionKey(region: {
   x: number;
@@ -30,4 +36,38 @@ export function createPaintRegionCommand(
     // A duplicate request_id is a silent no-op (I3) — still a 202: the job exists.
     return ok({ jobKey });
   };
+}
+
+/** The pixel rect of one fog square on the world-map base (painter-owned
+ * geometry: code places, the model only fills — Rev 4 §14). */
+export function squareRegion(square: MapSquare): ImageRegion {
+  const px = BASE_IMAGE_SIZE / MAP_FOG_GRID;
+  return {
+    x: square.col * px,
+    y: square.row * px,
+    width: px,
+    height: px,
+  };
+}
+
+/**
+ * Eagerly enqueue THE paint job for one fog square of a world's map (M5:
+ * materialization = the map-presence job). Deterministic key per square, so
+ * the materialize handler's post-kill retry, the fixture-trio boot enqueue
+ * and any future caller converge on one job — the ledger dedupes forever.
+ */
+export function enqueueSquarePaint(
+  storage: Storage,
+  worldId: string,
+  square: MapSquare,
+): void {
+  const imageId = `map:${worldId}`;
+  const region = squareRegion(square);
+  storage.ledger.enqueue({
+    idempotency_key: `painter:${imageId}:sq-${String(square.col)}-${String(square.row)}`,
+    world_id: worldId,
+    type: 'painter',
+    payload: { image_id: imageId, region },
+    serial_group: `painter:${imageId}:${regionKey(region)}`,
+  });
 }
