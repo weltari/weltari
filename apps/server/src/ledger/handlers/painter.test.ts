@@ -8,7 +8,10 @@ import sharp from 'sharp';
 import { createEventSink } from '../../engine/event-sink.js';
 import { Bus } from '../../http/bus.js';
 import { createRootLogger } from '../../observability/logger.js';
-import type { ImageSource } from '../../painter/image-source.js';
+import type {
+  GeneratedTile,
+  ImageSource,
+} from '../../painter/image-source.js';
 import { openStorage, type Storage } from '../../storage/db.js';
 import type { LedgerJob } from '../../storage/repositories/ledger.js';
 import { createPainterHandler, tilePromptFor } from './painter.js';
@@ -131,9 +134,9 @@ describe('painter job handler', () => {
     const release: (() => void)[] = [];
     const slowSource: ImageSource = {
       name: 'test-slow',
-      async generateTile(): Promise<Buffer> {
+      async generateTile(): Promise<GeneratedTile> {
         await new Promise<void>((r) => release.push(r));
-        return sharp({
+        const image = await sharp({
           create: {
             width: 32,
             height: 32,
@@ -143,6 +146,7 @@ describe('painter job handler', () => {
         })
           .png()
           .toBuffer();
+        return { image, coverage: 'region' };
       },
     };
     const handler = createPainterHandler({

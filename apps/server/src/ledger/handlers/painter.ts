@@ -48,22 +48,31 @@ export function tilePromptFor(
   imageId: string,
   region: ImageRegion,
 ): string {
-  // Prompt v3 (week-7 visual QA, docs/week7-results.md): v1 produced interior
-  // floor plans for indoor-flavored stubs, side-view illustrations for
-  // structures, and parchment vignettes; v2 pinned the camera (orthographic,
-  // straight down), the depiction level (rooftops in a landscape, never
-  // interiors) and edge-to-edge coverage; v3 adds intact roofs — v2's cutaway
-  // glow read as a building on fire at map scale.
+  // The style bible, v4 (week-7 visual QA, docs/week7-results.md): ONE
+  // shared block pins camera, palette, light direction, building scale and
+  // edge discipline for EVERY tile of a map — cross-tile style coherence is
+  // this text; cross-tile geometric coherence is the context window the
+  // compositor sends alongside (image-source.ts edit mode). History: v1
+  // produced interior floor plans, side views and vignettes; v2 pinned the
+  // camera and depiction level; v3 added intact roofs; v4 adds the fixed
+  // light direction, the building-size cap (largest ≤ ¼ tile — readable at
+  // the 64 px map scale without dominating) and keep-off-the-edges (only
+  // linear features may exit, so they CAN continue into neighbors).
   const style =
-    'A single square terrain tile from a hand-painted fantasy world map, ' +
-    'seen directly from above like a painted aerial survey (orthographic ' +
-    'bird’s-eye view, no horizon, no side angle). Muted earthy colors, ' +
-    'soft painterly texture. Terrain fills the entire canvas edge-to-edge: ' +
-    'no border, no frame, no vignette, no parchment margin, no text, no ' +
-    'labels, no grid, no UI. Buildings and places appear as rooftops and ' +
-    'footprints in the landscape — all roofs intact, never cutaway ' +
-    'interiors, no flames or glowing openings. The tile covers roughly ' +
-    '100×100 meters of countryside.';
+    'A square terrain tile of one continuous hand-painted fantasy world ' +
+    'map, seen directly from above like a painted aerial survey ' +
+    '(orthographic bird’s-eye view, no horizon, no side angle). Every tile ' +
+    'of this map shares ONE style: soft painterly texture; muted earthy ' +
+    'palette of moss green, ochre, slate grey and cool river blue; soft ' +
+    'daylight from the north-west, shadows falling gently to the ' +
+    'south-east. Terrain fills the entire canvas edge-to-edge: no border, ' +
+    'no frame, no vignette, no parchment margin, no text, no labels, no ' +
+    'grid, no UI. Buildings appear as intact rooftops in the landscape — ' +
+    'never interior floor plans, never cutaways, no flames or glowing ' +
+    'openings. The tile covers roughly 100×100 meters: at most one to ' +
+    'three buildings, the largest at most a quarter of the tile across, ' +
+    'placed clearly inside the tile away from its edges — only roads, ' +
+    'rivers, fields and forests may run off the edges and continue beyond.';
   const aligned =
     imageId === `map:${worldId}` &&
     region.width === SQUARE_PX &&
@@ -92,7 +101,7 @@ export function tilePromptFor(
     neighbors.length === 0
       ? ''
       : ` It borders these areas of the same map: ${neighbors.join(', ')} — blend naturally toward them at the edges.`;
-  return `${style} This tile shows: ${here.name} — ${here.description}${neighborLine}`;
+  return `${style} The area being revealed contains: ${here.name} — ${here.description}${neighborLine}`;
 }
 
 export interface PainterHandlerOptions {
