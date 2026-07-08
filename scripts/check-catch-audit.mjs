@@ -25,7 +25,10 @@ const problems = [];
 for (const file of walk(SRC)) {
   const lines = readFileSync(file, 'utf8').split('\n');
   lines.forEach((line, i) => {
-    if (!/\bcatch\b/.test(line) || /^\s*(\/\/|\*)/.test(line)) return;
+    // \bcatch\b(?!-) : a real catch clause or .catch( handler — NOT the
+    // hyphenated module path `catch-and-log.js` in import lines (the word
+    // boundary before '-' made imports false-positive and held CI red).
+    if (!/\bcatch\b(?!-)/.test(line) || /^\s*(\/\/|\*)/.test(line)) return;
     const windowText = lines.slice(i, i + WINDOW_LINES).join('\n');
     if (!EVIDENCE.test(windowText)) {
       problems.push(
