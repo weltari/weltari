@@ -48,10 +48,22 @@ export function tilePromptFor(
   imageId: string,
   region: ImageRegion,
 ): string {
+  // Prompt v3 (week-7 visual QA, docs/week7-results.md): v1 produced interior
+  // floor plans for indoor-flavored stubs, side-view illustrations for
+  // structures, and parchment vignettes; v2 pinned the camera (orthographic,
+  // straight down), the depiction level (rooftops in a landscape, never
+  // interiors) and edge-to-edge coverage; v3 adds intact roofs — v2's cutaway
+  // glow read as a building on fire at map scale.
   const style =
-    'A single terrain tile of a hand-painted top-down fantasy world map, ' +
-    'muted earthy colors, soft painterly texture, viewed straight from above. ' +
-    'No text, no labels, no borders, no grid lines, no UI elements.';
+    'A single square terrain tile from a hand-painted fantasy world map, ' +
+    'seen directly from above like a painted aerial survey (orthographic ' +
+    'bird’s-eye view, no horizon, no side angle). Muted earthy colors, ' +
+    'soft painterly texture. Terrain fills the entire canvas edge-to-edge: ' +
+    'no border, no frame, no vignette, no parchment margin, no text, no ' +
+    'labels, no grid, no UI. Buildings and places appear as rooftops and ' +
+    'footprints in the landscape — all roofs intact, never cutaway ' +
+    'interiors, no flames or glowing openings. The tile covers roughly ' +
+    '100×100 meters of countryside.';
   const aligned =
     imageId === `map:${worldId}` &&
     region.width === SQUARE_PX &&
