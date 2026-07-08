@@ -12,7 +12,7 @@ SQLite full of representative rows is one command away.
 
 | Path | What it is |
 | --- | --- |
-| `example-world/events.jsonl` | One append-input row per line (`world_id`/`actor_id`/`type`/`payload` — `id`/`ts` are assigned by the repository). Covers the whole event vocabulary as of protocol 0.7.0: a played scene (open → roster → turns incl. an interrupted one → tool effects → soft close), the reflection/World-Agent fan-out, a time skip with both cron replay classes, a painter composite, a refused plugin, and the update pair. |
+| `example-world/events.jsonl` | One append-input row per line (`world_id`/`actor_id`/`type`/`payload` — `id`/`ts` are assigned by the repository). Covers the whole event vocabulary as of protocol 0.8.0 (incl. `sublocation.materialized` — a seeded fixture square and an explored one): a played scene (open → roster → turns incl. an interrupted one → tool effects → soft close), the reflection/World-Agent fan-out, a time skip with both cron replay classes, a painter composite, a refused plugin, and the update pair. |
 | `load-example-world.mjs` | Loads the JSONL into a fresh SQLite **through the repository layer** (the only SQL site), safeParse-checking every row against `@weltari/protocol` first — the fixture cannot drift from the wire format silently. |
 
 ## Usage

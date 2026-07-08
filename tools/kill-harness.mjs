@@ -33,6 +33,7 @@ const POINTS = [
   'mid_cron',
   'client_disconnect',
   'mid_update',
+  'mid_materialize',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -148,6 +149,19 @@ function dbHasCommittedTurn(turnId) {
     .get(`%${turnId}%`);
   db.close();
   return row.n > 0;
+}
+
+/** Exactly-once check for a fog square (I4/I3: retries converge, never twin). */
+function dbCountMaterialized(square) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'sublocation.materialized' AND payload LIKE ?`,
+    )
+    .get(`%"square":{"col":${square.col},"row":${square.row}}%`);
+  db.close();
+  return row.n;
 }
 
 function dbHasStagedUpdate(version) {
@@ -401,11 +415,26 @@ function runVerify() {
 }
 
 let previousMax = 0;
-let currentScene = 's1';
+let currentScene = null;
 let sceneSeq = 0;
-let needNewScene = false;
+// M4 part 2: a fresh world no longer auto-opens a scene (the splash is the
+// entry surface), so the harness opens its first scene like any client would.
+let needNewScene = true;
 let paintSeq = 0;
 let pendingUpdate = null;
+// Fog squares for mid_materialize cycles: skip the fixture trio's squares
+// (3,4)/(3,5)/(4,2) so every explore hits virgin fog.
+const FIXTURE_SQUARES = new Set(['3,4', '3,5', '4,2']);
+let squareSeq = 0;
+function nextFreeSquare() {
+  for (;;) {
+    const col = squareSeq % 8;
+    const row = Math.floor(squareSeq / 8) % 8;
+    squareSeq += 1;
+    if (!FIXTURE_SQUARES.has(`${col},${row}`)) return { col, row };
+  }
+}
+let pendingSquare = null;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -447,8 +476,37 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
     pendingUpdate = null;
   }
 
+  // Criterion (d), M4 part 2: a kill at mid_materialize must CONVERGE after
+  // restart — the leased job retries and the square materializes EXACTLY once
+  // (no duplicate squares, no lost reveal).
+  if (pendingSquare !== null) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const count = dbCountMaterialized(pendingSquare);
+      if (count === 1) break;
+      if (count > 1) {
+        child.kill('SIGKILL');
+        fail(
+          `duplicate square: ${count} sublocation.materialized rows for ${JSON.stringify(pendingSquare)}`,
+        );
+      }
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          `lost reveal: square ${JSON.stringify(pendingSquare)} never materialized after mid_materialize kill`,
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      `mid_materialize convergence ok: square ${JSON.stringify(pendingSquare)} materialized exactly once after restart`,
+    );
+    pendingSquare = null;
+  }
+
   // A scene ended by a previous cycle needs a successor — and getting one is
   // itself the criterion-b demonstration (blocked only while jobs pend).
+  // The FIRST cycle opens one too: fresh worlds boot scene-less (M4 part 2).
   if (needNewScene) {
     sceneSeq += 1;
     currentScene = `s-h${sceneSeq}`;
@@ -519,6 +577,19 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
     }
     case 'client_disconnect': {
       await driveClientDisconnect(currentScene);
+      break;
+    }
+    case 'mid_materialize': {
+      const square = nextFreeSquare();
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_materialize', 25000);
+      const res = await post('/v1/commands/explore', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        square,
+      });
+      if (res.status !== 202) fail(`explore returned ${res.status}`);
+      await killAt;
+      pendingSquare = square;
       break;
     }
     case 'mid_update': {
