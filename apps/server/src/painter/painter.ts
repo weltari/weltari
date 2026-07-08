@@ -21,7 +21,11 @@ import {
 import { dirname, join } from 'node:path';
 import type { ImageRegion } from '@weltari/protocol';
 import sharp from 'sharp';
-import { createStubImageSource, type ImageSource } from './image-source.js';
+import {
+  createStubImageSource,
+  type ImageSource,
+  type TileContext,
+} from './image-source.js';
 
 export const BASE_IMAGE_SIZE = 512;
 const FEATHER_PX = 8;
@@ -136,8 +140,8 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
   const { region, jobKey } = spec;
   const source = spec.source ?? createStubImageSource();
 
-  // The crop the generation backend would receive; the stub ignores its pixels
-  // but extracting it pins the region-read path (out-of-bounds throws here).
+  // Region validation: extracting the bare region pins the region-read path
+  // (out-of-bounds throws here, before any provider spend).
   await sharp(spec.basePath)
     .extract({
       left: region.x,
@@ -147,11 +151,84 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
     })
     .toBuffer();
 
-  const tile = await source.generateTile({
+  // The context window (week-7 coherence fix): the region plus one
+  // region-size margin of CURRENT pixels on each side, clamped to the
+  // canvas. An editing backend continues roads/rivers/style from these
+  // painted neighbors instead of painting blind; the stub ignores it.
+  const meta = await sharp(spec.basePath).metadata();
+  const baseWidth = meta.width;
+  const baseHeight = meta.height;
+  const wx = Math.max(0, region.x - region.width);
+  const wy = Math.max(0, region.y - region.height);
+  const windowWidth = Math.min(baseWidth, region.x + 2 * region.width) - wx;
+  const windowHeight = Math.min(baseHeight, region.y + 2 * region.height) - wy;
+  const windowRaw = await sharp(spec.basePath)
+    .extract({ left: wx, top: wy, width: windowWidth, height: windowHeight })
+    .removeAlpha()
+    .raw()
+    .toBuffer();
+  // The fog checkerboard (and the feather greys) are pure grey; painted
+  // terrain has chroma. An all-grey window means NO painted neighbor exists
+  // to continue from — edit mode would anchor on nothing and drift (seen
+  // live: the seeding tile came out as a zoomed-in courtyard and every later
+  // tile faithfully continued the drift). Fall back to plain generation; the
+  // style bible carries isolated tiles.
+  let hasPaintedNeighbor = false;
+  for (let offset = 0; offset < windowRaw.length; offset += 3) {
+    const r = windowRaw[offset] ?? 0;
+    const g = windowRaw[offset + 1] ?? 0;
+    const b = windowRaw[offset + 2] ?? 0;
+    if (Math.abs(r - g) > 8 || Math.abs(g - b) > 8 || Math.abs(r - b) > 8) {
+      hasPaintedNeighbor = true;
+      break;
+    }
+  }
+  const context: TileContext | undefined = hasPaintedNeighbor
+    ? {
+        window: await sharp(windowRaw, {
+          raw: { width: windowWidth, height: windowHeight, channels: 3 },
+        })
+          .png()
+          .toBuffer(),
+        target: {
+          x: region.x - wx,
+          y: region.y - wy,
+          width: region.width,
+          height: region.height,
+        },
+        width: windowWidth,
+        height: windowHeight,
+      }
+    : undefined;
+
+  const generated = await source.generateTile({
     jobKey,
     region,
     prompt: spec.prompt ?? '',
+    ...(context === undefined ? {} : { context }),
   });
+
+  // Edit-mode backends repaint the WHOLE window; only the target rect enters
+  // the composite — composite-back stays the sole preservation guarantee.
+  // Window coverage without a supplied window is a source contract bug.
+  if (generated.coverage === 'window' && context === undefined) {
+    throw new Error(
+      `image source '${source.name}' returned window coverage without a context window`,
+    );
+  }
+  const tile =
+    generated.coverage === 'window' && context !== undefined
+      ? await sharp(generated.image)
+          .resize(windowWidth, windowHeight, { fit: 'fill' })
+          .extract({
+            left: context.target.x,
+            top: context.target.y,
+            width: context.target.width,
+            height: context.target.height,
+          })
+          .png()
+          .toBuffer()
+      : generated.image;
   const mask = await featherMask(region.width, region.height);
   const feathered = await sharp(tile)
     .resize(region.width, region.height, { fit: 'fill' })

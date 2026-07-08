@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import type { ImageSource, TileRequest } from './image-source.js';
+import type {
+  GeneratedTile,
+  ImageSource,
+  TileRequest,
+} from './image-source.js';
 import {
   BASE_IMAGE_SIZE,
   compositeRegion,
@@ -106,10 +110,10 @@ describe('painter pipeline (crop -> feather composite -> resize, kill-safe files
     const requests: TileRequest[] = [];
     const redSource: ImageSource = {
       name: 'test-red',
-      async generateTile(request): Promise<Buffer> {
+      async generateTile(request): Promise<GeneratedTile> {
         requests.push(request);
         // Odd size on purpose: the compositor's resize must handle it.
-        return sharp({
+        const image = await sharp({
           create: {
             width: 100,
             height: 100,
@@ -119,6 +123,7 @@ describe('painter pipeline (crop -> feather composite -> resize, kill-safe files
         })
           .png()
           .toBuffer();
+        return { image, coverage: 'region' };
       },
     };
     const result = await compositeRegion({
@@ -145,7 +150,7 @@ describe('painter pipeline (crop -> feather composite -> resize, kill-safe files
     const baseHash = sha256File(basePath);
     const failing: ImageSource = {
       name: 'test-fail',
-      async generateTile(): Promise<Buffer> {
+      async generateTile(): Promise<GeneratedTile> {
         await Promise.resolve();
         throw new Error('provider 503');
       },
@@ -163,6 +168,152 @@ describe('painter pipeline (crop -> feather composite -> resize, kill-safe files
     // The base is untouched and no composite appeared at all.
     expect(sha256File(basePath)).toBe(baseHash);
     expect(readdirSync(join(dir, 'map-w1'))).toEqual(['base.png']);
+  });
+
+  it('context window: absent on all-fog surroundings, present once a neighbor is painted', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-painter-'));
+    const basePath = await ensureBaseImage(dir, 'map:w1');
+    const requests: TileRequest[] = [];
+    const probe: ImageSource = {
+      name: 'test-probe',
+      async generateTile(request): Promise<GeneratedTile> {
+        requests.push(request);
+        const image = await sharp({
+          create: {
+            width: 8,
+            height: 8,
+            channels: 3,
+            background: { r: 200, g: 20, b: 20 },
+          },
+        })
+          .png()
+          .toBuffer();
+        return { image, coverage: 'region' };
+      },
+    };
+    // Pristine checkerboard = pure grey = NO painted neighbor to continue
+    // from: the seeding tile must paint plain (no context) so edit mode
+    // cannot anchor on nothing and drift.
+    const seeded = await compositeRegion({
+      imageId: 'map:w1',
+      region: REGION,
+      jobKey: 'painter:map:w1:seed',
+      imagesDir: dir,
+      basePath,
+      source: probe,
+    });
+    expect(requests[0]?.context).toBeUndefined();
+
+    // Now the neighbor to the right: its window (96..288 × 32..224) contains
+    // the red seeded tile — context arrives with correct dims and target.
+    await compositeRegion({
+      imageId: 'map:w1',
+      region: { x: 160, y: 96, width: 64, height: 64 },
+      jobKey: 'painter:map:w1:next',
+      imagesDir: dir,
+      basePath: join(dir, seeded.path),
+      source: probe,
+    });
+    const context = requests[1]?.context;
+    expect(context?.width).toBe(192);
+    expect(context?.height).toBe(192);
+    expect(context?.target).toEqual({ x: 64, y: 64, width: 64, height: 64 });
+    const meta = await sharp(context?.window ?? Buffer.of()).metadata();
+    expect(meta.width).toBe(192);
+
+    // Far corner (448,448), nowhere near the paint: window all fog → no
+    // context (and the clamped-margin math still runs without throwing).
+    await compositeRegion({
+      imageId: 'map:w1',
+      region: { x: 448, y: 448, width: 64, height: 64 },
+      jobKey: 'painter:map:w1:corner',
+      imagesDir: dir,
+      basePath: join(dir, seeded.path),
+      source: probe,
+    });
+    expect(requests[2]?.context).toBeUndefined();
+  });
+
+  it('window coverage: only the target rect of an edit-mode result enters the composite', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-painter-'));
+    const basePath = await ensureBaseImage(dir, 'map:w1');
+    // Seed a painted neighbor so the follow-up paint gets a context window.
+    const seeded = await compositeRegion({
+      imageId: 'map:w1',
+      region: REGION,
+      jobKey: 'painter:map:w1:w-seed',
+      imagesDir: dir,
+      basePath,
+      source: {
+        name: 'test-blue',
+        async generateTile(): Promise<GeneratedTile> {
+          const image = await sharp({
+            create: {
+              width: 16,
+              height: 16,
+              channels: 3,
+              background: { r: 20, g: 20, b: 220 },
+            },
+          })
+            .png()
+            .toBuffer();
+          return { image, coverage: 'region' };
+        },
+      },
+    });
+    // A window-covering result: green everywhere, red ONLY in the target
+    // rect. If extraction is correct the region turns red; if the whole
+    // window were pasted, green would leak outside the region.
+    const windowSource: ImageSource = {
+      name: 'test-window',
+      async generateTile(request): Promise<GeneratedTile> {
+        const ctx = request.context;
+        if (ctx === undefined) throw new Error('expected context');
+        const red = await sharp({
+          create: {
+            width: ctx.target.width,
+            height: ctx.target.height,
+            channels: 3,
+            background: { r: 255, g: 0, b: 0 },
+          },
+        })
+          .png()
+          .toBuffer();
+        const image = await sharp({
+          create: {
+            width: ctx.width,
+            height: ctx.height,
+            channels: 3,
+            background: { r: 0, g: 255, b: 0 },
+          },
+        })
+          .composite([{ input: red, left: ctx.target.x, top: ctx.target.y }])
+          .png()
+          .toBuffer();
+        return { image, coverage: 'window' };
+      },
+    };
+    const region = { x: 160, y: 96, width: 64, height: 64 }; // right neighbor
+    const result = await compositeRegion({
+      imageId: 'map:w1',
+      region,
+      jobKey: 'painter:map:w1:window',
+      imagesDir: dir,
+      basePath: join(dir, seeded.path),
+      source: windowSource,
+    });
+    const raw = await sharp(join(dir, result.path)).raw().toBuffer();
+    const px = (x: number, y: number): number[] => {
+      const offset = (y * BASE_IMAGE_SIZE + x) * 3;
+      return [raw[offset] ?? -1, raw[offset + 1] ?? -1, raw[offset + 2] ?? -1];
+    };
+    expect(px(region.x + 32, region.y + 32)).toEqual([255, 0, 0]); // target red
+    // Right margin (inside window, outside region): still checkerboard grey,
+    // never the window's green.
+    const [r, g, b] = px(region.x + region.width + 32, region.y + 32);
+    expect(g).not.toBe(255);
+    expect(r).toBe(g);
+    expect(g).toBe(b);
   });
 
   it('output files are content-addressed: the path always matches the bytes', async () => {

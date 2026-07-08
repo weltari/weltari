@@ -9,6 +9,21 @@ import { createHash } from 'node:crypto';
 import type { ImageRegion } from '@weltari/protocol';
 import sharp from 'sharp';
 
+/** The surrounding-pixels context for seamless continuation (week-7 fix for
+ * cross-tile discontinuity): a crop of the CURRENT composite around the
+ * region — painted neighbors plus checkerboard fog — that an editing-capable
+ * backend receives as an input reference ("continue this exact painting into
+ * the fog"). Geometry is painter-owned; the model only fills pixels. */
+export interface TileContext {
+  /** PNG crop of the current composite (window around the region). */
+  window: Buffer;
+  /** Where the region sits INSIDE the window (window pixel coordinates). */
+  target: ImageRegion;
+  /** Window pixel size. */
+  width: number;
+  height: number;
+}
+
 /** What a generation backend receives. `prompt` is world flavor (sublocation
  * stub + neighbors); the stub ignores it, a real model paints from it. */
 export interface TileRequest {
@@ -16,19 +31,28 @@ export interface TileRequest {
   jobKey: string;
   region: ImageRegion;
   prompt: string;
+  context?: TileContext;
+}
+
+export interface GeneratedTile {
+  /** Encoded image (PNG/JPEG) of ANY size — the compositor resizes. */
+  image: Buffer;
+  /** 'region' = the image depicts the region alone; 'window' = the image
+   * repaints the whole context window (edit mode) and the compositor
+   * extracts the target rect before feathering. */
+  coverage: 'region' | 'window';
 }
 
 export interface ImageSource {
   /** Name for logs/docs: 'stub' | 'openrouter'. */
   readonly name: string;
   /**
-   * Returns an encoded image (PNG/JPEG) of ANY size — the compositor resizes
-   * to the region. Provider failures throw OperationalError → runner retry
-   * (C7); a killed real-paint job simply regenerates (the only retry cost is
-   * one duplicate API call, Rev 4 §14). NOT byte-deterministic for real
-   * backends — idempotency keys on the painter.completed EVENT, never bytes.
+   * Provider failures throw OperationalError → runner retry (C7); a killed
+   * real-paint job simply regenerates (the only retry cost is one duplicate
+   * API call, Rev 4 §14). NOT byte-deterministic for real backends —
+   * idempotency keys on the painter.completed EVENT, never bytes.
    */
-  generateTile(request: TileRequest): Promise<Buffer>;
+  generateTile(request: TileRequest): Promise<GeneratedTile>;
 }
 
 const STUB_TILE_SIZE = 256; // "the model returns arbitrary sizes" — the resize step stays real
@@ -39,12 +63,12 @@ const STUB_TILE_SIZE = 256; // "the model returns arbitrary sizes" — the resiz
 export function createStubImageSource(): ImageSource {
   return {
     name: 'stub',
-    async generateTile(request: TileRequest): Promise<Buffer> {
+    async generateTile(request: TileRequest): Promise<GeneratedTile> {
       const digest = createHash('sha256').update(request.jobKey).digest();
       const r = digest[0] ?? 0;
       const g = digest[1] ?? 0;
       const b = digest[2] ?? 0;
-      return sharp({
+      const image = await sharp({
         create: {
           width: STUB_TILE_SIZE,
           height: STUB_TILE_SIZE,
@@ -54,6 +78,7 @@ export function createStubImageSource(): ImageSource {
       })
         .png()
         .toBuffer();
+      return { image, coverage: 'region' };
     },
   };
 }
