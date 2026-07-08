@@ -300,6 +300,34 @@ export const SublocationCreatedEventSchema = z.strictObject({
   }),
 });
 
+/**
+ * A Flow-B click classification resolved (Rev 4 §14 Flow B steps 2–5): the
+ * VLM classification and the story LLM's invention both passed their B6
+ * gates. `created` = a persistent spawn — this event IS the sublocation row
+ * (the known-sublocations projection folds it in; pin at the click point).
+ * `transient` = the discovery resolves and vanishes: no sublocation is ever
+ * created, CRON/markers can never anchor to it — the name/description here
+ * are the display-once discovery card, kept for the audit trail only.
+ * Emitted by: the map_click job handler. Consumed by: map renderers,
+ * the known-sublocations projection (`created` only).
+ */
+export const MapClickResolvedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('map_click.resolved'),
+  payload: z.strictObject({
+    /** The command's request_id. */
+    click_id: z.string().min(1).max(100),
+    /** The clicked point — a `created` spawn's pin anchor. */
+    point: MapPositionSchema,
+    outcome: z.enum(['created', 'transient']),
+    /** `created` only: the new sublocation's id (`subloc:click-<click_id>`). */
+    sublocation_id: z.string().min(1).optional(),
+    name: z.string().min(1).max(120),
+    /** The story LLM's invention, inside the VLM classification (B6-gated). */
+    description: z.string().min(1).max(2000),
+  }),
+});
+
 export const SublocationChangedEventSchema = z.strictObject({
   ...eventEnvelope,
   type: z.literal('sublocation.changed'),
@@ -481,6 +509,7 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   SublocationMaterializedEventSchema,
   SublocationCreatedEventSchema,
   MapEditRequestedEventSchema,
+  MapClickResolvedEventSchema,
   ArtSwitchedEventSchema,
   ReflectionCommittedEventSchema,
   WorldAgentCommittedEventSchema,

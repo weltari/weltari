@@ -164,6 +164,41 @@ export const MapEditAcceptedSchema = z.strictObject({
 export type MapEditAccepted = z.infer<typeof MapEditAcceptedSchema>;
 
 /**
+ * POST /v1/commands/map-click — Flow B (Rev 4 §14): the user clicked explored
+ * ground. Inside a known sublocation's footprint or radius the command
+ * answers `enter` directly — zero model calls, zero rows. Outside all radii
+ * it enqueues ONE `map_click` ledger job (VLM classification → story LLM →
+ * persist-or-discard); the outcome arrives as a map_click.resolved event.
+ * Idempotent per request_id. 409 when the world is unknown or the clicked
+ * square is unexplored fog (fog clicks are Explore's business).
+ */
+export const MapClickCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  /** The clicked point, world coordinates ([0,1]²). */
+  point: MapPositionSchema,
+  /** Client-chosen idempotency token; becomes the click_id. */
+  request_id: z.string().min(1).max(100),
+});
+export type MapClickCommand = z.infer<typeof MapClickCommandSchema>;
+
+/** 202 response. `enter` = inside a known radius/footprint (the named
+ * sublocation is attached, nothing was enqueued); `classify` = the map_click
+ * job is on the ledger and a map_click.resolved event will follow. */
+export const MapClickAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  outcome: z.enum(['enter', 'classify']),
+  /** Echoes request_id — ties the coming map_click.resolved to this click. */
+  click_id: z.string().min(1),
+  /** `enter` only: the sublocation the click landed in. */
+  sublocation_id: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  /** `classify` only: the ledger idempotency key (`map_click:<world>:<id>`). */
+  job_key: z.string().min(1).optional(),
+});
+export type MapClickAccepted = z.infer<typeof MapClickAcceptedSchema>;
+
+/**
  * POST /v1/commands/advance-time — move the fictional world clock forward
  * (a time skip). Due world-cron occurrences replay in scheduled-game-timestamp
  * order: code-class instantly, LLM-class in background under the per-skip

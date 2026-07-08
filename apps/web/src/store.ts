@@ -356,6 +356,36 @@ function applyOne(
         };
       });
       return;
+    case 'map_click.resolved':
+      // Only a persistent Flow-B spawn becomes an enterable place; transient
+      // discoveries never enter the projection (Rev 4 §14 persistence).
+      if (
+        event.payload.outcome !== 'created' ||
+        event.payload.sublocation_id === undefined
+      ) {
+        return;
+      }
+      set((state) => {
+        const id = event.payload.sublocation_id;
+        if (
+          id === undefined ||
+          state.knownSublocations.some((s) => s.sublocation_id === id)
+        ) {
+          return {};
+        }
+        return {
+          knownSublocations: [
+            ...state.knownSublocations,
+            {
+              sublocation_id: id,
+              name: event.payload.name,
+              description: event.payload.description,
+              map_position: event.payload.point,
+            },
+          ],
+        };
+      });
+      return;
     // No projection (yet): these surfaces arrive in later milestones
     // (map refresh, feed, job status UI). map_edit.requested is the map
     // plugin's lock overlay — it reads the stream directly.
