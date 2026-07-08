@@ -8,10 +8,7 @@ import sharp from 'sharp';
 import { createEventSink } from '../../engine/event-sink.js';
 import { Bus } from '../../http/bus.js';
 import { createRootLogger } from '../../observability/logger.js';
-import type {
-  GeneratedTile,
-  ImageSource,
-} from '../../painter/image-source.js';
+import type { GeneratedTile, ImageSource } from '../../painter/image-source.js';
 import { openStorage, type Storage } from '../../storage/db.js';
 import type { LedgerJob } from '../../storage/repositories/ledger.js';
 import { createPainterHandler, tilePromptFor } from './painter.js';
