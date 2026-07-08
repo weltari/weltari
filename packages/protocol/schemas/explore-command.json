@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "world_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "square": {
+      "type": "object",
+      "properties": {
+        "col": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        }
+      },
+      "required": [
+        "col",
+        "row"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "world_id",
+    "actor_id",
+    "square"
+  ],
+  "additionalProperties": false
+}

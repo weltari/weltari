@@ -202,6 +202,48 @@ export const MapPositionSchema = z.strictObject({
 });
 export type MapPosition = z.infer<typeof MapPositionSchema>;
 
+/**
+ * The world's fog grid is MAP_FOG_GRID × MAP_FOG_GRID squares over the unit
+ * map extent (UI Spec §1.8). Fixed in V1 — the default <wl-map> plugin and the
+ * engine's explore gate share this constant by contract (the plugin cannot
+ * import, so it carries the documented literal 8).
+ */
+export const MAP_FOG_GRID = 8;
+
+/** One fog-grid square, addressed by column/row (0-based, top-left origin). */
+export const MapSquareSchema = z.strictObject({
+  col: z.int().min(0).max(MAP_FOG_GRID - 1),
+  row: z.int().min(0).max(MAP_FOG_GRID - 1),
+});
+export type MapSquare = z.infer<typeof MapSquareSchema>;
+
+/**
+ * A sublocation gained its map presence (Rev 4 §14: materialization). Emitted
+ * by: the `materialize` ledger job after both B6 gates (schema gate on the
+ * LLM stub, then engine-state gate: square empty, world exists) — and by the
+ * fresh-world seed for the fixture trio. Consumed by: map renderers (the fog
+ * grid is a projection of these — explored = materialized, one reveal path
+ * for Explore and background materialization alike), the client's
+ * known-sublocations projection (Hang around), and the change_sublocation
+ * engine-state gate (materialized ids are enterable).
+ */
+export const SublocationMaterializedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('sublocation.materialized'),
+  payload: z.strictObject({
+    sublocation_id: z.string().min(1),
+    name: z.string().min(1).max(120),
+    /** The LLM-generated stub description (B6-gated before it lands here). */
+    description: z.string().min(1).max(2000),
+    /** The fog-grid square this materialization revealed. Placement is
+     * code-owned (Rev 4 §14): the user's Explore click picks the square,
+     * never the LLM. */
+    square: MapSquareSchema,
+    /** World-coordinate anchor for the pin (center of the square). */
+    map_position: MapPositionSchema,
+  }),
+});
+
 export const SublocationChangedEventSchema = z.strictObject({
   ...eventEnvelope,
   type: z.literal('sublocation.changed'),
@@ -373,6 +415,7 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   TurnStartedEventSchema,
   TurnCommittedEventSchema,
   SublocationChangedEventSchema,
+  SublocationMaterializedEventSchema,
   ArtSwitchedEventSchema,
   ReflectionCommittedEventSchema,
   WorldAgentCommittedEventSchema,

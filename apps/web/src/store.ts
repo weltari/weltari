@@ -263,6 +263,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
         return;
       // No projection (yet): these surfaces arrive in later milestones
       // (map refresh, feed, job status UI).
+      case 'sublocation.materialized':
       case 'reflection.committed':
       case 'world_agent.committed':
       case 'painter.completed':

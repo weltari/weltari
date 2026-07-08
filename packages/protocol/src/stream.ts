@@ -12,6 +12,8 @@ export const StreamHelloSchema = z.strictObject({
   protocol_version: z.string().min(1),
   /** Highest event id already in the log at connect time. */
   last_event_id: z.int().nonnegative(),
+  /** The running engine's app version (0.8.0 — splash footer + Config facts). */
+  app_version: z.string().min(1).optional(),
 });
 export type StreamHello = z.infer<typeof StreamHelloSchema>;
 
