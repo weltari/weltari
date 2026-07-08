@@ -30,6 +30,12 @@ import {
 export const BASE_IMAGE_SIZE = 512;
 const FEATHER_PX = 8;
 
+/** A polygon vertex in image-pixel coordinates (same space as ImageRegion). */
+export interface MaskPoint {
+  x: number;
+  y: number;
+}
+
 export interface PaintSpec {
   imageId: string;
   region: ImageRegion;
@@ -43,6 +49,13 @@ export interface PaintSpec {
   source?: ImageSource;
   /** World flavor for a real backend (sublocation stub + neighbors). */
   prompt?: string;
+  /**
+   * Flow A (Rev 4 §14): the user-drawn polygon, image-pixel coordinates.
+   * Present = composite back ONLY the masked interior (feathered) — pixels
+   * inside the region but outside the polygon stay the base's, whatever the
+   * model painted there. Absent = the whole region composites (fog reveals).
+   */
+  mask?: readonly MaskPoint[];
 }
 
 export interface PaintResult {
@@ -107,9 +120,42 @@ export async function ensureBaseImage(
   return absolutePath;
 }
 
-/** White-center mask whose blurred border feathers the composite edge. */
+/**
+ * Polygon alpha mask (Flow A): white interior on black, blurred so the
+ * composite edge feathers across the drawn boundary — the composite-back of
+ * ONLY the masked interior is the preservation guarantee (Rev 4 §14 step 5),
+ * never the model. Vertices arrive in image pixels; rendered region-relative.
+ */
+async function polygonMask(
+  region: ImageRegion,
+  points: readonly MaskPoint[],
+): Promise<Buffer> {
+  const vertices = points
+    .map(
+      (p) =>
+        `${(p.x - region.x).toFixed(2)},${(p.y - region.y).toFixed(2)}`,
+    )
+    .join(' ');
+  const svg =
+    `<svg width="${String(region.width)}" height="${String(region.height)}" ` +
+    'xmlns="http://www.w3.org/2000/svg">' +
+    '<rect width="100%" height="100%" fill="black"/>' +
+    `<polygon points="${vertices}" fill="white"/></svg>`;
+  return sharp(Buffer.from(svg))
+    .blur(FEATHER_PX / 2)
+    .resize(region.width, region.height, { fit: 'fill' })
+    .toColourspace('b-w')
+    .raw()
+    .toBuffer();
+}
+
+/** White-center mask whose blurred border feathers the composite edge.
+ * Two sharp passes: inside ONE pipeline sharp orders resize BEFORE extend,
+ * so the single-pass version silently returned (width+16)×(height+16) —
+ * unnoticed while the joinChannel bug (see compositeRegion) dropped the mask
+ * entirely; found by the week-8 polygon-mask test. */
 async function featherMask(width: number, height: number): Promise<Buffer> {
-  return sharp({
+  const bordered = await sharp({
     create: {
       width,
       height,
@@ -125,6 +171,9 @@ async function featherMask(width: number, height: number): Promise<Buffer> {
       background: { r: 0, g: 0, b: 0 },
     })
     .blur(FEATHER_PX / 2)
+    .png()
+    .toBuffer();
+  return sharp(bordered)
     .resize(width, height, { fit: 'fill' })
     .toColourspace('b-w')
     .raw()
@@ -229,10 +278,22 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
           .png()
           .toBuffer()
       : generated.image;
-  const mask = await featherMask(region.width, region.height);
-  const feathered = await sharp(tile)
+  const mask =
+    spec.mask === undefined
+      ? await featherMask(region.width, region.height)
+      : await polygonMask(region, spec.mask);
+  // Two sharp passes on purpose: sharp orders removeAlpha AFTER joinChannel
+  // inside one pipeline regardless of call order, silently stripping the
+  // just-joined mask (found by the week-8 polygon-mask test — the M2 feather
+  // never actually applied). Materialize plain RGB first, then join.
+  const tileRgb = await sharp(tile)
     .resize(region.width, region.height, { fit: 'fill' })
     .removeAlpha()
+    .raw()
+    .toBuffer();
+  const feathered = await sharp(tileRgb, {
+    raw: { width: region.width, height: region.height, channels: 3 },
+  })
     .joinChannel(mask, {
       raw: { width: region.width, height: region.height, channels: 1 },
     })

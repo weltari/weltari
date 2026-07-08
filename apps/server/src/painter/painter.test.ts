@@ -316,6 +316,63 @@ describe('painter pipeline (crop -> feather composite -> resize, kill-safe files
     expect(g).toBe(b);
   });
 
+  it('polygon mask: composite-back touches ONLY the masked interior (Flow A)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-painter-'));
+    const basePath = await ensureBaseImage(dir, 'map:w1');
+    const redSource: ImageSource = {
+      name: 'test-red',
+      async generateTile(): Promise<GeneratedTile> {
+        const image = await sharp({
+          create: {
+            width: 64,
+            height: 64,
+            channels: 3,
+            background: { r: 255, g: 0, b: 0 },
+          },
+        })
+          .png()
+          .toBuffer();
+        return { image, coverage: 'region' };
+      },
+    };
+    // A triangle hugging the region's left edge; the region's right half is
+    // OUTSIDE the drawn mask and must keep the base's checkerboard even
+    // though the source painted the whole region red.
+    const result = await compositeRegion({
+      imageId: 'map:w1',
+      region: REGION,
+      jobKey: 'painter:map:w1:lasso',
+      imagesDir: dir,
+      basePath,
+      source: redSource,
+      mask: [
+        { x: 96, y: 96 },
+        { x: 96, y: 160 },
+        { x: 128, y: 128 },
+      ],
+    });
+    const rawBase = await sharp(basePath).raw().toBuffer();
+    const raw = await sharp(join(dir, result.path)).raw().toBuffer();
+    const px = (buffer: Buffer, x: number, y: number): number[] => {
+      const offset = (y * BASE_IMAGE_SIZE + x) * 3;
+      return [
+        buffer[offset] ?? -1,
+        buffer[offset + 1] ?? -1,
+        buffer[offset + 2] ?? -1,
+      ];
+    };
+    // Deep inside the triangle: the source's red landed (feather may blend
+    // a little base in near edges, so assert dominance, not equality).
+    const [ir, ig] = px(raw, 104, 128);
+    expect(ir).toBeGreaterThan(200);
+    expect(ig).toBeLessThan(60);
+    // Inside the region but well outside the polygon + feather: base exactly.
+    expect(px(raw, 152, 104)).toEqual(px(rawBase, 152, 104));
+    expect(px(raw, 152, 152)).toEqual(px(rawBase, 152, 152));
+    // Outside the region: untouched as ever.
+    expect(px(raw, 5, 5)).toEqual(px(rawBase, 5, 5));
+  });
+
   it('output files are content-addressed: the path always matches the bytes', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'weltari-painter-'));
     const basePath = await ensureBaseImage(dir, 'map:w1');
