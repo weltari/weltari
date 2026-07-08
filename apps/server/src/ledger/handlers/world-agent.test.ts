@@ -3,10 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ok, type Result } from '../../errors.js';
 import { buildNarratorProfile } from '../../engine/fixture/rainy-inn.js';
 import { createEventSink } from '../../engine/event-sink.js';
 import { Bus } from '../../http/bus.js';
 import { createFakeLlmClient } from '../../llm/fake-client.js';
+import type { LlmCallResult, LlmClient } from '../../llm/types.js';
 import { createRootLogger } from '../../observability/logger.js';
 import { openStorage, type Storage } from '../../storage/db.js';
 import type { LedgerJob } from '../../storage/repositories/ledger.js';
@@ -47,7 +49,7 @@ describe('world agent job handler', () => {
     storage = null;
   });
 
-  function setup(): {
+  function setup(llm?: LlmClient): {
     storage: Storage;
     handler: ReturnType<typeof createWorldAgentHandler>;
   } {
@@ -58,7 +60,7 @@ describe('world agent job handler', () => {
     const handler = createWorldAgentHandler({
       storage,
       sink,
-      llm: createFakeLlmClient(),
+      llm: llm ?? createFakeLlmClient(),
       narrator: buildNarratorProfile(100),
       logger,
     });
@@ -77,6 +79,34 @@ describe('world agent job handler', () => {
       .filter((e) => e.type === 'world_agent.committed');
     expect(notes).toHaveLength(1);
     expect(notes[0]?.actor_id).toBe('system:world_agent');
+  });
+
+  it('overlapping executions of ONE job commit exactly one event (lease-expiry overlap, week-7 painter class)', async () => {
+    const release: (() => void)[] = [];
+    const slow: LlmClient = {
+      streamCall: async (): Promise<Result<LlmCallResult>> => {
+        await new Promise<void>((r) => release.push(r));
+        return ok({
+          text: 'The world moves on.',
+          usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+          model: 'fake/slow',
+          durationMs: 0,
+          toolCalls: [],
+        });
+      },
+    };
+    const ctx = setup(slow);
+    const job = jobWith({ scene_id: 's1' });
+    const first = ctx.handler(job);
+    const second = ctx.handler({ ...job }); // the reclaimed re-execution
+    while (release.length < 2) await new Promise((r) => setTimeout(r, 5));
+    for (const r of release) r();
+    await Promise.all([first, second]);
+
+    const notes = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'world_agent.committed');
+    expect(notes).toHaveLength(1); // the loser no-oped at the fused re-check
   });
 
   it('garbage payload is corrupt state (Guide C2)', async () => {

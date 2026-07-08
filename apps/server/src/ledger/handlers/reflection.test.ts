@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
-import { err, OperationalError } from '../../errors.js';
+import { err, ok, OperationalError, type Result } from '../../errors.js';
 import { buildEliasProfile } from '../../engine/fixture/rainy-inn.js';
 import { createEventSink } from '../../engine/event-sink.js';
 import { Bus } from '../../http/bus.js';
 import { createFakeLlmClient } from '../../llm/fake-client.js';
-import type { LlmClient } from '../../llm/types.js';
+import type { LlmCallResult, LlmClient } from '../../llm/types.js';
 import { createRootLogger } from '../../observability/logger.js';
 import { openStorage, type Storage } from '../../storage/db.js';
 import type { LedgerJob } from '../../storage/repositories/ledger.js';
@@ -85,6 +85,37 @@ describe('reflection job handler', () => {
       expect(first.actor_id).toBe(ELIAS.character_id);
       expect(first.payload.scene_id).toBe('s1');
     }
+  });
+
+  it('overlapping executions of ONE job commit exactly one event (lease-expiry overlap, week-7 painter class)', async () => {
+    // A slow generation can outlive its lease: the sweep reclaims the job and
+    // a second execution runs while the first still awaits the provider. A
+    // gated slow client interleaves two executions deliberately.
+    const release: (() => void)[] = [];
+    const slow: LlmClient = {
+      streamCall: async (): Promise<Result<LlmCallResult>> => {
+        await new Promise<void>((r) => release.push(r));
+        return ok({
+          text: 'A private thought.',
+          usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+          model: 'fake/slow',
+          durationMs: 0,
+          toolCalls: [],
+        });
+      },
+    };
+    const ctx = setup(slow);
+    const job = jobWith({ scene_id: 's1', character_id: ELIAS.character_id });
+    const first = ctx.handler(job);
+    const second = ctx.handler({ ...job }); // the reclaimed re-execution
+    while (release.length < 2) await new Promise((r) => setTimeout(r, 5));
+    for (const r of release) r();
+    await Promise.all([first, second]);
+
+    const reflections = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'reflection.committed');
+    expect(reflections).toHaveLength(1); // the loser no-oped at the fused re-check
   });
 
   it('garbage payload is corrupt state, not input (Guide C2)', async () => {

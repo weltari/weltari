@@ -103,6 +103,27 @@ export function createReflectionHandler(
     if (!result.ok) throw result.error; // operational -> runner retries (C7)
 
     await faultPoint('mid_reflection');
+    // Last-instant idempotency re-check, with NO await between it and the
+    // append: a slow generation can outlive its lease, the sweep reclaims the
+    // "dead" job, and a second execution overlaps this one (the week-7
+    // painter bug class, docs/painter.md). Executions interleave only at
+    // await points in this single-process runtime, so check+append
+    // back-to-back is race-free — the loser no-ops here.
+    const committedMeanwhile = storage.eventLog
+      .readSince(0, 100000)
+      .some(
+        (e) =>
+          e.type === 'reflection.committed' &&
+          e.payload.scene_id === scene_id &&
+          e.payload.character_id === character_id,
+      );
+    if (committedMeanwhile) {
+      logger.warn(
+        { job_id: job.id, scene_id, character_id },
+        'reflection overlapped its own lease-expiry retry — one duplicate generation, zero duplicate events',
+      );
+      return;
+    }
     sink.append({
       world_id: job.world_id,
       actor_id: character_id,

@@ -126,6 +126,19 @@ export function createMaterializeHandler(
     }
 
     await faultPoint('mid_materialize');
+    // Last-instant idempotency re-check, NO await between it and the append
+    // (the week-7 painter lease-expiry overlap class, docs/painter.md): the
+    // gate-2 occupied check above sits BEFORE the faultPoint await, so an
+    // overlapped lease-expiry retry could commit in between. The loser lands
+    // here, re-enqueues the (deduped) paint like the occupied path, and no-ops.
+    if (sublocationAt(storage, job.world_id, square) !== undefined) {
+      enqueueSquarePaint(storage, job.world_id, square);
+      logger.warn(
+        { job_id: job.id, square },
+        'materialize overlapped its own lease-expiry retry — one duplicate generation, zero duplicate rows',
+      );
+      return;
+    }
     sink.append({
       world_id: job.world_id,
       actor_id: 'system:engine',

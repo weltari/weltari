@@ -15,6 +15,8 @@ Purpose: the Job Ledger (Brief §2.2) — every piece of cold-path work is a dur
 
 Per-world serialization: rows carry `serial_group` (e.g. `world_agent:<world_id>`); the claim query skips a group that already has a running job (World Agent = 1 per world).
 
+Lease-expiry overlap (week-8 hardening, the week-7 painter bug class — [painter.md](painter.md)): a slow LLM call can outlive its lease; the sweep reclaims the "dead" job and a second execution overlaps the first. Every handler with an `await` between its idempotency check and its commit append therefore re-checks the natural key **synchronously fused to the append** (no `await` between them — executions interleave only at await points in this single-process runtime): reflection, world-agent, world-cron (both classes), materialize, painter. The overlap costs one duplicate generation and a `warn`; never a duplicate event. Each handler has an interleaved-execution regression test (gated slow client, two executions of one job, exactly one event).
+
 ## File table
 
 | File | What it does / talks to |
