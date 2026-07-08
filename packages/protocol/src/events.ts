@@ -212,8 +212,14 @@ export const MAP_FOG_GRID = 8;
 
 /** One fog-grid square, addressed by column/row (0-based, top-left origin). */
 export const MapSquareSchema = z.strictObject({
-  col: z.int().min(0).max(MAP_FOG_GRID - 1),
-  row: z.int().min(0).max(MAP_FOG_GRID - 1),
+  col: z
+    .int()
+    .min(0)
+    .max(MAP_FOG_GRID - 1),
+  row: z
+    .int()
+    .min(0)
+    .max(MAP_FOG_GRID - 1),
 });
 export type MapSquare = z.infer<typeof MapSquareSchema>;
 
