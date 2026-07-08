@@ -8,6 +8,16 @@
       "port": 5173
     },
     {
+      "name": "weltari-real",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$env:OPENROUTER_API_KEY=((Get-Content .env | Where-Object {$_ -match '^OPENROUTER_API_KEY='}) -replace '^OPENROUTER_API_KEY=',''); $env:WELTARI_IMAGE_BACKEND='openrouter'; $env:WELTARI_MODEL='deepseek/deepseek-v4-pro'; $env:WELTARI_DB_PATH=\"$env:TEMP\\weltari-real\\w.sqlite\"; $env:WELTARI_IMAGES_DIR=\"$env:TEMP\\weltari-real\\images\"; node apps/server/dist/main.js"
+      ],
+      "port": 7777
+    },
+    {
       "name": "weltari-masking",
       "runtimeExecutable": "powershell",
       "runtimeArgs": [
