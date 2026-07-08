@@ -107,6 +107,7 @@ describe('GET /* (the SPA wildcard route)', () => {
         err(new OperationalError('skip_too_large', 'test stub')),
       paintRegion: () => ok({ jobKey: 'painter:x:y' }),
       explore: () => ok({ jobKey: 'materialize:w1:0:0' }),
+      mapEdit: () => ok({ jobKey: 'map_edit:w1:e1', editId: 'e1' }),
       applyUpdate: () =>
         err(new OperationalError('updates_disabled', 'test stub')),
       ...(resolveStatic === undefined ? {} : { resolveStatic }),

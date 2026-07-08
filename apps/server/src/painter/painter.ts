@@ -131,10 +131,7 @@ async function polygonMask(
   points: readonly MaskPoint[],
 ): Promise<Buffer> {
   const vertices = points
-    .map(
-      (p) =>
-        `${(p.x - region.x).toFixed(2)},${(p.y - region.y).toFixed(2)}`,
-    )
+    .map((p) => `${(p.x - region.x).toFixed(2)},${(p.y - region.y).toFixed(2)}`)
     .join(' ');
   const svg =
     `<svg width="${String(region.width)}" height="${String(region.height)}" ` +

@@ -167,6 +167,61 @@ describe('painter job handler', () => {
     expect(completed).toHaveLength(1); // the loser no-oped at the last-instant re-check
   });
 
+  it('a masked (Flow A) payload commits one event like any other paint', async () => {
+    const ctx = setup();
+    const job = jobWith(
+      {
+        image_id: 'map:w1',
+        region: { x: 96, y: 96, width: 64, height: 64 },
+        mask: [
+          { x: 100, y: 100 },
+          { x: 150, y: 100 },
+          { x: 125, y: 150 },
+        ],
+      },
+      'painter:map:w1:edit-e1',
+    );
+    await ctx.handler(job);
+    await ctx.handler(job); // retry converges
+    const completed = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'painter.completed');
+    expect(completed).toHaveLength(1);
+    expect(completed[0]?.payload.job_key).toBe('painter:map:w1:edit-e1');
+  });
+
+  it('tilePromptFor: an edit region´s prompt carries the created sublocation inside it', () => {
+    const ctx = setup();
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'sublocation.created',
+      payload: {
+        sublocation_id: 'subloc:edit-e1',
+        name: 'The Drawn Garden',
+        description: 'A walled herb garden humming with bees.',
+        map_position: { x: 0.25, y: 0.25 }, // px (128, 128)
+        footprint: [
+          { x: 0.2, y: 0.2 },
+          { x: 0.3, y: 0.2 },
+          { x: 0.25, y: 0.3 },
+        ],
+        edit_id: 'e1',
+      },
+    });
+    // The un-aligned edit region around the centroid.
+    const prompt = tilePromptFor(ctx.storage, 'w1', 'map:w1', {
+      x: 94,
+      y: 94,
+      width: 68,
+      height: 68,
+    });
+    expect(prompt).toContain('The Drawn Garden');
+    expect(prompt).toContain('herb garden');
+    // Square (2,2)'s neighbors: none of the fixture trio is adjacent.
+    expect(prompt).not.toContain('The Common Room');
+  });
+
   it('tilePromptFor: a materialized square´s prompt carries its stub + adjacent neighbors', () => {
     const ctx = setup();
     // The Common Room anchors at (0.42, 0.55) → square (3,4) → region x=192,y=256.

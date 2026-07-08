@@ -31,6 +31,18 @@ const payloadSchema = z.strictObject({
     width: z.int().positive(),
     height: z.int().positive(),
   }),
+  /** Flow A (M5 part 2): the drawn polygon, image pixels — composite-back
+   * touches only its interior (painter.ts). Absent = whole-region reveal. */
+  mask: z
+    .array(
+      z.strictObject({
+        x: z.number().nonnegative(),
+        y: z.number().nonnegative(),
+      }),
+    )
+    .min(3)
+    .max(128)
+    .optional(),
 });
 
 const SQUARE_PX = BASE_IMAGE_SIZE / MAP_FOG_GRID;
@@ -79,7 +91,41 @@ export function tilePromptFor(
     region.height === SQUARE_PX &&
     region.x % SQUARE_PX === 0 &&
     region.y % SQUARE_PX === 0;
-  if (!aligned) return `${style} Uncharted wilderness at the map frontier.`;
+  if (!aligned) {
+    // Flow-A edit regions are not grid-aligned: the DB is still the source
+    // of truth at paint time — the created sublocation whose pin (mask
+    // centroid) falls inside the region supplies the flavor.
+    if (imageId !== `map:${worldId}`) {
+      return `${style} Uncharted wilderness at the map frontier.`;
+    }
+    const here = knownSublocations(storage, worldId).find((s) => {
+      if (s.footprint === undefined) return false;
+      const px = s.map_position.x * BASE_IMAGE_SIZE;
+      const py = s.map_position.y * BASE_IMAGE_SIZE;
+      return (
+        px >= region.x &&
+        px < region.x + region.width &&
+        py >= region.y &&
+        py < region.y + region.height
+      );
+    });
+    if (here === undefined) {
+      return `${style} Uncharted wilderness at the map frontier.`;
+    }
+    const at = squareOf(here.map_position);
+    const near = knownSublocations(storage, worldId)
+      .filter((s) => {
+        if (s.sublocation_id === here.sublocation_id) return false;
+        const sq = squareOf(s.map_position);
+        return Math.abs(sq.col - at.col) <= 1 && Math.abs(sq.row - at.row) <= 1;
+      })
+      .map((s) => s.name);
+    const nearLine =
+      near.length === 0
+        ? ''
+        : ` It sits among these areas of the same map: ${near.join(', ')} — blend naturally toward them at the edges.`;
+    return `${style} Within the area, add: ${here.name} — ${here.description}${nearLine}`;
+  }
   const square = {
     col: region.x / SQUARE_PX,
     row: region.y / SQUARE_PX,
@@ -128,7 +174,7 @@ export function createPainterHandler(
         `job ${String(job.id)} payload does not match {image_id, region}`,
       );
     }
-    const { image_id, region } = payload.data;
+    const { image_id, region, mask } = payload.data;
 
     // The event log is the truth about the current image: latest completed
     // composite wins; a fresh image gets the deterministic fixture base.
@@ -165,6 +211,7 @@ export function createPainterHandler(
       ...(options.imageSource === undefined
         ? {}
         : { source: options.imageSource }),
+      ...(mask === undefined ? {} : { mask }),
       prompt: tilePromptFor(storage, job.world_id, image_id, region),
     });
 

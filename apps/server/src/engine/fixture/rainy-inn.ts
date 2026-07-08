@@ -18,6 +18,9 @@ export interface SublocationDefinition {
   /** World-map anchor (unit square) — pins anchor to world coordinates,
    * never pixels (UI Spec §1.8). */
   map_position: { x: number; y: number };
+  /** Flow-A sublocations only (M5 part 2): the drawn polygon, world
+   * coordinates — the Flow-B footprint hit-test surface. */
+  footprint?: readonly { x: number; y: number }[];
 }
 
 /**

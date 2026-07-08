@@ -21,6 +21,11 @@ const SCRIPT: Record<string, string> = {
   // seam in the invariant tests).
   materialize:
     '{"name":"The Mill Pond","description":"A quiet pond behind the old grain mill; herons stand watch over water the storms keep restless."}',
+  // The Flow-A GM form is the same structured shape (M5 part 2) — gate 1
+  // parses it; malformed-form rejection is driven by a stub client at the
+  // LlmClient seam in the handler tests.
+  map_edit:
+    '{"name":"The Drawn Garden","description":"A walled herb garden the innkeeper swears was always there; bees argue over the lavender."}',
 };
 
 /**
