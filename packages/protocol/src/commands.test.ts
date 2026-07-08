@@ -7,6 +7,7 @@ import {
   ExploreAcceptedSchema,
   ExploreCommandSchema,
   InterruptTurnCommandSchema,
+  MapClickCommandSchema,
   MapEditCommandSchema,
   PaintRegionCommandSchema,
   OpenSceneCommandSchema,
@@ -213,6 +214,24 @@ describe('map-edit command', () => {
       intent: 'a mill pond',
     };
     expect(MapEditCommandSchema.safeParse(offMap).success).toBe(false);
+  });
+});
+
+describe('map-click command', () => {
+  it('accepts a valid click and rejects off-map points', () => {
+    const base = { world_id: 'w1', actor_id: 'user:owner', request_id: 'c1' };
+    expect(
+      MapClickCommandSchema.safeParse({
+        ...base,
+        point: { x: 0.7, y: 0.3 },
+      }).success,
+    ).toBe(true);
+    expect(
+      MapClickCommandSchema.safeParse({
+        ...base,
+        point: { x: 1.3, y: 0.3 },
+      }).success,
+    ).toBe(false);
   });
 });
 

@@ -252,6 +252,50 @@ describe('WeltariEventSchema', () => {
     ).toBe(false);
   });
 
+  it('accepts map_click.resolved for both outcomes and rejects an unknown one', () => {
+    const base = {
+      id: 23,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-08T12:00:00.000Z',
+      type: 'map_click.resolved',
+    };
+    const created: unknown = {
+      ...base,
+      payload: {
+        click_id: 'c1',
+        point: { x: 0.7, y: 0.3 },
+        outcome: 'created',
+        sublocation_id: 'subloc:click-c1',
+        name: 'The Heron Shallows',
+        description: 'A gravel shallows where herons stalk the reeds.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(created).success).toBe(true);
+    const transient: unknown = {
+      ...base,
+      payload: {
+        click_id: 'c2',
+        point: { x: 0.7, y: 0.3 },
+        outcome: 'transient',
+        name: 'A startled deer',
+        description: 'It bolts before you can get close.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(transient).success).toBe(true);
+    const unknown: unknown = {
+      ...base,
+      payload: {
+        click_id: 'c3',
+        point: { x: 0.7, y: 0.3 },
+        outcome: 'quantum',
+        name: 'x',
+        description: 'y',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(unknown).success).toBe(false);
+  });
+
   it('accepts job.parked with and without the 0.9.0 job_key', () => {
     const base = {
       id: 22,

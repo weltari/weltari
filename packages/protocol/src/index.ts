@@ -19,9 +19,12 @@
  * materialized); explore command (one LLM-class materialize job per square);
  * open-scene optional sublocation_id (open a scene AT a known sublocation);
  * hello optional app_version.
- * 0.9.0: map-edit command + map_edit.requested + sublocation.created events
- * (Rev 4 §14 Flow A: lasso/pencil edits); optional job_key on
- * job.failed/job.parked (clients tie failures back to their command).
+ * 0.9.0 (M5 part 2, Rev 4 §14): Flow A — map-edit command +
+ * map_edit.requested + sublocation.created events (lasso/pencil edits);
+ * Flow B — map-click command + map_click.resolved event (radius/footprint
+ * enter bypass, VLM classify → story LLM → persist-or-discard); optional
+ * job_key on job.failed/job.parked (clients tie failures back to their
+ * command).
  */
 export const PROTOCOL_VERSION = '0.9.0';
 
@@ -37,6 +40,7 @@ export {
   JobErrorSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,
+  MapClickResolvedEventSchema,
   MapEditRequestedEventSchema,
   PainterCompletedEventSchema,
   PluginRejectedEventSchema,
@@ -96,6 +100,8 @@ export {
   ExploreCommandSchema,
   InterruptTurnAcceptedSchema,
   InterruptTurnCommandSchema,
+  MapClickAcceptedSchema,
+  MapClickCommandSchema,
   MapEditAcceptedSchema,
   MapEditCommandSchema,
   OpenSceneAcceptedSchema,
@@ -115,6 +121,8 @@ export {
   type ExploreCommand,
   type InterruptTurnAccepted,
   type InterruptTurnCommand,
+  type MapClickAccepted,
+  type MapClickCommand,
   type MapEditAccepted,
   type MapEditCommand,
   type OpenSceneAccepted,
