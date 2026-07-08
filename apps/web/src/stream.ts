@@ -34,7 +34,9 @@ export function connectStream(dev: boolean): () => void {
   });
   source.addEventListener('hello', (message: MessageEvent<unknown>) => {
     const hello = StreamHelloSchema.safeParse(parseJson(message));
-    if (hello.success) store.applyHello(hello.data.protocol_version);
+    if (hello.success) {
+      store.applyHello(hello.data.protocol_version, hello.data.app_version);
+    }
   });
   source.addEventListener('event', (message: MessageEvent<unknown>) => {
     const event = WeltariEventSchema.safeParse(parseJson(message));

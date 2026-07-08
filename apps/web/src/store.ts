@@ -50,15 +50,46 @@ export interface CastMember {
   name: string;
 }
 
+export interface KnownSublocation {
+  sublocation_id: string;
+  name: string;
+  description: string;
+  map_position: { x: number; y: number };
+}
+
+/**
+ * One played scene, rebuilt purely from replayed scene.started/scene.ended +
+ * character.joined + turn.committed (the History surface, wireframe 04). A
+ * restart loses nothing: the projection re-derives from the log.
+ */
+export interface HistoryScene {
+  scene_id: string;
+  title: string;
+  /** Fictional time when the scene opened, if the clock had ever advanced. */
+  world_time: string | null;
+  participants: CastMember[];
+  turns: CommittedTurn[];
+  ended: boolean;
+  end_type: 'rest' | 'continuation' | 'travel' | null;
+  divider_text: string | null;
+}
+
 export interface SceneStore {
   connected: boolean;
   protocolVersion: string | null;
+  /** From the hello frame (0.8.0) — the splash footer + Config facts. */
+  appVersion: string | null;
   sceneId: string | null;
   sceneTitle: string;
   /** Set on scene.ended — drives the soft-close button set (UI Spec §1.7). */
   sceneEnd: SceneEnd | null;
   /** The scene's roster — character.joined since scene.started (VN line-up). */
   cast: CastMember[];
+  /** Every materialized sublocation (fog projection, 0.8.0) — the splash's
+   * Hang around picks a random one; explored = materialized. */
+  knownSublocations: KnownSublocation[];
+  /** Every scene ever played, in open order (the History modal's projection). */
+  history: HistoryScene[];
   /** Latest world.time_advanced `to` — engine-owned fictional time, read never invented. */
   worldTime: string | null;
   /** The latest skip + how many cron occurrences it enqueued (Gameday flow). */
@@ -95,7 +126,7 @@ export interface SceneStore {
 
   // ---- reducer actions: called ONLY from stream.ts ----
   setConnected(connected: boolean): void;
-  applyHello(protocolVersion: string): void;
+  applyHello(protocolVersion: string, appVersion: string | undefined): void;
   applyEvent(event: WeltariEvent): void;
   applyStream(frame: StreamSentence): void;
   applyDev(frame: DevEvent): void;
@@ -106,10 +137,13 @@ const DEV_RING = 100;
 export const useSceneStore = create<SceneStore>((set) => ({
   connected: false,
   protocolVersion: null,
+  appVersion: null,
   sceneId: null,
   sceneTitle: 'Weltari',
   sceneEnd: null,
   cast: [],
+  knownSublocations: [],
+  history: [],
   worldTime: null,
   timeAdvance: null,
   cronCompleted: 0,
@@ -132,49 +166,78 @@ export const useSceneStore = create<SceneStore>((set) => ({
     set({ connected });
   },
 
-  applyHello(protocolVersion: string): void {
-    set({ protocolVersion });
+  applyHello(protocolVersion: string, appVersion: string | undefined): void {
+    set({ protocolVersion, appVersion: appVersion ?? null });
   },
 
   applyEvent(event: WeltariEvent): void {
     switch (event.type) {
       case 'scene.started':
-        set({
+        set((state) => ({
           sceneId: event.payload.scene_id,
           sceneTitle: event.payload.title,
           sceneEnd: null,
           cast: [],
-        });
+          history: state.history.some(
+            (h) => h.scene_id === event.payload.scene_id,
+          )
+            ? state.history
+            : [
+                ...state.history,
+                {
+                  scene_id: event.payload.scene_id,
+                  title: event.payload.title,
+                  world_time: state.worldTime,
+                  participants: [],
+                  turns: [],
+                  ended: false,
+                  end_type: null,
+                  divider_text: null,
+                },
+              ],
+        }));
         return;
       case 'character.joined':
         set((state) => {
-          if (event.payload.scene_id !== state.sceneId) return {};
+          const member: CastMember = {
+            character_id: event.payload.character_id,
+            name: event.payload.name,
+          };
+          const history = state.history.map((h) =>
+            h.scene_id === event.payload.scene_id &&
+            !h.participants.some((m) => m.character_id === member.character_id)
+              ? { ...h, participants: [...h.participants, member] }
+              : h,
+          );
           if (
+            event.payload.scene_id !== state.sceneId ||
             state.cast.some(
               (m) => m.character_id === event.payload.character_id,
             )
           ) {
-            return {};
+            return { history };
           }
-          return {
-            cast: [
-              ...state.cast,
-              {
-                character_id: event.payload.character_id,
-                name: event.payload.name,
-              },
-            ],
-          };
+          return { history, cast: [...state.cast, member] };
         });
         return;
       case 'scene.ended':
-        set({
+        set((state) => ({
           sceneEnd: {
             end_type: event.payload.end_type ?? 'rest',
             divider_text: event.payload.divider_text ?? '— the scene rests —',
           },
           openTurnId: null,
-        });
+          history: state.history.map((h) =>
+            h.scene_id === event.payload.scene_id
+              ? {
+                  ...h,
+                  ended: true,
+                  end_type: event.payload.end_type ?? 'rest',
+                  divider_text: event.payload.divider_text ?? null,
+                }
+              : h,
+          ),
+        }));
         return;
       case 'turn.started':
         set((state) => ({
@@ -190,15 +253,19 @@ export const useSceneStore = create<SceneStore>((set) => ({
           if (state.turns.some((t) => t.turn_id === event.payload.turn_id)) {
             return {};
           }
+          const turn: CommittedTurn = {
+            turn_id: event.payload.turn_id,
+            steps: event.payload.steps,
+            interrupted: event.payload.interrupted ?? false,
+          };
           return {
-            turns: [
-              ...state.turns,
-              {
-                turn_id: event.payload.turn_id,
-                steps: event.payload.steps,
-                interrupted: event.payload.interrupted ?? false,
-              },
-            ],
+            turns: [...state.turns, turn],
+            history: state.history.map((h) =>
+              h.scene_id === event.payload.scene_id &&
+              !h.turns.some((t) => t.turn_id === turn.turn_id)
+                ? { ...h, turns: [...h.turns, turn] }
+                : h,
+            ),
             openTurnId:
               state.openTurnId === event.payload.turn_id
                 ? null
@@ -261,9 +328,30 @@ export const useSceneStore = create<SceneStore>((set) => ({
           });
         }
         return;
+      case 'sublocation.materialized':
+        set((state) => {
+          if (
+            state.knownSublocations.some(
+              (s) => s.sublocation_id === event.payload.sublocation_id,
+            )
+          ) {
+            return {};
+          }
+          return {
+            knownSublocations: [
+              ...state.knownSublocations,
+              {
+                sublocation_id: event.payload.sublocation_id,
+                name: event.payload.name,
+                description: event.payload.description,
+                map_position: event.payload.map_position,
+              },
+            ],
+          };
+        });
+        return;
       // No projection (yet): these surfaces arrive in later milestones
       // (map refresh, feed, job status UI).
-      case 'sublocation.materialized':
       case 'reflection.committed':
       case 'world_agent.committed':
       case 'painter.completed':

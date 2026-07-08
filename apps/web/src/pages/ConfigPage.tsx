@@ -117,6 +117,7 @@ export function ConfigPage(props: {
 }): React.JSX.Element {
   const connected = useSceneStore((s) => s.connected);
   const protocolVersion = useSceneStore((s) => s.protocolVersion);
+  const appVersion = useSceneStore((s) => s.appVersion);
   const available = useSceneStore((s) => s.updateAvailable);
   const rejections = useSceneStore((s) => s.pluginRejections);
 
@@ -134,9 +135,7 @@ export function ConfigPage(props: {
           <dt>Protocol</dt>
           <dd>{protocolVersion ?? '…'}</dd>
           <dt>App version</dt>
-          <dd>
-            {available?.current_version ?? 'unknown until a release check runs'}
-          </dd>
+          <dd>{appVersion ?? available?.current_version ?? '…'}</dd>
         </dl>
       </section>
 
