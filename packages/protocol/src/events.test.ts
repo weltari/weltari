@@ -446,4 +446,59 @@ describe('WeltariEventSchema', () => {
     };
     expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
   });
+
+  it('accepts a valid sublocation.materialized event (fog reveal)', () => {
+    const materialized: unknown = {
+      id: 30,
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      ts: '2026-07-08T12:00:00.000Z',
+      type: 'sublocation.materialized',
+      payload: {
+        sublocation_id: 'subloc:sq-5-1',
+        name: 'The Mill Pond',
+        description: 'A quiet pond behind the mill; herons stand watch.',
+        square: { col: 5, row: 1 },
+        map_position: { x: 0.6875, y: 0.1875 },
+      },
+    };
+    expect(WeltariEventSchema.safeParse(materialized).success).toBe(true);
+  });
+
+  it('rejects sublocation.materialized outside the fog grid or with extras (B5)', () => {
+    const base = {
+      id: 31,
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      ts: '2026-07-08T12:00:00.000Z',
+      type: 'sublocation.materialized',
+    };
+    const payload = {
+      sublocation_id: 'subloc:sq-5-1',
+      name: 'The Mill Pond',
+      description: 'A quiet pond behind the mill.',
+      square: { col: 5, row: 1 },
+      map_position: { x: 0.6875, y: 0.1875 },
+    };
+    const offGrid: unknown = {
+      ...base,
+      payload: { ...payload, square: { col: 8, row: 0 } },
+    };
+    const fractionalSquare: unknown = {
+      ...base,
+      payload: { ...payload, square: { col: 2.5, row: 0 } },
+    };
+    const emptyDescription: unknown = {
+      ...base,
+      payload: { ...payload, description: '' },
+    };
+    const extraKey: unknown = {
+      ...base,
+      payload: { ...payload, backdrop_path: 'sneaky.webp' },
+    };
+    expect(WeltariEventSchema.safeParse(offGrid).success).toBe(false);
+    expect(WeltariEventSchema.safeParse(fractionalSquare).success).toBe(false);
+    expect(WeltariEventSchema.safeParse(emptyDescription).success).toBe(false);
+    expect(WeltariEventSchema.safeParse(extraKey).success).toBe(false);
+  });
 });

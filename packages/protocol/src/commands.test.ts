@@ -4,6 +4,8 @@ import {
   ApplyUpdateAcceptedSchema,
   ApplyUpdateCommandSchema,
   EndSceneCommandSchema,
+  ExploreAcceptedSchema,
+  ExploreCommandSchema,
   InterruptTurnCommandSchema,
   PaintRegionCommandSchema,
   OpenSceneCommandSchema,
@@ -235,5 +237,64 @@ describe('response and stream frames', () => {
       job_key: 'update_apply:0.2.0',
     };
     expect(ApplyUpdateAcceptedSchema.safeParse(accepted).success).toBe(true);
+  });
+
+  it('explore command validates; off-grid square and extra key rejected (B5)', () => {
+    const ok: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      square: { col: 5, row: 1 },
+    };
+    expect(ExploreCommandSchema.safeParse(ok).success).toBe(true);
+    const offGrid: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      square: { col: 0, row: 9 },
+    };
+    expect(ExploreCommandSchema.safeParse(offGrid).success).toBe(false);
+    const extra: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      square: { col: 5, row: 1 },
+      name: 'I pick my own name',
+    };
+    expect(ExploreCommandSchema.safeParse(extra).success).toBe(false);
+    const accepted: unknown = {
+      accepted: true,
+      job_key: 'materialize:w1:5:1',
+    };
+    expect(ExploreAcceptedSchema.safeParse(accepted).success).toBe(true);
+  });
+
+  it('open-scene accepts an optional sublocation_id (0.8.0, additive)', () => {
+    const at: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's2',
+      title: 'The Old Shrine',
+      participants: ['char:elias'],
+      sublocation_id: 'subloc:shrine',
+    };
+    expect(OpenSceneCommandSchema.safeParse(at).success).toBe(true);
+    const empty: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's2',
+      title: 'The Old Shrine',
+      participants: ['char:elias'],
+      sublocation_id: '',
+    };
+    expect(OpenSceneCommandSchema.safeParse(empty).success).toBe(false);
+  });
+
+  it('hello frame accepts an optional app_version (0.8.0, additive)', () => {
+    const withVersion: unknown = {
+      protocol_version: '0.8.0',
+      last_event_id: 4,
+      app_version: '0.1.0',
+    };
+    expect(StreamHelloSchema.safeParse(withVersion).success).toBe(true);
+    const without: unknown = { protocol_version: '0.8.0', last_event_id: 4 };
+    expect(StreamHelloSchema.safeParse(without).success).toBe(true);
   });
 });

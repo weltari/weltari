@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MapSquareSchema } from './events.js';
 
 // POST command bodies — trust boundary B-http. Validated by
 // fastify-type-provider-zod at the route (Guide B9); strictObject because the
@@ -88,6 +89,14 @@ export const OpenSceneCommandSchema = z.strictObject({
   title: z.string().min(1).max(200),
   /** Character ids involved in the new scene. */
   participants: z.array(z.string().min(1)).max(50),
+  /**
+   * Open the scene AT this sublocation: the engine appends a
+   * sublocation.changed atomically after scene.started (0.8.0 — Hang around
+   * and map-pin jumps land where they claim). Engine-state gated: the id must
+   * be known to the world (fixture trio or materialized) or the command 409s.
+   * Absent = the scene opens at the world's default start sublocation.
+   */
+  sublocation_id: z.string().min(1).optional(),
 });
 export type OpenSceneCommand = z.infer<typeof OpenSceneCommandSchema>;
 
@@ -96,6 +105,31 @@ export const OpenSceneAcceptedSchema = z.strictObject({
   accepted: z.literal(true),
 });
 export type OpenSceneAccepted = z.infer<typeof OpenSceneAcceptedSchema>;
+
+/**
+ * POST /v1/commands/explore — reveal one fog square (UI Spec §1.8): enqueue
+ * ONE LLM-class `materialize` ledger job that generates the new sublocation
+ * stub (name + short description) behind the full B6 double gate, then
+ * appends sublocation.materialized. Idempotent per square (the ledger key is
+ * the square); 409 when the square is already occupied or the world unknown.
+ * The click picks the square — placement is code-owned, never the LLM's
+ * (Rev 4 §14).
+ */
+export const ExploreCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  square: MapSquareSchema,
+});
+export type ExploreCommand = z.infer<typeof ExploreCommandSchema>;
+
+/** 202 response: the materialize job is on the ledger; the reveal arrives as
+ * a sublocation.materialized event on the stream. */
+export const ExploreAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  /** The ledger idempotency key (`materialize:<world>:<col>:<row>`). */
+  job_key: z.string().min(1),
+});
+export type ExploreAccepted = z.infer<typeof ExploreAcceptedSchema>;
 
 /**
  * POST /v1/commands/advance-time — move the fictional world clock forward

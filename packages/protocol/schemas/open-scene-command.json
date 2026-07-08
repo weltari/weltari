@@ -26,6 +26,10 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "sublocation_id": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "required": [

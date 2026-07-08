@@ -15,15 +15,22 @@
  * 0.6.0: wl-map-jump DOM event detail (map connector surface, UI Spec §1.14).
  * 0.7.0: character.joined event (scene roster projection — the VN line-up
  * renders the cast from the stream instead of a fixture constant).
+ * 0.8.0: sublocation.materialized event (fog projection: explored =
+ * materialized); explore command (one LLM-class materialize job per square);
+ * open-scene optional sublocation_id (open a scene AT a known sublocation);
+ * hello optional app_version.
  */
-export const PROTOCOL_VERSION = '0.7.0';
+export const PROTOCOL_VERSION = '0.8.0';
 
 export {
   ArtSwitchedEventSchema,
   CharacterJoinedEventSchema,
   ImageRegionSchema,
+  MAP_FOG_GRID,
   MapPositionSchema,
   type MapPosition,
+  MapSquareSchema,
+  type MapSquare,
   JobErrorSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,
@@ -33,6 +40,7 @@ export {
   SceneEndedEventSchema,
   SceneStartedEventSchema,
   SublocationChangedEventSchema,
+  SublocationMaterializedEventSchema,
   TurnCommittedEventSchema,
   TurnStartedEventSchema,
   TurnStepSchema,
@@ -79,6 +87,8 @@ export {
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
+  ExploreAcceptedSchema,
+  ExploreCommandSchema,
   InterruptTurnAcceptedSchema,
   InterruptTurnCommandSchema,
   OpenSceneAcceptedSchema,
@@ -94,6 +104,8 @@ export {
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,
+  type ExploreAccepted,
+  type ExploreCommand,
   type InterruptTurnAccepted,
   type InterruptTurnCommand,
   type OpenSceneAccepted,
