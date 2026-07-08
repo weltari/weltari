@@ -2,9 +2,17 @@
 // (UI Spec §1.8, FINAL item 6): it dogfoods the plugin contract by consuming
 // ONLY the documented public surface — the SSE event stream (/v1/events),
 // painter.completed images via /v1/images/*, sublocation.changed +
-// sublocation.materialized pins/fog, and the POST /v1/commands/explore
-// command. Zero imports, zero build step, zero private access: a community
-// plugin can replace this file wholesale.
+// sublocation.materialized + sublocation.created pins/fog, and the POST
+// /v1/commands/explore + /v1/commands/map-edit commands. Zero imports, zero
+// build step, zero private access: a community plugin can replace this file
+// wholesale.
+//
+// M5 part 2 (Rev 4 §14 Flow A): the pen control toggles draw mode — the user
+// draws a freehand lasso on explored ground, types an intent, and the plugin
+// POSTs /v1/commands/map-edit. The drawn region renders LOCKED (grey veil +
+// spinner, keyed data-wl-map-lock) from the durable map_edit.requested event
+// until the edit's painter.completed (job_key painter:map:<w>:edit-<id>) or
+// a job.parked carrying the edit's job_key arrives.
 //
 // Canvas 2D tile + fog layer, DOM overlay pins/spinner/labels. Pins anchor to
 // world coordinates (unit square) — a repaint or resize never moves a pin.
@@ -27,6 +35,10 @@ class WlMap extends HTMLElement {
     this._hovered = null; // 'col,row' under the pointer
     this._tile = null; // HTMLImageElement of the latest painter composite
     this._source = null;
+    this._drawMode = false; // the pen control (Flow A)
+    this._stroke = null; // active lasso points [{x,y} unit coords]
+    this._draft = null; // finished lasso awaiting its intent text
+    this._locks = new Map(); // edit_id -> {points} regions locked in flight
   }
 
   connectedCallback() {
@@ -61,6 +73,21 @@ class WlMap extends HTMLElement {
     this.appendChild(style);
 
     this._canvas.addEventListener('mousemove', (mouse) => {
+      if (this._drawMode) {
+        if (this._stroke !== null) {
+          const point = this._unitAt(mouse);
+          const last = this._stroke[this._stroke.length - 1];
+          if (
+            point !== null &&
+            (last === undefined ||
+              Math.hypot(point.x - last.x, point.y - last.y) > 0.004)
+          ) {
+            if (this._stroke.length < 128) this._stroke.push(point);
+            this._paint();
+          }
+        }
+        return;
+      }
       const square = this._squareAt(mouse);
       const key = square === null ? null : `${square.col},${square.row}`;
       if (key !== this._hovered) {
@@ -74,7 +101,29 @@ class WlMap extends HTMLElement {
         this._paint();
       }
     });
+    // The lasso (Flow A): mousedown starts a stroke in draw mode, mousemove
+    // (above) collects it, mouseup closes it into a draft awaiting intent.
+    this._canvas.addEventListener('mousedown', (mouse) => {
+      if (!this._drawMode) return;
+      const point = this._unitAt(mouse);
+      if (point === null) return;
+      this._stroke = [point];
+      this._draft = null;
+      this._hideIntentBox();
+      this._paint();
+    });
+    this._canvas.addEventListener('mouseup', () => {
+      if (!this._drawMode || this._stroke === null) return;
+      const points = this._stroke;
+      this._stroke = null;
+      if (points.length >= 3) {
+        this._draft = points;
+        this._showIntentBox();
+      }
+      this._paint();
+    });
     this._canvas.addEventListener('click', (mouse) => {
+      if (this._drawMode) return; // the pen owns clicks while active
       const square = this._squareAt(mouse);
       if (square === null) return;
       const key = `${square.col},${square.row}`;
@@ -84,6 +133,107 @@ class WlMap extends HTMLElement {
       this._selected = this._selected === key ? null : key;
       this._paint();
     });
+
+    // The pen control (wireframe 08's right-edge pen; UI Spec §1.8 lasso).
+    this._penButton = document.createElement('button');
+    this._penButton.textContent = '✎';
+    this._penButton.title = 'Draw a region to edit the map';
+    this._penButton.setAttribute('data-wl-map-pen', '');
+    const pen = this._penButton.style;
+    pen.position = 'absolute';
+    pen.right = '0.5rem';
+    pen.top = '50%';
+    pen.transform = 'translateY(-50%)';
+    pen.width = '2rem';
+    pen.height = '2rem';
+    pen.borderRadius = '999px';
+    pen.border = '1px solid var(--wl-border, rgba(255,255,255,0.25))';
+    pen.background = 'var(--wl-panel, #1e2128)';
+    pen.color = 'var(--wl-text-dim, #9a958a)';
+    pen.cursor = 'pointer';
+    pen.fontSize = '0.95rem';
+    pen.zIndex = '2';
+    this._penButton.addEventListener('click', () => {
+      this._drawMode = !this._drawMode;
+      this._stroke = null;
+      this._draft = null;
+      this._hideIntentBox();
+      this._canvas.style.cursor = this._drawMode ? 'crosshair' : '';
+      this._paint();
+    });
+    this.appendChild(this._penButton);
+
+    // The intent box (Flow A step 1: draw + speak intent). One persistent
+    // element — SSE repaints must not eat the user's half-typed text.
+    this._intentBox = document.createElement('div');
+    const box = this._intentBox.style;
+    box.position = 'absolute';
+    box.left = '50%';
+    box.bottom = '0.75rem';
+    box.transform = 'translateX(-50%)';
+    box.display = 'none';
+    box.gap = '0.35rem';
+    box.padding = '0.4rem';
+    box.borderRadius = 'var(--wl-radius, 10px)';
+    box.border = '1px solid var(--wl-border, rgba(255,255,255,0.25))';
+    box.background = 'var(--wl-panel, #1e2128)';
+    box.zIndex = '3';
+    this._intentInput = document.createElement('input');
+    this._intentInput.type = 'text';
+    this._intentInput.placeholder = 'What should be here?';
+    this._intentInput.maxLength = 500;
+    this._intentInput.setAttribute('data-wl-map-intent', '');
+    const input = this._intentInput.style;
+    input.width = '14rem';
+    input.fontFamily = 'var(--wl-font-ui, sans-serif)';
+    input.fontSize = '0.75rem';
+    input.padding = '0.25rem 0.5rem';
+    input.borderRadius = '999px';
+    input.border = '1px solid var(--wl-border, rgba(255,255,255,0.25))';
+    input.background = 'transparent';
+    input.color = 'var(--wl-text, #e8e4da)';
+    const submit = document.createElement('button');
+    submit.textContent = 'Create';
+    submit.setAttribute('data-wl-map-intent-submit', '');
+    const sub = submit.style;
+    sub.fontFamily = 'var(--wl-font-ui, sans-serif)';
+    sub.fontSize = '0.72rem';
+    sub.padding = '0.2rem 0.6rem';
+    sub.borderRadius = '999px';
+    sub.border = '1px solid var(--wl-accent, #d8a748)';
+    sub.background = 'var(--wl-panel, #1e2128)';
+    sub.color = 'var(--wl-accent, #d8a748)';
+    sub.cursor = 'pointer';
+    submit.addEventListener('click', () => this._submitEdit());
+    this._intentInput.addEventListener('keydown', (key) => {
+      if (key.key === 'Enter') this._submitEdit();
+      if (key.key === 'Escape') {
+        this._draft = null;
+        this._hideIntentBox();
+        this._paint();
+      }
+    });
+    const cancel = document.createElement('button');
+    cancel.textContent = '✕';
+    cancel.title = 'Discard the drawn region';
+    const can = cancel.style;
+    can.fontFamily = 'var(--wl-font-ui, sans-serif)';
+    can.fontSize = '0.72rem';
+    can.padding = '0.2rem 0.45rem';
+    can.borderRadius = '999px';
+    can.border = '1px solid var(--wl-border, rgba(255,255,255,0.25))';
+    can.background = 'transparent';
+    can.color = 'var(--wl-text-dim, #9a958a)';
+    can.cursor = 'pointer';
+    cancel.addEventListener('click', () => {
+      this._draft = null;
+      this._hideIntentBox();
+      this._paint();
+    });
+    this._intentBox.appendChild(this._intentInput);
+    this._intentBox.appendChild(submit);
+    this._intentBox.appendChild(cancel);
+    this.appendChild(this._intentBox);
 
     this._resizeObserver = new ResizeObserver(() => this._paint());
     this._resizeObserver.observe(this);
@@ -120,6 +270,42 @@ class WlMap extends HTMLElement {
         this._paint();
       };
       image.src = `/v1/images/${event.payload.path}`;
+      // A completed edit paint releases its region lock (Flow A step 6).
+      const editPrefix = `painter:${this._imageId}:edit-`;
+      if (
+        typeof event.payload.job_key === 'string' &&
+        event.payload.job_key.startsWith(editPrefix)
+      ) {
+        this._locks.delete(event.payload.job_key.slice(editPrefix.length));
+        this._paint();
+      }
+    }
+    // Flow A durable intent: lock the drawn region (also what a reconnect
+    // replays — the optimistic local lock under the same edit_id dedupes).
+    if (
+      event.type === 'map_edit.requested' &&
+      event.payload &&
+      Array.isArray(event.payload.points) &&
+      typeof event.payload.edit_id === 'string'
+    ) {
+      this._locks.set(event.payload.edit_id, { points: event.payload.points });
+      this._paint();
+    }
+    // Flow A step 6: the created sublocation's pin at the mask centroid.
+    if (
+      event.type === 'sublocation.created' &&
+      event.payload &&
+      event.payload.map_position &&
+      typeof event.payload.sublocation_id === 'string'
+    ) {
+      const current = this._pins.get(event.payload.sublocation_id);
+      this._pins.set(event.payload.sublocation_id, {
+        name: String(event.payload.name ?? event.payload.sublocation_id),
+        x: Number(event.payload.map_position.x),
+        y: Number(event.payload.map_position.y),
+        current: current ? current.current : false,
+      });
+      this._paint();
     }
     if (
       event.type === 'sublocation.changed' &&
@@ -169,6 +355,21 @@ class WlMap extends HTMLElement {
       this._pending.clear();
       this._paint();
     }
+    // A parked edit never composites — release its region lock cleanly
+    // (criteria e: provider failures park, no half-visible pixels ever).
+    if (
+      event.type === 'job.parked' &&
+      event.payload &&
+      typeof event.payload.job_key === 'string'
+    ) {
+      const key = event.payload.job_key;
+      const editJob = `map_edit:${this._worldId}:`;
+      const editPaint = `painter:${this._imageId}:edit-`;
+      let released = null;
+      if (key.startsWith(editJob)) released = key.slice(editJob.length);
+      if (key.startsWith(editPaint)) released = key.slice(editPaint.length);
+      if (released !== null && this._locks.delete(released)) this._paint();
+    }
   }
 
   _squareAt(mouse) {
@@ -178,6 +379,61 @@ class WlMap extends HTMLElement {
     const row = Math.floor(((mouse.clientY - rect.top) / rect.height) * GRID);
     if (col < 0 || col >= GRID || row < 0 || row >= GRID) return null;
     return { col, row };
+  }
+
+  _unitAt(mouse) {
+    const rect = this._canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    const x = (mouse.clientX - rect.left) / rect.width;
+    const y = (mouse.clientY - rect.top) / rect.height;
+    return {
+      x: Math.min(1, Math.max(0, x)),
+      y: Math.min(1, Math.max(0, y)),
+    };
+  }
+
+  _showIntentBox() {
+    this._intentBox.style.display = 'flex';
+    this._intentInput.value = '';
+    this._intentInput.focus();
+  }
+
+  _hideIntentBox() {
+    this._intentBox.style.display = 'none';
+  }
+
+  _submitEdit() {
+    const intent = this._intentInput.value.trim();
+    if (this._draft === null || intent.length === 0) return;
+    const points = this._draft;
+    const editId = `e-${crypto.randomUUID().slice(0, 8)}`;
+    this._draft = null;
+    this._hideIntentBox();
+    // Optimistic lock, honest like the Explore spinner: a refusal unlocks —
+    // only the durable map_edit.requested (replayed on reconnect) keeps it.
+    this._locks.set(editId, { points });
+    this._paint();
+    fetch('/v1/commands/map-edit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: this._worldId,
+        actor_id: this._actorId,
+        points,
+        intent,
+        request_id: editId,
+      }),
+    })
+      .then((response) => {
+        if (!response.ok) {
+          this._locks.delete(editId);
+          this._paint();
+        }
+      })
+      .catch(() => {
+        this._locks.delete(editId);
+        this._paint();
+      });
   }
 
   _explore(square) {
@@ -259,6 +515,50 @@ class WlMap extends HTMLElement {
       ctx.fillRect(col * cellW, row * cellH, cellW, cellH);
     }
 
+    // Locked regions (Flow A): grey veil + dashed outline while the edit's
+    // GM form + painter job are in flight.
+    const tracePolygon = (points) => {
+      ctx.beginPath();
+      points.forEach((p, i) => {
+        const px = Number(p.x) * width;
+        const py = Number(p.y) * height;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+    };
+    for (const lock of this._locks.values()) {
+      tracePolygon(lock.points);
+      ctx.fillStyle = token('--wl-map-pending-fill', 'rgba(120,120,120,0.35)');
+      ctx.fill();
+      ctx.strokeStyle = token('--wl-accent', '#d8a748');
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // The active lasso stroke / the finished draft awaiting its intent.
+    const sketch = this._stroke ?? this._draft;
+    if (sketch !== null && sketch.length >= 2) {
+      tracePolygon(sketch);
+      ctx.fillStyle = token('--wl-map-hover-fill', 'rgba(255,255,255,0.12)');
+      ctx.fill();
+      ctx.strokeStyle = token('--wl-accent', '#d8a748');
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // Pen control active state (persistent element — not overlay-managed).
+    if (this._penButton) {
+      this._penButton.style.color = this._drawMode
+        ? 'var(--wl-accent, #d8a748)'
+        : 'var(--wl-text-dim, #9a958a)';
+      this._penButton.style.borderColor = this._drawMode
+        ? 'var(--wl-accent, #d8a748)'
+        : 'var(--wl-border, rgba(255,255,255,0.25))';
+    }
+
     // ---- DOM overlay: pins, the Explore prompt, spinner squares ----
     this._overlay.replaceChildren();
 
@@ -295,6 +595,33 @@ class WlMap extends HTMLElement {
       box.appendChild(ring);
       box.setAttribute('data-wl-map-pending', key);
       this._overlay.appendChild(box);
+    }
+
+    // A small spinner at each locked region's centroid (DOM-samplable:
+    // data-wl-map-lock=<edit_id>).
+    for (const [editId, lock] of this._locks) {
+      let cx = 0;
+      let cy = 0;
+      for (const p of lock.points) {
+        cx += Number(p.x);
+        cy += Number(p.y);
+      }
+      cx /= lock.points.length;
+      cy /= lock.points.length;
+      const ring = document.createElement('div');
+      ring.style.position = 'absolute';
+      ring.style.left = `${cx * 100}%`;
+      ring.style.top = `${cy * 100}%`;
+      ring.style.transform = 'translate(-50%, -50%)';
+      ring.style.width = '1.4rem';
+      ring.style.height = '1.4rem';
+      ring.style.border = '3px solid var(--wl-border, rgba(255,255,255,0.25))';
+      ring.style.borderTopColor = 'var(--wl-accent, #d8a748)';
+      ring.style.borderRadius = '50%';
+      ring.style.animation =
+        'wl-map-spin var(--wl-map-spinner-duration, 1.1s) linear infinite';
+      ring.setAttribute('data-wl-map-lock', editId);
+      this._overlay.appendChild(ring);
     }
 
     // The clicked unexplored square: "Unexplored Area" + Explore.

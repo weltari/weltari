@@ -64,7 +64,18 @@ plugin defines `<wl-map>` — a community plugin can replace the map wholesale.
 CustomEvent whose detail matches `MapJumpDetailSchema` (@weltari/protocol) —
 the HOST validates it and answers with the §1.14 masked scene transition;
 the plugin never opens scenes itself (0.8.0: the host passes the detail's
-sublocation_id to open-scene, so jumps land AT the pin's sublocation). The web client cache-busts plugin
+sublocation_id to open-scene, so jumps land AT the pin's sublocation).
+0.4.0 (M5 part 2, Rev 4 §14 Flow A): the right-edge pen control (wireframe
+08, `data-wl-map-pen`) toggles draw mode — freehand lasso on the canvas
+(mousedown/-move/-up, ≤128 points), then a persistent intent box
+(`data-wl-map-intent`, survives SSE repaints) POSTs the public
+`/v1/commands/map-edit`. Locked regions render as a grey polygon veil +
+dashed outline + centroid spinner (`data-wl-map-lock=<edit_id>`) from
+`map_edit.requested` (optimistic on submit, honest like the Explore
+spinner: a refusal unlocks) until the edit's `painter.completed`
+(`job_key painter:map:<w>:edit-<id>`) or a `job.parked` carrying the
+edit's job_key; `sublocation.created` drops the pin at the mask centroid.
+The web client cache-busts plugin
 asset URLs with the provenance hash (`?v=…`), so a plugin update is picked
 up on the next reload despite header-less asset serving.
 NOTE: any edit to plugin content requires re-running `computePluginContentHash`
