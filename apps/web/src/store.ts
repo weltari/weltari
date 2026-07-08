@@ -83,6 +83,13 @@ export interface SceneStore {
   sceneTitle: string;
   /** Set on scene.ended — drives the soft-close button set (UI Spec §1.7). */
   sceneEnd: SceneEnd | null;
+  /** True when the current sceneEnd arrived LIVE (after the replay caught
+   * up) — a live end keeps its soft close; a replayed one means the splash
+   * (wireframe 03 vs UI Spec §1.7). */
+  sceneEndedLive: boolean;
+  /** hello's last_event_id — everything at or below it is replay, not live. */
+  replayTarget: number;
+  replayCaughtUp: boolean;
   /** The scene's roster — character.joined since scene.started (VN line-up). */
   cast: CastMember[];
   /** Every materialized sublocation (fog projection, 0.8.0) — the splash's
@@ -126,13 +133,213 @@ export interface SceneStore {
 
   // ---- reducer actions: called ONLY from stream.ts ----
   setConnected(connected: boolean): void;
-  applyHello(protocolVersion: string, appVersion: string | undefined): void;
+  applyHello(
+    protocolVersion: string,
+    appVersion: string | undefined,
+    lastEventId: number,
+  ): void;
   applyEvent(event: WeltariEvent): void;
   applyStream(frame: StreamSentence): void;
   applyDev(frame: DevEvent): void;
 }
 
 const DEV_RING = 100;
+
+function applyOne(
+  set: (
+    partial: Partial<SceneStore> | ((state: SceneStore) => Partial<SceneStore>),
+  ) => void,
+  event: WeltariEvent,
+): void {
+  switch (event.type) {
+    case 'scene.started':
+      set((state) => ({
+        sceneId: event.payload.scene_id,
+        sceneTitle: event.payload.title,
+        sceneEnd: null,
+        sceneEndedLive: false,
+        cast: [],
+        history: state.history.some(
+          (h) => h.scene_id === event.payload.scene_id,
+        )
+          ? state.history
+          : [
+              ...state.history,
+              {
+                scene_id: event.payload.scene_id,
+                title: event.payload.title,
+                world_time: state.worldTime,
+                participants: [],
+                turns: [],
+                ended: false,
+                end_type: null,
+                divider_text: null,
+              },
+            ],
+      }));
+      return;
+    case 'character.joined':
+      set((state) => {
+        const member: CastMember = {
+          character_id: event.payload.character_id,
+          name: event.payload.name,
+        };
+        const history = state.history.map((h) =>
+          h.scene_id === event.payload.scene_id &&
+          !h.participants.some((m) => m.character_id === member.character_id)
+            ? { ...h, participants: [...h.participants, member] }
+            : h,
+        );
+        if (
+          event.payload.scene_id !== state.sceneId ||
+          state.cast.some((m) => m.character_id === event.payload.character_id)
+        ) {
+          return { history };
+        }
+        return { history, cast: [...state.cast, member] };
+      });
+      return;
+    case 'scene.ended':
+      set((state) => ({
+        sceneEnd: {
+          end_type: event.payload.end_type ?? 'rest',
+          divider_text: event.payload.divider_text ?? '— the scene rests —',
+        },
+        // replayCaughtUp still holds the PRE-event value here (the flip
+        // happens after applyOne) — a replayed end is not a live end.
+        sceneEndedLive: state.replayCaughtUp,
+        openTurnId: null,
+        history: state.history.map((h) =>
+          h.scene_id === event.payload.scene_id
+            ? {
+                ...h,
+                ended: true,
+                end_type: event.payload.end_type ?? 'rest',
+                divider_text: event.payload.divider_text ?? null,
+              }
+            : h,
+        ),
+      }));
+      return;
+    case 'turn.started':
+      set((state) => ({
+        openTurnId: event.payload.turn_id,
+        // A new envelope obsoletes the previous turn's display buffer.
+        ...(state.liveTurnId !== event.payload.turn_id
+          ? { liveTurnId: event.payload.turn_id, liveSentences: [] }
+          : {}),
+      }));
+      return;
+    case 'turn.committed':
+      set((state) => {
+        if (state.turns.some((t) => t.turn_id === event.payload.turn_id)) {
+          return {};
+        }
+        const turn: CommittedTurn = {
+          turn_id: event.payload.turn_id,
+          steps: event.payload.steps,
+          interrupted: event.payload.interrupted ?? false,
+        };
+        return {
+          turns: [...state.turns, turn],
+          history: state.history.map((h) =>
+            h.scene_id === event.payload.scene_id &&
+            !h.turns.some((t) => t.turn_id === turn.turn_id)
+              ? { ...h, turns: [...h.turns, turn] }
+              : h,
+          ),
+          openTurnId:
+            state.openTurnId === event.payload.turn_id
+              ? null
+              : state.openTurnId,
+        };
+      });
+      return;
+    case 'sublocation.changed':
+      set((state) => ({
+        previousSublocationId: state.sublocationId,
+        sublocationId: event.payload.sublocation_id,
+        sublocationName: event.payload.name,
+      }));
+      return;
+    case 'art.switched':
+      set((state) => ({
+        artByCharacter: {
+          ...state.artByCharacter,
+          [event.payload.character_id]: event.payload.art_id,
+        },
+      }));
+      return;
+    case 'world.time_advanced':
+      set((state) => ({
+        worldTime: event.payload.to,
+        timeAdvance: {
+          from: event.payload.from,
+          to: event.payload.to,
+          enqueued: event.payload.code_enqueued + event.payload.llm_enqueued,
+        },
+        cronCompleted: 0,
+        worldEpoch: state.worldEpoch ?? event.payload.from,
+      }));
+      return;
+    case 'world_cron.completed':
+      set((state) => ({ cronCompleted: state.cronCompleted + 1 }));
+      return;
+    case 'update.available':
+      set({ updateAvailable: event.payload });
+      return;
+    case 'update.staged':
+      set({ updateStaged: event.payload, updateJobError: null });
+      return;
+    case 'plugin.rejected':
+      set((state) => ({
+        pluginRejections: [...state.pluginRejections, event.payload],
+      }));
+      return;
+    case 'job.failed':
+    case 'job.parked':
+      // Only the update path surfaces job errors today (Config page);
+      // a general job-status UI is a later milestone.
+      if (event.payload.job_type === 'update_apply') {
+        set({
+          updateJobError: {
+            code: event.payload.error.code,
+            message: event.payload.error.message,
+            parked: event.type === 'job.parked',
+          },
+        });
+      }
+      return;
+    case 'sublocation.materialized':
+      set((state) => {
+        if (
+          state.knownSublocations.some(
+            (s) => s.sublocation_id === event.payload.sublocation_id,
+          )
+        ) {
+          return {};
+        }
+        return {
+          knownSublocations: [
+            ...state.knownSublocations,
+            {
+              sublocation_id: event.payload.sublocation_id,
+              name: event.payload.name,
+              description: event.payload.description,
+              map_position: event.payload.map_position,
+            },
+          ],
+        };
+      });
+      return;
+    // No projection (yet): these surfaces arrive in later milestones
+    // (map refresh, feed, job status UI).
+    case 'reflection.committed':
+    case 'world_agent.committed':
+    case 'painter.completed':
+      return;
+  }
+}
 
 export const useSceneStore = create<SceneStore>((set) => ({
   connected: false,
@@ -141,6 +348,9 @@ export const useSceneStore = create<SceneStore>((set) => ({
   sceneId: null,
   sceneTitle: 'Weltari',
   sceneEnd: null,
+  sceneEndedLive: false,
+  replayTarget: 0,
+  replayCaughtUp: false,
   cast: [],
   knownSublocations: [],
   history: [],
@@ -166,197 +376,29 @@ export const useSceneStore = create<SceneStore>((set) => ({
     set({ connected });
   },
 
-  applyHello(protocolVersion: string, appVersion: string | undefined): void {
-    set({ protocolVersion, appVersion: appVersion ?? null });
+  applyHello(
+    protocolVersion: string,
+    appVersion: string | undefined,
+    lastEventId: number,
+  ): void {
+    set({
+      protocolVersion,
+      appVersion: appVersion ?? null,
+      replayTarget: lastEventId,
+      replayCaughtUp: lastEventId === 0,
+    });
   },
 
   applyEvent(event: WeltariEvent): void {
-    switch (event.type) {
-      case 'scene.started':
-        set((state) => ({
-          sceneId: event.payload.scene_id,
-          sceneTitle: event.payload.title,
-          sceneEnd: null,
-          cast: [],
-          history: state.history.some(
-            (h) => h.scene_id === event.payload.scene_id,
-          )
-            ? state.history
-            : [
-                ...state.history,
-                {
-                  scene_id: event.payload.scene_id,
-                  title: event.payload.title,
-                  world_time: state.worldTime,
-                  participants: [],
-                  turns: [],
-                  ended: false,
-                  end_type: null,
-                  divider_text: null,
-                },
-              ],
-        }));
-        return;
-      case 'character.joined':
-        set((state) => {
-          const member: CastMember = {
-            character_id: event.payload.character_id,
-            name: event.payload.name,
-          };
-          const history = state.history.map((h) =>
-            h.scene_id === event.payload.scene_id &&
-            !h.participants.some((m) => m.character_id === member.character_id)
-              ? { ...h, participants: [...h.participants, member] }
-              : h,
-          );
-          if (
-            event.payload.scene_id !== state.sceneId ||
-            state.cast.some(
-              (m) => m.character_id === event.payload.character_id,
-            )
-          ) {
-            return { history };
-          }
-          return { history, cast: [...state.cast, member] };
-        });
-        return;
-      case 'scene.ended':
-        set((state) => ({
-          sceneEnd: {
-            end_type: event.payload.end_type ?? 'rest',
-            divider_text: event.payload.divider_text ?? '— the scene rests —',
-          },
-          openTurnId: null,
-          history: state.history.map((h) =>
-            h.scene_id === event.payload.scene_id
-              ? {
-                  ...h,
-                  ended: true,
-                  end_type: event.payload.end_type ?? 'rest',
-                  divider_text: event.payload.divider_text ?? null,
-                }
-              : h,
-          ),
-        }));
-        return;
-      case 'turn.started':
-        set((state) => ({
-          openTurnId: event.payload.turn_id,
-          // A new envelope obsoletes the previous turn's display buffer.
-          ...(state.liveTurnId !== event.payload.turn_id
-            ? { liveTurnId: event.payload.turn_id, liveSentences: [] }
-            : {}),
-        }));
-        return;
-      case 'turn.committed':
-        set((state) => {
-          if (state.turns.some((t) => t.turn_id === event.payload.turn_id)) {
-            return {};
-          }
-          const turn: CommittedTurn = {
-            turn_id: event.payload.turn_id,
-            steps: event.payload.steps,
-            interrupted: event.payload.interrupted ?? false,
-          };
-          return {
-            turns: [...state.turns, turn],
-            history: state.history.map((h) =>
-              h.scene_id === event.payload.scene_id &&
-              !h.turns.some((t) => t.turn_id === turn.turn_id)
-                ? { ...h, turns: [...h.turns, turn] }
-                : h,
-            ),
-            openTurnId:
-              state.openTurnId === event.payload.turn_id
-                ? null
-                : state.openTurnId,
-          };
-        });
-        return;
-      case 'sublocation.changed':
-        set((state) => ({
-          previousSublocationId: state.sublocationId,
-          sublocationId: event.payload.sublocation_id,
-          sublocationName: event.payload.name,
-        }));
-        return;
-      case 'art.switched':
-        set((state) => ({
-          artByCharacter: {
-            ...state.artByCharacter,
-            [event.payload.character_id]: event.payload.art_id,
-          },
-        }));
-        return;
-      case 'world.time_advanced':
-        set((state) => ({
-          worldTime: event.payload.to,
-          timeAdvance: {
-            from: event.payload.from,
-            to: event.payload.to,
-            enqueued: event.payload.code_enqueued + event.payload.llm_enqueued,
-          },
-          cronCompleted: 0,
-          worldEpoch: state.worldEpoch ?? event.payload.from,
-        }));
-        return;
-      case 'world_cron.completed':
-        set((state) => ({ cronCompleted: state.cronCompleted + 1 }));
-        return;
-      case 'update.available':
-        set({ updateAvailable: event.payload });
-        return;
-      case 'update.staged':
-        set({ updateStaged: event.payload, updateJobError: null });
-        return;
-      case 'plugin.rejected':
-        set((state) => ({
-          pluginRejections: [...state.pluginRejections, event.payload],
-        }));
-        return;
-      case 'job.failed':
-      case 'job.parked':
-        // Only the update path surfaces job errors today (Config page);
-        // a general job-status UI is a later milestone.
-        if (event.payload.job_type === 'update_apply') {
-          set({
-            updateJobError: {
-              code: event.payload.error.code,
-              message: event.payload.error.message,
-              parked: event.type === 'job.parked',
-            },
-          });
-        }
-        return;
-      case 'sublocation.materialized':
-        set((state) => {
-          if (
-            state.knownSublocations.some(
-              (s) => s.sublocation_id === event.payload.sublocation_id,
-            )
-          ) {
-            return {};
-          }
-          return {
-            knownSublocations: [
-              ...state.knownSublocations,
-              {
-                sublocation_id: event.payload.sublocation_id,
-                name: event.payload.name,
-                description: event.payload.description,
-                map_position: event.payload.map_position,
-              },
-            ],
-          };
-        });
-        return;
-      // No projection (yet): these surfaces arrive in later milestones
-      // (map refresh, feed, job status UI).
-      case 'reflection.committed':
-      case 'world_agent.committed':
-      case 'painter.completed':
-        return;
-    }
+    applyOne(set, event);
+    // Flipped AFTER the event applied: the event at the replay head is still
+    // replay — only what comes later counts as live (scene.ended relies on
+    // reading the pre-event value inside its own case).
+    set((state) =>
+      !state.replayCaughtUp && event.id >= state.replayTarget
+        ? { replayCaughtUp: true }
+        : {},
+    );
   },
 
   applyStream(frame: StreamSentence): void {

@@ -41,14 +41,17 @@ export function ScenePage(props: {
 
   // Splash vs soft close (wireframe 03 vs UI Spec §1.7): a scene that ends
   // while the user watches keeps its soft close (scroll-back stays readable);
-  // arriving at an already-ended scene — fresh mount, reload, route return —
-  // shows the splash. endedLive marks the "watched it happen" case
-  // (adjust-during-render: derived from the sceneEnd transition).
+  // arriving at an already-ended scene — fresh mount, reload, restart, route
+  // return — shows the splash. The store's sceneEndedLive distinguishes a
+  // live end from a REPLAYED one (a restart replays scene.ended mid-mount);
+  // the local state scopes "watched it happen" to this mount, so leaving the
+  // route and coming back lands on the splash again.
+  const sceneEndedLive = useSceneStore((s) => s.sceneEndedLive);
   const [endedLive, setEndedLive] = useState(false);
   const [previousEnd, setPreviousEnd] = useState(sceneEnd);
   if (sceneEnd !== previousEnd) {
     setPreviousEnd(sceneEnd);
-    if (previousEnd === null && sceneEnd !== null) setEndedLive(true);
+    if (previousEnd === null && sceneEnd !== null) setEndedLive(sceneEndedLive);
     if (sceneEnd === null) setEndedLive(false);
   }
   const showSplash = sceneId === null || (sceneEnd !== null && !endedLive);
