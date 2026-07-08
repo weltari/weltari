@@ -17,6 +17,8 @@ Purpose: the permanent crash-torture rig (Invariant I4; owner mandate: Week-1 ch
 
 | `tools/update-fixture.mjs` | Manual dev fixture (M4, Config update surface): the kill harness's signed-release trio as a standalone local server — `node tools/update-fixture.mjs [version] [port]` prints the `WELTARI_UPDATE_RELEASES_URL` + `WELTARI_UPDATE_PUBKEY` to start the server with; the Config page then shows the real update.available → Apply → update.staged round-trip. Fresh keypair per run — nothing it signs verifies anywhere else. |
 
+| `tools/m5-map-qa.mjs` | M5 part-1 criterion (c): the VLM map-QA spot check. `--image <png> --name --description` + `OPENROUTER_API_KEY` → one real multimodal call through the shipped seam (`dist/llm/vlm.js`, `WELTARI_VLM_MODEL` default `google/gemini-3.5-flash`), reply gated exactly like the server would (parseLlmJson → validateAt over a strict verdict schema — reject, never repair). Owns no database: a rejected/garbage reply writes zero rows by construction. Exit 0 = gated verdict says the described sublocation is plausibly visible; 1 = gated verdict says not visible; 2 = gate rejection or provider failure. |
+
 ## CI wiring
 
 - `.github/workflows/ci.yml` → `kill-harness` job, `CYCLES=25`, every push/PR.
