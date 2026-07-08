@@ -12,6 +12,9 @@ export const FIXTURE_SCENE_TITLE = 'The Rainy Inn';
 export interface SublocationDefinition {
   sublocation_id: string;
   name: string;
+  /** Short stub description (Rev 4 §14) — seeded for the fixture trio,
+   * LLM-generated (B6-gated) for materialized squares. */
+  description: string;
   /** World-map anchor (unit square) — pins anchor to world coordinates,
    * never pixels (UI Spec §1.8). */
   map_position: { x: number; y: number };
@@ -19,23 +22,32 @@ export interface SublocationDefinition {
 
 /**
  * Fixture sublocations (M3): the change_sublocation tool's engine-state gate
- * accepts only these ids; the client maps each id to a placeholder backdrop
- * until painter-generated backdrops exist.
+ * accepts these ids plus every materialized one (M4 part 2, the sublocation
+ * registry); the client maps each id to a placeholder backdrop until
+ * painter-generated backdrops exist. The fresh-world seed materializes the
+ * trio (sublocation.materialized), so clients and map plugins learn them
+ * over the wire like any other sublocation.
  */
 export const FIXTURE_SUBLOCATIONS: readonly SublocationDefinition[] = [
   {
     sublocation_id: 'subloc:common_room',
     name: 'The Common Room',
+    description:
+      'The heart of the Rainy Inn: a long hearth, mismatched chairs, and the smell of wet wool.',
     map_position: { x: 0.42, y: 0.55 },
   },
   {
     sublocation_id: 'subloc:cellar',
     name: 'The Flooded Cellar',
+    description:
+      'Below the inn the river seeps in every storm season; the casks float upright.',
     map_position: { x: 0.38, y: 0.72 },
   },
   {
     sublocation_id: 'subloc:shrine',
     name: 'The Old Shrine',
+    description:
+      'A mossy shrine behind the stables with a cracked bell that should not ring at midnight.',
     map_position: { x: 0.61, y: 0.33 },
   },
 ];

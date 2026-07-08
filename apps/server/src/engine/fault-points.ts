@@ -10,7 +10,10 @@ export type FaultPoint =
   | 'mid_painter'
   | 'mid_cron'
   /** M3 part 2: inside the update apply window — verified, not yet flipped. */
-  | 'mid_update';
+  | 'mid_update'
+  /** M4 part 2: inside the materialize job — stub generated + both B6 gates
+   * passed, sublocation.materialized not yet appended. */
+  | 'mid_materialize';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;

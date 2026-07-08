@@ -18,10 +18,13 @@ import {
   buildNarratorProfile,
   FIXTURE_SCENE_ID,
   FIXTURE_SCENE_TITLE,
+  FIXTURE_SUBLOCATIONS,
   FIXTURE_WORLD_CRON,
   FIXTURE_WORLD_ID,
 } from './engine/fixture/rainy-inn.js';
+import { createExploreCommand } from './engine/explore.js';
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
+import { squareOf } from './engine/sublocations.js';
 import { createTurnEngine } from './engine/scene-turn.js';
 import { createWorldClock } from './engine/world-clock.js';
 import { createGatewayHost } from './gateway/host.js';
@@ -29,6 +32,7 @@ import { createTelegramConnector } from './gateway/telegram/connector.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
 import { createStaticResolver } from './http/static.js';
+import { createMaterializeHandler } from './ledger/handlers/materialize.js';
 import { createPainterHandler } from './ledger/handlers/painter.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
 import { createUpdateApplyHandler } from './ledger/handlers/update-apply.js';
@@ -94,24 +98,23 @@ const knownCharacters = [
   { character_id: elias.character_id, name: elias.name },
 ];
 
-// Fixture world seed (builder.md §4.3): an empty log gets one scene to play
-// in, roster included (character.joined per participant, like openScene).
+// Fixture world seed (builder.md §4.3, reshaped in M4 part 2): an empty log
+// gets the fixture trio as materialized sublocations — the map starts with
+// three explored squares and the client's Hang around has somewhere to land.
+// No scene auto-opens anymore: a fresh world shows the splash (wireframe 03)
+// and every scene opens through the open-scene command.
 if (storage.eventLog.lastId() === 0) {
-  sink.append({
-    world_id: FIXTURE_WORLD_ID,
-    actor_id: 'system:engine',
-    type: 'scene.started',
-    payload: { scene_id: FIXTURE_SCENE_ID, title: FIXTURE_SCENE_TITLE },
-  });
-  for (const character of knownCharacters) {
+  for (const sublocation of FIXTURE_SUBLOCATIONS) {
     sink.append({
       world_id: FIXTURE_WORLD_ID,
       actor_id: 'system:engine',
-      type: 'character.joined',
+      type: 'sublocation.materialized',
       payload: {
-        scene_id: FIXTURE_SCENE_ID,
-        character_id: character.character_id,
-        name: character.name,
+        sublocation_id: sublocation.sublocation_id,
+        name: sublocation.name,
+        description: sublocation.description,
+        square: squareOf(sublocation.map_position),
+        map_position: sublocation.map_position,
       },
     });
   }
@@ -181,16 +184,42 @@ async function startTurn(
   return { ok: true, value: { turnId: started.value.turnId } };
 }
 
+/** The scene the gateway echoes into: the latest open scene in the fixture
+ * world, opened on demand — fresh worlds no longer auto-open one (M4 part 2:
+ * the splash is the entry surface). */
+function ensureGatewayScene(): Result<string> {
+  const endedIds = new Set<string>();
+  let latestOpen: string | null = null;
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (event.world_id !== FIXTURE_WORLD_ID) continue;
+    if (event.type === 'scene.ended') endedIds.add(event.payload.scene_id);
+    if (event.type === 'scene.started') latestOpen = event.payload.scene_id;
+  }
+  if (latestOpen !== null && !endedIds.has(latestOpen)) return ok(latestOpen);
+  const sceneId = `${FIXTURE_SCENE_ID}-gw-${String(storage.eventLog.lastId() + 1)}`;
+  const opened = lifecycle.openScene({
+    world_id: FIXTURE_WORLD_ID,
+    actor_id: 'gateway:telegram',
+    scene_id: sceneId,
+    title: FIXTURE_SCENE_TITLE,
+    participants: knownCharacters.map((c) => c.character_id),
+  });
+  if (!opened.ok) return opened;
+  return ok(sceneId);
+}
+
 /** Gateway seam: run one fixture-scene turn for inbound messenger text and
  * resolve with the committed transcript (the echo body). */
 async function runGatewayTurn(
   _conversationId: string,
   text: string,
 ): Promise<Result<string>> {
+  const scene = ensureGatewayScene();
+  if (!scene.ok) return scene;
   const started = await engine.startTurn({
     world_id: FIXTURE_WORLD_ID,
     actor_id: 'gateway:telegram',
-    scene_id: FIXTURE_SCENE_ID,
+    scene_id: scene.value,
     text,
   });
   if (!started.ok) return started;
@@ -294,6 +323,14 @@ const runner = createRunner({
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
     'world_cron.llm': createWorldCronLlmHandler({
+      storage,
+      sink,
+      llm,
+      narrator,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
+    materialize: createMaterializeHandler({
       storage,
       sink,
       llm,
@@ -441,11 +478,20 @@ const app = createHttpServer({
   openScene: (command) => lifecycle.openScene(command),
   advanceTime: (command) => worldClock.advanceTime(command),
   paintRegion: createPaintRegionCommand(storage),
+  explore: createExploreCommand({
+    storage,
+    // Start the materialize job now — the map's spinner window should track
+    // generation latency, not the runner's 1 s poll.
+    kick: (): void => {
+      catchAndLog(drainLedger(), logger, 'ledger.drain');
+    },
+  }),
   applyUpdate,
   plugins: plugins.map((plugin) => plugin.info),
   resolvePluginAsset: createPluginAssetResolver(plugins),
   resolveImage: createImageResolver(env.imagesDir),
   resolveStatic: createStaticResolver(webDir),
+  appVersion,
 });
 
 let draining = false;

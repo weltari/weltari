@@ -14,6 +14,7 @@ import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { EventBus } from '../http/bus.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
+import { knownSublocations } from './sublocations.js';
 
 export interface KnownCharacter {
   character_id: string;
@@ -167,6 +168,24 @@ export function createSceneLifecycle(
         );
       }
 
+      // Engine-state gate for the 0.8.0 "open AT a sublocation" path: the id
+      // must be known to this world (fixture trio or materialized) — the same
+      // registry the change_sublocation tool gate reads.
+      const openAt =
+        command.sublocation_id === undefined
+          ? undefined
+          : knownSublocations(storage, command.world_id).find(
+              (s) => s.sublocation_id === command.sublocation_id,
+            );
+      if (command.sublocation_id !== undefined && openAt === undefined) {
+        return err(
+          new OperationalError(
+            'unknown_sublocation',
+            `no sublocation ${command.sublocation_id} in this world`,
+          ),
+        );
+      }
+
       const involved = new Set(command.participants);
       const blocking = storage.ledger
         .listActive(command.world_id)
@@ -223,6 +242,23 @@ export function createSceneLifecycle(
                 scene_id: command.scene_id,
                 character_id: characterId,
                 name,
+              },
+            }),
+          );
+        }
+        // The scene opens AT the named sublocation: the backdrop move is part
+        // of the same transaction, so a kill leaves no scene stranded halfway.
+        if (openAt !== undefined) {
+          events.push(
+            storage.eventLog.append({
+              world_id: command.world_id,
+              actor_id: command.actor_id,
+              type: 'sublocation.changed',
+              payload: {
+                scene_id: command.scene_id,
+                sublocation_id: openAt.sublocation_id,
+                name: openAt.name,
+                map_position: openAt.map_position,
               },
             }),
           );

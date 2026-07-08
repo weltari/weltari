@@ -176,6 +176,13 @@ describe('HTTP layer (SSE + commands)', () => {
             }),
       paintRegion: (command) =>
         ok({ jobKey: `painter:${command.image_id}:${command.request_id}` }),
+      // Square (0,0) exercises the 409 path (already occupied).
+      explore: (command) =>
+        command.square.col === 0 && command.square.row === 0
+          ? err(new OperationalError('square_occupied', 'already there'))
+          : ok({
+              jobKey: `materialize:${command.world_id}:${String(command.square.col)}:${String(command.square.row)}`,
+            }),
       // 'disabled' exercises the 409 path (no verification key configured).
       applyUpdate: (command) =>
         command.version === 'disabled'
@@ -473,6 +480,47 @@ describe('HTTP layer (SSE + commands)', () => {
       accepted: true,
       job_key: 'painter:map:w1:r1',
     });
+  });
+
+  it('explore -> 202 echoing the job key; occupied square -> 409', async () => {
+    const ctx = await setup();
+    const accepted = await fetchRetry(`${ctx.baseUrl}/v1/commands/explore`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        square: { col: 5, row: 1 },
+      }),
+    });
+    expect(accepted.status).toBe(202);
+    const body: unknown = await accepted.json();
+    expect(body).toMatchObject({
+      accepted: true,
+      job_key: 'materialize:w1:5:1',
+    });
+
+    const refused = await fetchRetry(`${ctx.baseUrl}/v1/commands/explore`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        square: { col: 0, row: 0 },
+      }),
+    });
+    expect(refused.status).toBe(409);
+
+    const offGrid = await fetchRetry(`${ctx.baseUrl}/v1/commands/explore`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        square: { col: 99, row: 0 },
+      }),
+    });
+    expect(offGrid.status).toBe(400); // schema gate: outside the fog grid
   });
 
   it('malformed command body -> 400 and nothing appended (B-http)', async () => {

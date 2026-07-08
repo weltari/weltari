@@ -29,7 +29,9 @@ schema change = a new numbered file + manifest entry in the same commit.
 - **Projections (who rebuilds what from it):** the web client store (scene,
   roster, transcript, world clock + cron replay progress, update surface) via
   SSE replay; the engine's scene state (participants, open/ended checks,
-  current sublocation); the WorldClock (`currentTime` = latest
+  current sublocation); the sublocation registry (fixture trio ∪
+  `sublocation.materialized` — the map's fog grid and every sublocation
+  gate are projections of it); the WorldClock (`currentTime` = latest
   `world.time_advanced.to`); the update path's already-announced /
   already-staged idempotency checks; `tools/verify-consistency.mjs` (the
   offline auditor).
@@ -43,7 +45,8 @@ schema change = a new numbered file + manifest entry in the same commit.
   fail/park/sweep). The runner (`ledger/runner.ts`) is the only claimant.
 - **Shape notes:** `idempotency_key` UNIQUE makes duplicate enqueues silent
   no-ops (I3) — keys are natural (`reflection:<char>:<scene>`,
-  `wcron:<type>:<world>:<scheduled_for>`, `update_apply:<version>`);
+  `wcron:<type>:<world>:<scheduled_for>`, `update_apply:<version>`,
+  `materialize:<world>:<col>:<row>` — one reveal per fog square, ever);
   `state ∈ pending/running/committed/failed/parked` (parked = dead-letter,
   never auto-retried); `lease_until` expiry + sweep makes a crash mid-job
   claimable again — attempts count crashes because they increment at claim

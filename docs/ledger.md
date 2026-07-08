@@ -26,13 +26,14 @@ Per-world serialization: rows carry `serial_group` (e.g. `world_agent:<world_id>
 | `ledger/scheduler.ts` | croner wrapper: computes next occurrence (UTC), writes a future-dated ledger row keyed `cron:<type>:<world>:<occurrence>` — idempotent across restarts. Also the pure fictional-calendar helpers the engine's WorldClock uses (`addMinutesIso`, `occurrencesBetween` — croner never reads the wall clock there). |
 | `ledger/handlers/world-cron.ts` | Time-skip replay handlers (`world_cron.code` / `world_cron.llm`): idempotent per (cron_type, scheduled_for) via the committed event; code = pure projection, llm = FakeLLM/real narration; fault point `mid_cron` before the commit append. |
 | `ledger/handlers/painter.ts` | Painter job handler — documented in [painter.md](painter.md). |
+| `ledger/handlers/materialize.ts` | The materialize job (M4 part 2, Rev 4 §14): LLM invents ONLY the stub (name + description) — placement is code-owned (the square is in the payload, from the user's Explore click). Full B6 double gate: `validateAt('llm', 'materialize.stub', …)` over the parsed JSON (via `llm/structured.ts`), then engine-state gate (square still empty, world exists); the only durable write is one `sublocation.materialized`. Idempotent per square (deterministic `subloc:sq-<col>-<row>` id + occupancy check) — the post-kill lease retry converges. Fault point `mid_materialize` before the commit append. |
 | `ledger/handlers/update-check.ts` | update_check job (startup + croner, FINAL item 12): fetch the release channel, `validateAt('update', …)`, announce a strictly-newer version as ONE `update.available` event (idempotent). Never downloads — see [update.md](update.md). |
 | `ledger/handlers/update-apply.ts` | update_apply job (serial_group `update_apply`): re-fetch release, download artifact trio, verify SHA-256 + minisign, stage + pointer flip (B12), append `update.staged` once — kill -9 retries converge. Fault point `mid_update` inside stageUpdate. |
 | `../migrations/0002_jobs.sql` | `ledger_jobs` table: states CHECK, idempotency UNIQUE, lease columns, `serial_group`, claim indexes. |
 
 ## Events consumed/emitted
 
-Emits `job.failed`, `job.parked` (actor `system:ledger`); handlers emit `reflection.committed` (actor = the character) and `world_agent.committed` (actor `system:world_agent`). Consumes `turn.committed` (scene transcripts) and reads its own committed events for idempotency.
+Emits `job.failed`, `job.parked` (actor `system:ledger`); handlers emit `reflection.committed` (actor = the character), `world_agent.committed` (actor `system:world_agent`) and `sublocation.materialized` (actor `system:engine`). Consumes `turn.committed` (scene transcripts) and reads its own committed events for idempotency.
 
 ## Configuration
 
