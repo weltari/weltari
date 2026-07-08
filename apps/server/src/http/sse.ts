@@ -17,6 +17,8 @@ export interface SseDeps {
   devChannel: boolean;
   protocolVersion: string;
   heartbeatMs?: number;
+  /** Running app version, included in the hello frame when known (0.8.0). */
+  appVersion?: string;
 }
 
 function writeDurable(raw: ServerResponse, event: WeltariEvent): void {
@@ -55,6 +57,9 @@ export function attachSseClient(
     `event: hello\ndata: ${JSON.stringify({
       protocol_version: deps.protocolVersion,
       last_event_id: deps.eventLog.lastId(),
+      ...(deps.appVersion === undefined
+        ? {}
+        : { app_version: deps.appVersion }),
     })}\n\n`,
   );
 

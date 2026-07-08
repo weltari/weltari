@@ -226,6 +226,83 @@ describe('scene lifecycle (reflection fan-out + scoped open blocking)', () => {
     expect(published).toEqual(['scene.started', 'character.joined']);
   });
 
+  it('open-scene AT a known sublocation appends sublocation.changed atomically (0.8.0)', () => {
+    const ctx = setup();
+    const opened = ctx.lifecycle.openScene({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's-at',
+      title: 'The Old Shrine',
+      participants: [ELIAS.character_id],
+      sublocation_id: 'subloc:shrine',
+    });
+    expect(opened.ok).toBe(true);
+    const events = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => 'scene_id' in e.payload && e.payload.scene_id === 's-at');
+    expect(events.map((e) => e.type)).toEqual([
+      'scene.started',
+      'character.joined',
+      'sublocation.changed',
+    ]);
+    const moved = events[2];
+    if (moved?.type === 'sublocation.changed') {
+      expect(moved.payload.sublocation_id).toBe('subloc:shrine');
+      expect(moved.payload.name).toBe('The Old Shrine');
+      expect(moved.payload.map_position).toEqual({ x: 0.61, y: 0.33 });
+    } else {
+      expect.unreachable('sublocation.changed missing');
+    }
+  });
+
+  it('open-scene AT an unknown sublocation is refused — zero rows (engine-state gate)', () => {
+    const ctx = setup();
+    const before = ctx.storage.eventLog.readSince(0).length;
+    const refused = ctx.lifecycle.openScene({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's-ghost',
+      title: 'Nowhere',
+      participants: [ELIAS.character_id],
+      sublocation_id: 'subloc:ghost',
+    });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe('unknown_sublocation');
+    expect(ctx.storage.eventLog.readSince(0)).toHaveLength(before);
+  });
+
+  it('open-scene AT a materialized sublocation works (registry, not the trio)', () => {
+    const ctx = setup();
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'sublocation.materialized',
+      payload: {
+        sublocation_id: 'subloc:sq-5-1',
+        name: 'The Mill Pond',
+        description: 'A quiet pond.',
+        square: { col: 5, row: 1 },
+        map_position: { x: 0.6875, y: 0.1875 },
+      },
+    });
+    const opened = ctx.lifecycle.openScene({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's-pond',
+      title: 'The Mill Pond',
+      participants: [ELIAS.character_id],
+      sublocation_id: 'subloc:sq-5-1',
+    });
+    expect(opened.ok).toBe(true);
+    const moved = ctx.storage.eventLog
+      .readSince(0)
+      .find(
+        (e) =>
+          e.type === 'sublocation.changed' && e.payload.scene_id === 's-pond',
+      );
+    expect(moved).toBeDefined();
+  });
+
   it('open-scene unblocks after the fan-out jobs commit (via the real runner + FakeLLM)', async () => {
     const ctx = setup();
     seedScene(ctx.storage);

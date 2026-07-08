@@ -39,9 +39,9 @@ import {
   buildNarratorProfile,
   FIXTURE_ART_SETS,
   FIXTURE_START_SUBLOCATION_ID,
-  FIXTURE_SUBLOCATIONS,
   type SublocationDefinition,
 } from './fixture/rainy-inn.js';
+import { knownSublocations } from './sublocations.js';
 import type { FaultPointHook } from './fault-points.js';
 import {
   appendSceneEndWithFanOut,
@@ -74,7 +74,9 @@ export interface TurnEngineOptions {
   stablePrefixTokens?: number;
   /** Speaker-name → character-id map for the end_scene fan-out (fixture default). */
   knownCharacters?: readonly KnownCharacter[];
-  /** World geography for the change_sublocation state gate (fixture default). */
+  /** World geography for the change_sublocation state gate. Default: the
+   * sublocation registry (fixture trio + materialized), read fresh per turn
+   * so newly explored squares are enterable without a restart. */
   sublocations?: readonly SublocationDefinition[];
   startSublocationId?: string;
   /** character_id → art poses for the switch_art state gate (fixture default). */
@@ -160,11 +162,16 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     faultPoint = (): void => undefined,
     worldClockText = 'Day 1, evening, heavy rain',
     stablePrefixTokens = 800,
-    sublocations = FIXTURE_SUBLOCATIONS,
     startSublocationId = FIXTURE_START_SUBLOCATION_ID,
     artSets = FIXTURE_ART_SETS,
     presentCharacterIds = ['char:elias'],
   } = options;
+
+  function worldSublocations(
+    worldId: string,
+  ): readonly SublocationDefinition[] {
+    return options.sublocations ?? knownSublocations(storage, worldId);
+  }
 
   const elias = buildEliasProfile(stablePrefixTokens);
   const narrator = buildNarratorProfile(stablePrefixTokens);
@@ -174,7 +181,10 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
 
   /** Dynamic scene options for the Narrator's instruction (tail-only — the
    * current sublocation changes turn to turn and must never touch the prefix). */
-  function narratorToolContext(sceneId: string): string {
+  function narratorToolContext(
+    sceneId: string,
+    sublocations: readonly SublocationDefinition[],
+  ): string {
     const current = currentSublocationId(storage, sceneId, startSublocationId);
     const sublocationList = sublocations
       .map((s) => `${s.sublocation_id} (${s.name})`)
@@ -336,11 +346,12 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         payload: { scene_id: command.scene_id, turn_id: turnId },
       });
 
+      const sublocations = worldSublocations(command.world_id);
       const plans: CallPlan[] = [
         {
           kind: 'narrator',
           profile: narrator,
-          instruction: `Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias. You may call your scene tools when the fiction calls for it. ${narratorToolContext(command.scene_id)}`,
+          instruction: `Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias. You may call your scene tools when the fiction calls for it. ${narratorToolContext(command.scene_id, sublocations)}`,
           toolset: 'narrator',
         },
         {

@@ -5,7 +5,12 @@ import type { Result } from '../errors.js';
 import type { RawToolCall } from './tools.js';
 
 export type CallKind =
-  'narrator' | 'character' | 'narration' | 'reflection' | 'world_agent';
+  | 'narrator'
+  | 'character'
+  | 'narration'
+  | 'reflection'
+  | 'world_agent'
+  | 'materialize';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */

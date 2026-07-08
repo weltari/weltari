@@ -15,6 +15,8 @@ import {
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
+  ExploreAcceptedSchema,
+  ExploreCommandSchema,
   InterruptTurnAcceptedSchema,
   InterruptTurnCommandSchema,
   OpenSceneAcceptedSchema,
@@ -32,6 +34,8 @@ import {
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,
+  type ExploreAccepted,
+  type ExploreCommand,
   type InterruptTurnAccepted,
   type InterruptTurnCommand,
   type OpenSceneAccepted,
@@ -75,6 +79,9 @@ export interface HttpDeps {
   }>;
   /** Painter seam: enqueue one region composite job (FINAL item 10). */
   paintRegion: (command: PaintRegionCommand) => Result<{ jobKey: string }>;
+  /** Explore seam (UI Spec §1.8): enqueue one materialize job per fog square —
+   * idempotent; 409 when the square is occupied or the world unknown. */
+  explore: (command: ExploreCommand) => Result<{ jobKey: string }>;
   /** Updater seam (FINAL item 12): enqueue the update_apply job — 409 when
    * updates are disabled (no verification key / Docker notify-only mode). */
   applyUpdate: (command: ApplyUpdateCommand) => Result<{ jobKey: string }>;
@@ -98,6 +105,8 @@ export interface HttpDeps {
    * null = 404 (no dist built — dev runs the Vite server instead). */
   resolveStatic?: StaticResolver;
   heartbeatMs?: number;
+  /** Running app version, echoed in the SSE hello (0.8.0 — splash footer). */
+  appVersion?: string;
 }
 
 const sseQuerySchema = z.object({
@@ -133,6 +142,9 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         ...(deps.heartbeatMs === undefined
           ? {}
           : { heartbeatMs: deps.heartbeatMs }),
+        ...(deps.appVersion === undefined
+          ? {}
+          : { appVersion: deps.appVersion }),
       });
     },
   );
@@ -378,6 +390,37 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
       }
       reply.code(202);
       const accepted: PaintRegionAccepted = {
+        accepted: true,
+        job_key: result.value.jobKey,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/explore',
+    {
+      schema: {
+        body: ExploreCommandSchema,
+        response: {
+          202: ExploreAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.explore(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'explore rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: ExploreAccepted = {
         accepted: true,
         job_key: result.value.jobKey,
       };

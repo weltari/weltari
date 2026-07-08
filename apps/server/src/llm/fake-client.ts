@@ -16,6 +16,11 @@ const SCRIPT: Record<string, string> = {
     'The evening confirmed two things: the traveler lies about small matters, and the shrine bell stayed silent past midnight again. Note both. Say neither.',
   world_agent:
     'The storm eases toward dawn. The ferry will run late; Marta opens a fresh page in the ledger; the road north stays mud for another day.',
+  // The materialize stub is structured output — gate 1 (schema) parses it
+  // (malformed-stub rejection is driven by a stub client at the LlmClient
+  // seam in the invariant tests).
+  materialize:
+    '{"name":"The Mill Pond","description":"A quiet pond behind the old grain mill; herons stand watch over water the storms keep restless."}',
 };
 
 /**
