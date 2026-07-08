@@ -23,6 +23,7 @@ import {
   FIXTURE_WORLD_ID,
 } from './engine/fixture/rainy-inn.js';
 import { createExploreCommand } from './engine/explore.js';
+import { createMapClickCommand } from './engine/map-click.js';
 import { createMapEditCommand } from './engine/map-edit.js';
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { squareOf } from './engine/sublocations.js';
@@ -33,6 +34,7 @@ import { createTelegramConnector } from './gateway/telegram/connector.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
 import { createStaticResolver } from './http/static.js';
+import { createMapClickHandler } from './ledger/handlers/map-click.js';
 import { createMapEditHandler } from './ledger/handlers/map-edit.js';
 import { createMaterializeHandler } from './ledger/handlers/materialize.js';
 import { createPainterHandler } from './ledger/handlers/painter.js';
@@ -52,8 +54,9 @@ import {
 } from './painter/commands.js';
 import { createImageResolver } from './painter/images.js';
 import { createStubImageSource } from './painter/image-source.js';
-import { createFakeLlmClient } from './llm/fake-client.js';
+import { createFakeLlmClient, createFakeVlmClient } from './llm/fake-client.js';
 import { createOpenRouterImageSource } from './llm/image-source.js';
+import { createOpenRouterVlmClient } from './llm/vlm.js';
 import { createModelRegistry } from './llm/model-registry.js';
 import { createOpenRouterClient } from './llm/openrouter-client.js';
 import { catchAndLog } from './observability/catch-and-log.js';
@@ -157,6 +160,17 @@ const llm =
     : createOpenRouterClient({
         apiKey: env.openrouterApiKey,
         registry,
+        logger,
+      });
+// The Flow-B click classifier rides the same double opt-out: fakes stay the
+// default whenever the text LLM is fake or no key exists — the kill harness
+// and a fresh install never touch a provider.
+const vlm =
+  env.fakeLlm || env.openrouterApiKey === undefined
+    ? createFakeVlmClient()
+    : createOpenRouterVlmClient({
+        apiKey: env.openrouterApiKey,
+        model: env.vlmModel,
         logger,
       });
 
@@ -388,6 +402,16 @@ const runner = createRunner({
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
+    map_click: createMapClickHandler({
+      storage,
+      sink,
+      llm,
+      vlm,
+      narrator,
+      imagesDir: env.imagesDir,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
     painter: createPainterHandler({
       storage,
       sink,
@@ -542,6 +566,12 @@ const app = createHttpServer({
     sink,
     // Same immediacy: the drawn region's lock window tracks generation
     // latency, not the runner's poll.
+    kick: (): void => {
+      catchAndLog(drainLedger(), logger, 'ledger.drain');
+    },
+  }),
+  mapClick: createMapClickCommand({
+    storage,
     kick: (): void => {
       catchAndLog(drainLedger(), logger, 'ledger.drain');
     },

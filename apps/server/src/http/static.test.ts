@@ -108,6 +108,12 @@ describe('GET /* (the SPA wildcard route)', () => {
       paintRegion: () => ok({ jobKey: 'painter:x:y' }),
       explore: () => ok({ jobKey: 'materialize:w1:0:0' }),
       mapEdit: () => ok({ jobKey: 'map_edit:w1:e1', editId: 'e1' }),
+      mapClick: () =>
+        ok({
+          outcome: 'classify',
+          clickId: 'c1',
+          jobKey: 'map_click:w1:c1',
+        }),
       applyUpdate: () =>
         err(new OperationalError('updates_disabled', 'test stub')),
       ...(resolveStatic === undefined ? {} : { resolveStatic }),

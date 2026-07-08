@@ -17,7 +17,10 @@ export type FaultPoint =
   /** M5 part 2: inside the map_edit job — GM form generated + both B6 gates
    * passed, sublocation.created not yet appended (the paint enqueue follows
    * the append; a kill between them heals via the created-exists re-enqueue). */
-  | 'mid_map_edit';
+  | 'mid_map_edit'
+  /** M5 part 2: inside the map_click job — classification + story invention
+   * generated + gated, map_click.resolved not yet appended. */
+  | 'mid_map_click';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;

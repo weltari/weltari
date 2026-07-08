@@ -68,6 +68,21 @@ export function enqueueSquarePaint(
   });
 }
 
+/** The VLM's view of a Flow-B click: a two-square window centered on the
+ * click, clamped to the canvas (painter-owned geometry, Rev 4 §14). */
+export function clickWindow(point: MapPosition): ImageRegion {
+  const size = (2 * BASE_IMAGE_SIZE) / MAP_FOG_GRID;
+  const x = Math.min(
+    BASE_IMAGE_SIZE - size,
+    Math.max(0, Math.round(point.x * BASE_IMAGE_SIZE) - size / 2),
+  );
+  const y = Math.min(
+    BASE_IMAGE_SIZE - size,
+    Math.max(0, Math.round(point.y * BASE_IMAGE_SIZE) - size / 2),
+  );
+  return { x, y, width: size, height: size };
+}
+
 /** Feather clearance around a Flow-A edit's bounding box, image pixels. */
 const EDIT_PAD_PX = 8;
 /** A drawn sliver still gets a paintable crop (provider + resize sanity). */

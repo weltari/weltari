@@ -191,6 +191,22 @@ describe('HTTP layer (SSE + commands)', () => {
               jobKey: `map_edit:${command.world_id}:${command.request_id}`,
               editId: command.request_id,
             }),
+      // x<0.1 exercises 'enter' (inside a radius); x>0.9 the 409 fog path.
+      mapClick: (command) =>
+        command.point.x > 0.9
+          ? err(new OperationalError('unexplored_ground', 'fog'))
+          : command.point.x < 0.1
+            ? ok({
+                outcome: 'enter',
+                clickId: command.request_id,
+                sublocationId: 'subloc:common_room',
+                name: 'The Common Room',
+              })
+            : ok({
+                outcome: 'classify',
+                clickId: command.request_id,
+                jobKey: `map_click:${command.world_id}:${command.request_id}`,
+              }),
       // 'disabled' exercises the 409 path (no verification key configured).
       applyUpdate: (command) =>
         command.version === 'disabled'
@@ -582,6 +598,42 @@ describe('HTTP layer (SSE + commands)', () => {
       }),
     });
     expect(twoPoints.status).toBe(400); // schema gate: not a polygon
+  });
+
+  it('map-click -> 202 enter inside a radius, 202 classify outside, 409 on fog', async () => {
+    const ctx = await setup();
+    const post = async (x: number, requestId: string) =>
+      fetchRetry(`${ctx.baseUrl}/v1/commands/map-click`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          point: { x, y: 0.5 },
+          request_id: requestId,
+        }),
+      });
+    const entered = await post(0.05, 'c1');
+    expect(entered.status).toBe(202);
+    expect(await entered.json()).toMatchObject({
+      accepted: true,
+      outcome: 'enter',
+      click_id: 'c1',
+      sublocation_id: 'subloc:common_room',
+      name: 'The Common Room',
+    });
+
+    const classify = await post(0.5, 'c2');
+    expect(classify.status).toBe(202);
+    expect(await classify.json()).toMatchObject({
+      accepted: true,
+      outcome: 'classify',
+      click_id: 'c2',
+      job_key: 'map_click:w1:c2',
+    });
+
+    const fog = await post(0.95, 'c3');
+    expect(fog.status).toBe(409);
   });
 
   it('malformed command body -> 400 and nothing appended (B-http)', async () => {

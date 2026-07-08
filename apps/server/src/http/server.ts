@@ -19,6 +19,8 @@ import {
   ExploreCommandSchema,
   InterruptTurnAcceptedSchema,
   InterruptTurnCommandSchema,
+  MapClickAcceptedSchema,
+  MapClickCommandSchema,
   MapEditAcceptedSchema,
   MapEditCommandSchema,
   OpenSceneAcceptedSchema,
@@ -40,6 +42,8 @@ import {
   type ExploreCommand,
   type InterruptTurnAccepted,
   type InterruptTurnCommand,
+  type MapClickAccepted,
+  type MapClickCommand,
   type MapEditAccepted,
   type MapEditCommand,
   type OpenSceneAccepted,
@@ -92,6 +96,15 @@ export interface HttpDeps {
   mapEdit: (
     command: MapEditCommand,
   ) => Result<{ jobKey: string; editId: string }>;
+  /** Flow-B seam (Rev 4 §14, M5 part 2): radius check answers `enter`
+   * directly (zero model calls); outside all radii one map_click job —
+   * idempotent per request_id; 409 on unknown world / unexplored fog. */
+  mapClick: (
+    command: MapClickCommand,
+  ) => Result<
+    | { outcome: 'enter'; clickId: string; sublocationId: string; name: string }
+    | { outcome: 'classify'; clickId: string; jobKey: string }
+  >;
   /** Updater seam (FINAL item 12): enqueue the update_apply job — 409 when
    * updates are disabled (no verification key / Docker notify-only mode). */
   applyUpdate: (command: ApplyUpdateCommand) => Result<{ jobKey: string }>;
@@ -466,6 +479,48 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         job_key: result.value.jobKey,
         edit_id: result.value.editId,
       };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/map-click',
+    {
+      schema: {
+        body: MapClickCommandSchema,
+        response: {
+          202: MapClickAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.mapClick(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'map-click rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: MapClickAccepted =
+        result.value.outcome === 'enter'
+          ? {
+              accepted: true,
+              outcome: 'enter',
+              click_id: result.value.clickId,
+              sublocation_id: result.value.sublocationId,
+              name: result.value.name,
+            }
+          : {
+              accepted: true,
+              outcome: 'classify',
+              click_id: result.value.clickId,
+              job_key: result.value.jobKey,
+            };
       return accepted;
     },
   );
