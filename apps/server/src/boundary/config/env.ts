@@ -47,6 +47,9 @@ const envSchema = z.object({
     .string()
     .min(1)
     .default('google/gemini-3.1-flash-image'),
+  /** OpenRouter multimodal model for the VLM seam (map QA now, Flow B in M5
+   * part 2). Cold-path classification — flash-class is plenty (§16 #3). */
+  WELTARI_VLM_MODEL: z.string().min(1).default('google/gemini-3.5-flash'),
   /** Drop-in plugin folders live here (FINAL item 13, Guide B10). */
   WELTARI_PLUGINS_DIR: z.string().min(1).default('plugins'),
   /** The built frontend (FINAL item 2). Unset = resolved next to the compiled
@@ -97,6 +100,7 @@ export interface Env {
   imagesDir: string;
   imageBackend: 'stub' | 'openrouter';
   imageModel: string;
+  vlmModel: string;
   pluginsDir: string;
   webDir: string | undefined;
   gaugeIntervalMs: number;
@@ -151,6 +155,7 @@ export function readEnv(
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
       imageBackend: parsed.data.WELTARI_IMAGE_BACKEND,
       imageModel: parsed.data.WELTARI_IMAGE_MODEL,
+      vlmModel: parsed.data.WELTARI_VLM_MODEL,
       pluginsDir: parsed.data.WELTARI_PLUGINS_DIR,
       webDir: parsed.data.WELTARI_WEB_DIR,
       gaugeIntervalMs: parsed.data.WELTARI_GAUGE_INTERVAL_MS,
