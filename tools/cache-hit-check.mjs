@@ -147,6 +147,25 @@ async function attachSse() {
 await listeningPromise;
 await attachSse();
 
+// M4 part 2: fresh worlds boot scene-less — open the measured scene first.
+{
+  const opened = await fetch(`${BASE}/v1/commands/open-scene`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's1',
+      title: 'Cache-hit check scene',
+      participants: ['char:elias'],
+    }),
+  });
+  if (opened.status !== 202) {
+    console.error(`open-scene returned ${opened.status}`);
+    process.exit(1);
+  }
+}
+
 const turns = [];
 for (let turn = 1; turn <= TURNS; turn++) {
   const callsBefore = llmCalls.length;

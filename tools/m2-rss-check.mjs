@@ -86,6 +86,16 @@ while (!listening) {
   await sleep(100);
 }
 
+// M4 part 2: fresh worlds boot scene-less (the splash is the entry surface) —
+// open the measured scene like any client would.
+await post('/v1/commands/open-scene', {
+  world_id: 'w1',
+  actor_id: 'user:owner',
+  scene_id: 's1',
+  title: 'RSS criteria scene',
+  participants: ['char:elias'],
+});
+
 // One committed turn gives the scene a participant (and exercises the 50K prefix).
 await post('/v1/commands/start-turn', {
   world_id: 'w1',
