@@ -24,6 +24,7 @@ import {
 import { parseLlmJson } from '../../llm/structured.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Logger } from '../../observability/logger.js';
+import { enqueueSquarePaint } from '../../painter/commands.js';
 import type { Storage } from '../../storage/db.js';
 import { validateAt } from '../../boundary/validate.js';
 import type { JobHandler } from '../runner.js';
@@ -62,6 +63,10 @@ export function createMaterializeHandler(
     }
     const { square } = payload.data;
     if (sublocationAt(storage, job.world_id, square) !== undefined) {
+      // Re-enqueue the paint too (deduped by key): a kill between the event
+      // append and the paint enqueue lands here on the lease retry — the
+      // square must never stay materialized-but-unpainted (I4).
+      enqueueSquarePaint(storage, job.world_id, square);
       logger.debug(
         { job_id: job.id, square },
         'square already occupied — idempotent no-op',
@@ -133,5 +138,9 @@ export function createMaterializeHandler(
         map_position: squareCenter(square),
       },
     });
+    // Materialization = the map-presence job (Rev 4 §14): the square paints
+    // eagerly. Not atomic with the event — a kill in between converges via
+    // the occupied path above, which re-enqueues under the same key.
+    enqueueSquarePaint(storage, job.world_id, square);
   };
 }
