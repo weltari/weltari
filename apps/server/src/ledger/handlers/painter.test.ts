@@ -9,7 +9,7 @@ import { Bus } from '../../http/bus.js';
 import { createRootLogger } from '../../observability/logger.js';
 import { openStorage, type Storage } from '../../storage/db.js';
 import type { LedgerJob } from '../../storage/repositories/ledger.js';
-import { createPainterHandler } from './painter.js';
+import { createPainterHandler, tilePromptFor } from './painter.js';
 
 function quietLogger(): ReturnType<typeof createRootLogger> {
   const sink = new Writable({
@@ -116,5 +116,65 @@ describe('painter job handler', () => {
       kind: 'corrupt_state',
     });
     expect(ctx.storage.eventLog.readSince(0)).toHaveLength(0);
+  });
+
+  it('tilePromptFor: a materialized square´s prompt carries its stub + adjacent neighbors', () => {
+    const ctx = setup();
+    // The Common Room anchors at (0.42, 0.55) → square (3,4) → region x=192,y=256.
+    const prompt = tilePromptFor(ctx.storage, 'w1', 'map:w1', {
+      x: 192,
+      y: 256,
+      width: 64,
+      height: 64,
+    });
+    expect(prompt).toContain('The Common Room');
+    expect(prompt).toContain('hearth');
+    expect(prompt).toContain('The Flooded Cellar'); // (3,5) is adjacent
+    expect(prompt).not.toContain('The Old Shrine'); // (4,2) is two rows away
+    expect(prompt).toContain('no labels');
+  });
+
+  it('tilePromptFor: unaligned regions and empty squares get the frontier prompt', () => {
+    const ctx = setup();
+    // 96 is not a multiple of the 64 px fog square — not a square paint.
+    const unaligned = tilePromptFor(ctx.storage, 'w1', 'map:w1', {
+      x: 96,
+      y: 96,
+      width: 64,
+      height: 64,
+    });
+    expect(unaligned).toContain('Uncharted wilderness');
+    // Aligned but nothing materialized there.
+    const empty = tilePromptFor(ctx.storage, 'w1', 'map:w1', {
+      x: 0,
+      y: 0,
+      width: 64,
+      height: 64,
+    });
+    expect(empty).toContain('Uncharted wilderness');
+  });
+
+  it('tilePromptFor: a freshly materialized square is promptable immediately', () => {
+    const ctx = setup();
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'sublocation.materialized',
+      payload: {
+        sublocation_id: 'subloc:sq-0-0',
+        name: 'The Mill Pond',
+        description: 'A still pond turning a moss-covered wheel.',
+        square: { col: 0, row: 0 },
+        map_position: { x: 0.0625, y: 0.0625 },
+      },
+    });
+    const prompt = tilePromptFor(ctx.storage, 'w1', 'map:w1', {
+      x: 0,
+      y: 0,
+      width: 64,
+      height: 64,
+    });
+    expect(prompt).toContain('The Mill Pond');
+    expect(prompt).toContain('moss-covered wheel');
   });
 });

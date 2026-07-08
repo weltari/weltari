@@ -1,13 +1,14 @@
-// The painter pipeline — the ONLY sharp site (A11 fence). M2 proves the
-// crash-safety mechanics with a stub image source; real generation backends
-// are a later milestone (FINAL item 10).
+// The painter pipeline — the ONLY sharp site (A11 fence). M2 proved the
+// crash-safety mechanics; M5 part 1 makes the pixels real behind the
+// ImageSource seam (image-source.ts) — the mechanics here never change.
 //
 // Kill-safety shape (composite-on-success): every output is a NEW file written
 // as temp-file + atomic rename; the painter.completed EVENT — not the file —
 // is the truth about which image is current (Brief §2.1). A kill before the
 // rename leaves only a temp file; a kill between rename and event append
-// leaves an orphan file the idempotent retry regenerates byte-identically
-// (same base + same job key => same pixels => same hash).
+// leaves an orphan file the idempotent retry regenerates (byte-identically on
+// the stub source; a real backend regenerates different-but-valid pixels and
+// the retry's event names the retry's file — the event is the truth).
 import { createHash } from 'node:crypto';
 import {
   existsSync,
@@ -20,9 +21,9 @@ import {
 import { dirname, join } from 'node:path';
 import type { ImageRegion } from '@weltari/protocol';
 import sharp from 'sharp';
+import { createStubImageSource, type ImageSource } from './image-source.js';
 
 export const BASE_IMAGE_SIZE = 512;
-const STUB_TILE_SIZE = 256; // "the model returns arbitrary sizes" — resize proves the step
 const FEATHER_PX = 8;
 
 export interface PaintSpec {
@@ -33,6 +34,11 @@ export interface PaintSpec {
   imagesDir: string;
   /** Absolute path of the image to composite onto. */
   basePath: string;
+  /** Where the tile pixels come from. ABSENT = the deterministic stub —
+   * tests, the kill harness and CI stay free and offline by default. */
+  source?: ImageSource;
+  /** World flavor for a real backend (sublocation stub + neighbors). */
+  prompt?: string;
 }
 
 export interface PaintResult {
@@ -97,25 +103,6 @@ export async function ensureBaseImage(
   return absolutePath;
 }
 
-/** Stub generation backend: a solid tile whose color derives from the job key
- * (deterministic) at a size the region does NOT match (forces the resize). */
-async function stubGenerateTile(jobKey: string): Promise<Buffer> {
-  const digest = createHash('sha256').update(jobKey).digest();
-  const r = digest[0] ?? 0;
-  const g = digest[1] ?? 0;
-  const b = digest[2] ?? 0;
-  return sharp({
-    create: {
-      width: STUB_TILE_SIZE,
-      height: STUB_TILE_SIZE,
-      channels: 3,
-      background: { r, g, b },
-    },
-  })
-    .png()
-    .toBuffer();
-}
-
 /** White-center mask whose blurred border feathers the composite edge. */
 async function featherMask(width: number, height: number): Promise<Buffer> {
   return sharp({
@@ -141,12 +128,13 @@ async function featherMask(width: number, height: number): Promise<Buffer> {
 }
 
 /**
- * crop → (stub) generate → feather → resize → composite → temp+rename.
- * The crop is extracted exactly as the real mask-capable backend would
- * receive it (Brief §3) — the stub only proves the mechanics.
+ * crop → generate (ImageSource) → feather → resize → composite → temp+rename.
+ * The crop is extracted exactly as a mask-capable backend would receive it
+ * (Brief §3) — V1 backends paint from the prompt alone.
  */
 export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
   const { region, jobKey } = spec;
+  const source = spec.source ?? createStubImageSource();
 
   // The crop the generation backend would receive; the stub ignores its pixels
   // but extracting it pins the region-read path (out-of-bounds throws here).
@@ -159,7 +147,11 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
     })
     .toBuffer();
 
-  const tile = await stubGenerateTile(jobKey);
+  const tile = await source.generateTile({
+    jobKey,
+    region,
+    prompt: spec.prompt ?? '',
+  });
   const mask = await featherMask(region.width, region.height);
   const feathered = await sharp(tile)
     .resize(region.width, region.height, { fit: 'fill' })

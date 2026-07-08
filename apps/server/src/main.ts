@@ -46,7 +46,9 @@ import { createRunner } from './ledger/runner.js';
 import { createScheduler } from './ledger/scheduler.js';
 import { createPaintRegionCommand } from './painter/commands.js';
 import { createImageResolver } from './painter/images.js';
+import { createStubImageSource } from './painter/image-source.js';
 import { createFakeLlmClient } from './llm/fake-client.js';
+import { createOpenRouterImageSource } from './llm/image-source.js';
 import { createModelRegistry } from './llm/model-registry.js';
 import { createOpenRouterClient } from './llm/openrouter-client.js';
 import { catchAndLog } from './observability/catch-and-log.js';
@@ -141,6 +143,30 @@ const llm =
         registry,
         logger,
       });
+
+// The painter's tile source (M5 part 1). Stub is the hard default; the real
+// backend is a deliberate double opt-in (env flag AND key) — a fresh install
+// can never spend money by accident.
+if (env.imageBackend === 'openrouter' && env.openrouterApiKey === undefined) {
+  logger.warn(
+    {},
+    'WELTARI_IMAGE_BACKEND=openrouter but no OPENROUTER_API_KEY — painting with the stub source',
+  );
+}
+const imageSource =
+  env.imageBackend === 'openrouter' && env.openrouterApiKey !== undefined
+    ? createOpenRouterImageSource({
+        apiKey: env.openrouterApiKey,
+        model: env.imageModel,
+        logger,
+      })
+    : createStubImageSource();
+if (imageSource.name !== 'stub') {
+  logger.info(
+    { image_backend: imageSource.name, image_model: env.imageModel },
+    'real image backend selected',
+  );
+}
 
 const faultPoint: FaultPointHook | undefined = env.emitFaultPoints
   ? async (point): Promise<void> => {
@@ -342,6 +368,7 @@ const runner = createRunner({
       storage,
       sink,
       imagesDir: env.imagesDir,
+      imageSource,
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),

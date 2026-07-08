@@ -41,4 +41,19 @@ describe('readEnv (B-env boundary)', () => {
     const withKey = readEnv({ OPENROUTER_API_KEY: 'x' });
     expect(withKey.ok).toBe(true);
   });
+
+  it('image backend defaults to the free stub; openrouter is opt-in; junk is rejected', () => {
+    const defaulted = readEnv({});
+    expect(defaulted.ok).toBe(true);
+    if (defaulted.ok) {
+      expect(defaulted.env.imageBackend).toBe('stub');
+      expect(defaulted.env.imageModel).toBe('google/gemini-3.1-flash-image');
+    }
+    const real = readEnv({ WELTARI_IMAGE_BACKEND: 'openrouter' });
+    expect(real.ok).toBe(true);
+    if (real.ok) expect(real.env.imageBackend).toBe('openrouter');
+    const junk = readEnv({ WELTARI_IMAGE_BACKEND: 'dall-e' });
+    expect(junk.ok).toBe(false);
+    if (!junk.ok) expect(junk.badKeys).toContain('WELTARI_IMAGE_BACKEND');
+  });
 });
