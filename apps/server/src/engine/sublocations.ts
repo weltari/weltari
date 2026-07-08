@@ -34,7 +34,9 @@ export function sublocationIdForSquare(square: MapSquare): string {
 
 /**
  * Every sublocation the engine accepts for this world, in event order after
- * the fixture trio. Scans the log like every other projection — the log is
+ * the fixture trio: materialized fog reveals AND Flow-A created ones (M5
+ * part 2 — those carry a footprint and may share a square with the reveal
+ * sublocation). Scans the log like every other projection — the log is
  * the source of truth and stays small in V1.
  */
 export function knownSublocations(
@@ -45,25 +47,40 @@ export function knownSublocations(
     FIXTURE_SUBLOCATIONS.map((s) => [s.sublocation_id, s]),
   );
   for (const event of storage.eventLog.readSince(0, 100000)) {
-    if (event.type !== 'sublocation.materialized') continue;
     if (event.world_id !== worldId) continue;
-    byId.set(event.payload.sublocation_id, {
-      sublocation_id: event.payload.sublocation_id,
-      name: event.payload.name,
-      description: event.payload.description,
-      map_position: event.payload.map_position,
-    });
+    if (event.type === 'sublocation.materialized') {
+      byId.set(event.payload.sublocation_id, {
+        sublocation_id: event.payload.sublocation_id,
+        name: event.payload.name,
+        description: event.payload.description,
+        map_position: event.payload.map_position,
+      });
+    } else if (event.type === 'sublocation.created') {
+      byId.set(event.payload.sublocation_id, {
+        sublocation_id: event.payload.sublocation_id,
+        name: event.payload.name,
+        description: event.payload.description,
+        map_position: event.payload.map_position,
+        footprint: event.payload.footprint,
+      });
+    }
   }
   return [...byId.values()];
 }
 
-/** The sublocation occupying a fog square, if any (fixture or materialized). */
+/**
+ * The sublocation occupying a fog square, if any. Square-grain occupancy is
+ * a fog concept: only fixture/materialized sublocations count — Flow-A
+ * created ones (footprint carriers) are sub-square features and never block
+ * an Explore or claim a square.
+ */
 export function sublocationAt(
   storage: Storage,
   worldId: string,
   square: MapSquare,
 ): SublocationDefinition | undefined {
   return knownSublocations(storage, worldId).find((s) => {
+    if (s.footprint !== undefined) return false;
     const at = squareOf(s.map_position);
     return at.col === square.col && at.row === square.row;
   });

@@ -85,6 +85,7 @@ export function createRunner(options: RunnerOptions): Runner {
                 job_type: job.type,
                 attempts: job.attempts,
                 error: toJobError(error),
+                job_key: job.idempotency_key,
               },
             });
           });
@@ -116,6 +117,7 @@ export function createRunner(options: RunnerOptions): Runner {
           job_type: job.type,
           attempts: job.attempts,
           error: toJobError(error),
+          job_key: job.idempotency_key,
         },
       });
     });

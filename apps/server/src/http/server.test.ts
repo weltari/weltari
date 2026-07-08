@@ -183,6 +183,14 @@ describe('HTTP layer (SSE + commands)', () => {
           : ok({
               jobKey: `materialize:${command.world_id}:${String(command.square.col)}:${String(command.square.row)}`,
             }),
+      // request_id 'on-fog' exercises the 409 path (unexplored centroid).
+      mapEdit: (command) =>
+        command.request_id === 'on-fog'
+          ? err(new OperationalError('unexplored_ground', 'fog'))
+          : ok({
+              jobKey: `map_edit:${command.world_id}:${command.request_id}`,
+              editId: command.request_id,
+            }),
       // 'disabled' exercises the 409 path (no verification key configured).
       applyUpdate: (command) =>
         command.version === 'disabled'
@@ -521,6 +529,59 @@ describe('HTTP layer (SSE + commands)', () => {
       }),
     });
     expect(offGrid.status).toBe(400); // schema gate: outside the fog grid
+  });
+
+  it('map-edit -> 202 echoing job key + edit id; fog centroid -> 409; bad polygon -> 400', async () => {
+    const ctx = await setup();
+    const triangle = [
+      { x: 0.2, y: 0.2 },
+      { x: 0.3, y: 0.2 },
+      { x: 0.25, y: 0.3 },
+    ];
+    const accepted = await fetchRetry(`${ctx.baseUrl}/v1/commands/map-edit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        points: triangle,
+        intent: 'a mill pond',
+        request_id: 'e1',
+      }),
+    });
+    expect(accepted.status).toBe(202);
+    const body: unknown = await accepted.json();
+    expect(body).toMatchObject({
+      accepted: true,
+      job_key: 'map_edit:w1:e1',
+      edit_id: 'e1',
+    });
+
+    const refused = await fetchRetry(`${ctx.baseUrl}/v1/commands/map-edit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        points: triangle,
+        intent: 'a mill pond',
+        request_id: 'on-fog',
+      }),
+    });
+    expect(refused.status).toBe(409);
+
+    const twoPoints = await fetchRetry(`${ctx.baseUrl}/v1/commands/map-edit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        points: triangle.slice(0, 2),
+        intent: 'a mill pond',
+        request_id: 'e2',
+      }),
+    });
+    expect(twoPoints.status).toBe(400); // schema gate: not a polygon
   });
 
   it('malformed command body -> 400 and nothing appended (B-http)', async () => {

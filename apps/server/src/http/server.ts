@@ -19,6 +19,8 @@ import {
   ExploreCommandSchema,
   InterruptTurnAcceptedSchema,
   InterruptTurnCommandSchema,
+  MapEditAcceptedSchema,
+  MapEditCommandSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
@@ -38,6 +40,8 @@ import {
   type ExploreCommand,
   type InterruptTurnAccepted,
   type InterruptTurnCommand,
+  type MapEditAccepted,
+  type MapEditCommand,
   type OpenSceneAccepted,
   type OpenSceneCommand,
   type PaintRegionAccepted,
@@ -82,6 +86,12 @@ export interface HttpDeps {
   /** Explore seam (UI Spec §1.8): enqueue one materialize job per fog square —
    * idempotent; 409 when the square is occupied or the world unknown. */
   explore: (command: ExploreCommand) => Result<{ jobKey: string }>;
+  /** Flow-A seam (Rev 4 §14, M5 part 2): durable map_edit.requested + one
+   * map_edit job — idempotent per request_id; 409 when the world is unknown
+   * or the drawn centroid lies on unexplored fog. */
+  mapEdit: (
+    command: MapEditCommand,
+  ) => Result<{ jobKey: string; editId: string }>;
   /** Updater seam (FINAL item 12): enqueue the update_apply job — 409 when
    * updates are disabled (no verification key / Docker notify-only mode). */
   applyUpdate: (command: ApplyUpdateCommand) => Result<{ jobKey: string }>;
@@ -423,6 +433,38 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
       const accepted: ExploreAccepted = {
         accepted: true,
         job_key: result.value.jobKey,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/map-edit',
+    {
+      schema: {
+        body: MapEditCommandSchema,
+        response: {
+          202: MapEditAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.mapEdit(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'map-edit rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: MapEditAccepted = {
+        accepted: true,
+        job_key: result.value.jobKey,
+        edit_id: result.value.editId,
       };
       return accepted;
     },

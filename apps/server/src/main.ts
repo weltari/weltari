@@ -23,6 +23,7 @@ import {
   FIXTURE_WORLD_ID,
 } from './engine/fixture/rainy-inn.js';
 import { createExploreCommand } from './engine/explore.js';
+import { createMapEditCommand } from './engine/map-edit.js';
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { squareOf } from './engine/sublocations.js';
 import { createTurnEngine } from './engine/scene-turn.js';
@@ -32,6 +33,7 @@ import { createTelegramConnector } from './gateway/telegram/connector.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
 import { createHttpServer } from './http/server.js';
 import { createStaticResolver } from './http/static.js';
+import { createMapEditHandler } from './ledger/handlers/map-edit.js';
 import { createMaterializeHandler } from './ledger/handlers/materialize.js';
 import { createPainterHandler } from './ledger/handlers/painter.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
@@ -378,6 +380,14 @@ const runner = createRunner({
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
+    map_edit: createMapEditHandler({
+      storage,
+      sink,
+      llm,
+      narrator,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
     painter: createPainterHandler({
       storage,
       sink,
@@ -523,6 +533,15 @@ const app = createHttpServer({
     storage,
     // Start the materialize job now — the map's spinner window should track
     // generation latency, not the runner's 1 s poll.
+    kick: (): void => {
+      catchAndLog(drainLedger(), logger, 'ledger.drain');
+    },
+  }),
+  mapEdit: createMapEditCommand({
+    storage,
+    sink,
+    // Same immediacy: the drawn region's lock window tracks generation
+    // latency, not the runner's poll.
     kick: (): void => {
       catchAndLog(drainLedger(), logger, 'ledger.drain');
     },

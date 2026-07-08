@@ -10,7 +10,9 @@ export type CallKind =
   | 'narration'
   | 'reflection'
   | 'world_agent'
-  | 'materialize';
+  | 'materialize'
+  /** M5 part 2: the Flow-A GM form (drawn region + intent → name/description). */
+  | 'map_edit';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */
