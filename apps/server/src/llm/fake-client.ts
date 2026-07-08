@@ -4,6 +4,7 @@
 import { ok, type Result } from '../errors.js';
 import type { RawToolCall } from './tools.js';
 import type { LlmCall, LlmCallResult, LlmClient } from './types.js';
+import type { VlmCallResult, VlmClient } from './vlm.js';
 
 const SCRIPT: Record<string, string> = {
   narrator:
@@ -26,6 +27,11 @@ const SCRIPT: Record<string, string> = {
   // LlmClient seam in the handler tests.
   map_edit:
     '{"name":"The Drawn Garden","description":"A walled herb garden the innkeeper swears was always there; bees argue over the lavender."}',
+  // The Flow-B story invention (M5 part 2) — persistent so the fake demo
+  // exercises the row + pin + jump path; transient is driven by stub clients
+  // at the seam in the handler tests.
+  jump_in:
+    '{"name":"The Heron Shallows","description":"A gravel shallows where herons stalk the reeds; the water hides more than fish.","persistence":"persistent"}',
 };
 
 /**
@@ -76,6 +82,25 @@ export interface FakeLlmOptions {
    * prefill latency so the §1.14 masking animations can be exercised
    * against a 5–10 s generation window (WELTARI_FAKE_LLM_DELAY_MS). */
   firstTokenDelayMs?: number;
+}
+
+/** Deterministic VLM double (M5 part 2): a fixed, schema-valid Flow-B
+ * classification — the kill harness and the fake browser demo classify
+ * clicks at $0.00. The image is ignored on purpose (no vision, no clock). */
+export function createFakeVlmClient(): VlmClient {
+  return {
+    async describe(): Promise<Result<VlmCallResult>> {
+      await Promise.resolve();
+      const text =
+        '{"terrain_type":"river meadow","is_enterable":true,"suggested_setting":"Knee-high grass sloping to slow water; a heron watches the shallows.","style_tags":["riverside","pastoral"]}';
+      return ok({
+        text,
+        usage: { inputTokens: 64, outputTokens: 32, cachedInputTokens: 0 },
+        model: 'fake/vlm',
+        durationMs: 0,
+      });
+    },
+  };
 }
 
 export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {

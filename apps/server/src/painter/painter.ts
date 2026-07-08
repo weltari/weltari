@@ -178,6 +178,26 @@ async function featherMask(width: number, height: number): Promise<Buffer> {
 }
 
 /**
+ * Read-only PNG crop of a region (Flow B: the VLM's view of the clicked
+ * surroundings). Lives here because sharp is fenced to painter/ (A11);
+ * no compositing, no writes.
+ */
+export async function cropRegionPng(
+  basePath: string,
+  region: ImageRegion,
+): Promise<Buffer> {
+  return sharp(basePath)
+    .extract({
+      left: region.x,
+      top: region.y,
+      width: region.width,
+      height: region.height,
+    })
+    .png()
+    .toBuffer();
+}
+
+/**
  * crop → generate (ImageSource) → feather → resize → composite → temp+rename.
  * The crop is extracted exactly as a mask-capable backend would receive it
  * (Brief §3) — V1 backends paint from the prompt alone.
