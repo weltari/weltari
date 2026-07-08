@@ -332,11 +332,37 @@ function applyOne(
         };
       });
       return;
+    case 'sublocation.created':
+      // Flow-A sublocations are enterable like materialized ones (Hang
+      // around, open-scene AT) — same known-sublocations projection.
+      set((state) => {
+        if (
+          state.knownSublocations.some(
+            (s) => s.sublocation_id === event.payload.sublocation_id,
+          )
+        ) {
+          return {};
+        }
+        return {
+          knownSublocations: [
+            ...state.knownSublocations,
+            {
+              sublocation_id: event.payload.sublocation_id,
+              name: event.payload.name,
+              description: event.payload.description,
+              map_position: event.payload.map_position,
+            },
+          ],
+        };
+      });
+      return;
     // No projection (yet): these surfaces arrive in later milestones
-    // (map refresh, feed, job status UI).
+    // (map refresh, feed, job status UI). map_edit.requested is the map
+    // plugin's lock overlay — it reads the stream directly.
     case 'reflection.committed':
     case 'world_agent.committed':
     case 'painter.completed':
+    case 'map_edit.requested':
       return;
   }
 }

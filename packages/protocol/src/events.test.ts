@@ -192,6 +192,92 @@ describe('WeltariEventSchema', () => {
     expect(WeltariEventSchema.safeParse(shortHash).success).toBe(false);
   });
 
+  it('accepts a valid map_edit.requested and rejects a two-point polygon', () => {
+    const base = {
+      id: 20,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-08T12:00:00.000Z',
+      type: 'map_edit.requested',
+    };
+    const triangle = [
+      { x: 0.2, y: 0.2 },
+      { x: 0.3, y: 0.2 },
+      { x: 0.25, y: 0.3 },
+    ];
+    const valid: unknown = {
+      ...base,
+      payload: { edit_id: 'e1', points: triangle, intent: 'a mill pond here' },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const line: unknown = {
+      ...base,
+      payload: {
+        edit_id: 'e1',
+        points: triangle.slice(0, 2),
+        intent: 'a mill pond here',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(line).success).toBe(false);
+  });
+
+  it('accepts a valid sublocation.created and rejects a smuggled key (B5)', () => {
+    const base = {
+      id: 21,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-08T12:00:00.000Z',
+      type: 'sublocation.created',
+    };
+    const payload = {
+      sublocation_id: 'subloc:edit-e1',
+      name: 'The Mill Pond',
+      description: 'A quiet pond.',
+      map_position: { x: 0.25, y: 0.23 },
+      footprint: [
+        { x: 0.2, y: 0.2 },
+        { x: 0.3, y: 0.2 },
+        { x: 0.25, y: 0.3 },
+      ],
+      edit_id: 'e1',
+    };
+    expect(
+      WeltariEventSchema.safeParse({ ...base, payload }).success,
+    ).toBe(true);
+    expect(
+      WeltariEventSchema.safeParse({
+        ...base,
+        payload: { ...payload, backdrop_path: 'sneaky.webp' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts job.parked with and without the 0.9.0 job_key', () => {
+    const base = {
+      id: 22,
+      world_id: 'w1',
+      actor_id: 'system:ledger',
+      ts: '2026-07-08T12:00:00.000Z',
+      type: 'job.parked',
+    };
+    const payload = {
+      job_id: 7,
+      job_type: 'map_edit',
+      attempts: 5,
+      error: { kind: 'operational', code: 'llm_down', message: '503' },
+    };
+    // Pre-0.9.0 rows lack job_key — both must stay readable.
+    expect(
+      WeltariEventSchema.safeParse({ ...base, payload }).success,
+    ).toBe(true);
+    expect(
+      WeltariEventSchema.safeParse({
+        ...base,
+        payload: { ...payload, job_key: 'map_edit:w1:e1' },
+      }).success,
+    ).toBe(true);
+  });
+
   it('accepts a valid turn.committed event', () => {
     const r = WeltariEventSchema.safeParse(validCommitted);
     expect(r.success).toBe(true);

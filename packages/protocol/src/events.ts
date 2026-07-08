@@ -250,6 +250,56 @@ export const SublocationMaterializedEventSchema = z.strictObject({
   }),
 });
 
+/**
+ * A Flow-A map edit was accepted (Rev 4 §14 Flow A): durable intent for the
+ * lasso/pencil edit before any LLM or painter work happens. Clients render
+ * the locked-region overlay from this until the edit's painter.completed
+ * (job_key `painter:map:<world>:edit-<edit_id>`) or a job.parked carrying the
+ * edit's job_key arrives. Emitted by: the map-edit command seam. Consumed by:
+ * map renderers (lock overlay).
+ */
+export const MapEditRequestedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('map_edit.requested'),
+  payload: z.strictObject({
+    /** The command's request_id — every artifact of this edit derives its
+     * key from it (job keys, sublocation id), so retries converge. */
+    edit_id: z.string().min(1).max(100),
+    /** The drawn region: a closed polygon in world coordinates. The shape is
+     * the user's own pencil/lasso — no segmentation model (Rev 4 §14). */
+    points: z.array(MapPositionSchema).min(3).max(128),
+    /** The user's spoken intent, length-capped before it nears a prompt (B7). */
+    intent: z.string().min(1).max(500),
+  }),
+});
+
+/**
+ * A user-drawn sublocation entered the world (Rev 4 §14 Flow A step 6): the
+ * GM form passed both B6 gates and code placed the row — pin at the mask
+ * centroid, footprint = the drawn polygon. Distinct from
+ * sublocation.materialized (square-grain fog reveals): Flow-A sublocations
+ * are sub-square features and may share a fog square with its reveal
+ * sublocation. Emitted by: the map_edit job handler. Consumed by: map
+ * renderers (pin), the known-sublocations projection (enterable ids),
+ * Flow-B footprint hit tests.
+ */
+export const SublocationCreatedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('sublocation.created'),
+  payload: z.strictObject({
+    sublocation_id: z.string().min(1),
+    name: z.string().min(1).max(120),
+    /** The GM-form description (B6-gated before it lands here). */
+    description: z.string().min(1).max(2000),
+    /** World-coordinate anchor for the pin: the drawn mask's centroid. */
+    map_position: MapPositionSchema,
+    /** The drawn polygon, world coordinates — the Flow-B footprint. */
+    footprint: z.array(MapPositionSchema).min(3).max(128),
+    /** The originating edit (map_edit.requested payload's edit_id). */
+    edit_id: z.string().min(1).max(100),
+  }),
+});
+
 export const SublocationChangedEventSchema = z.strictObject({
   ...eventEnvelope,
   type: z.literal('sublocation.changed'),
@@ -395,6 +445,10 @@ export const JobFailedEventSchema = z.strictObject({
     job_type: z.string().min(1),
     attempts: z.int().positive(),
     error: JobErrorSchema,
+    /** The ledger idempotency key — lets clients tie the failure back to the
+     * command that enqueued it (e.g. release a map-edit region lock).
+     * Optional: rows appended before 0.2.0 lack it. */
+    job_key: z.string().min(1).optional(),
   }),
 });
 
@@ -410,6 +464,9 @@ export const JobParkedEventSchema = z.strictObject({
     job_type: z.string().min(1),
     attempts: z.int().positive(),
     error: JobErrorSchema,
+    /** The ledger idempotency key (see job.failed). Optional: rows appended
+     * before 0.2.0 lack it. */
+    job_key: z.string().min(1).optional(),
   }),
 });
 
@@ -422,6 +479,8 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   TurnCommittedEventSchema,
   SublocationChangedEventSchema,
   SublocationMaterializedEventSchema,
+  SublocationCreatedEventSchema,
+  MapEditRequestedEventSchema,
   ArtSwitchedEventSchema,
   ReflectionCommittedEventSchema,
   WorldAgentCommittedEventSchema,

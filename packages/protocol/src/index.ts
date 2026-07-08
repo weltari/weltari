@@ -19,8 +19,11 @@
  * materialized); explore command (one LLM-class materialize job per square);
  * open-scene optional sublocation_id (open a scene AT a known sublocation);
  * hello optional app_version.
+ * 0.9.0: map-edit command + map_edit.requested + sublocation.created events
+ * (Rev 4 §14 Flow A: lasso/pencil edits); optional job_key on
+ * job.failed/job.parked (clients tie failures back to their command).
  */
-export const PROTOCOL_VERSION = '0.8.0';
+export const PROTOCOL_VERSION = '0.9.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -34,12 +37,14 @@ export {
   JobErrorSchema,
   JobFailedEventSchema,
   JobParkedEventSchema,
+  MapEditRequestedEventSchema,
   PainterCompletedEventSchema,
   PluginRejectedEventSchema,
   ReflectionCommittedEventSchema,
   SceneEndedEventSchema,
   SceneStartedEventSchema,
   SublocationChangedEventSchema,
+  SublocationCreatedEventSchema,
   SublocationMaterializedEventSchema,
   TurnCommittedEventSchema,
   TurnStartedEventSchema,
@@ -91,6 +96,8 @@ export {
   ExploreCommandSchema,
   InterruptTurnAcceptedSchema,
   InterruptTurnCommandSchema,
+  MapEditAcceptedSchema,
+  MapEditCommandSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
@@ -108,6 +115,8 @@ export {
   type ExploreCommand,
   type InterruptTurnAccepted,
   type InterruptTurnCommand,
+  type MapEditAccepted,
+  type MapEditCommand,
   type OpenSceneAccepted,
   type OpenSceneCommand,
   type PaintRegionAccepted,

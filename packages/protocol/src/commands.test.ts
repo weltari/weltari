@@ -7,6 +7,7 @@ import {
   ExploreAcceptedSchema,
   ExploreCommandSchema,
   InterruptTurnCommandSchema,
+  MapEditCommandSchema,
   PaintRegionCommandSchema,
   OpenSceneCommandSchema,
   StartTurnAcceptedSchema,
@@ -173,6 +174,45 @@ describe('paint-region command', () => {
       region: { x: 0, y: 0, width: 5000, height: 64 },
     };
     expect(PaintRegionCommandSchema.safeParse(oversized).success).toBe(false);
+  });
+});
+
+describe('map-edit command', () => {
+  it('accepts a valid lasso edit and rejects short polygons and long intents', () => {
+    const base = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      request_id: 'e1',
+    };
+    const triangle = [
+      { x: 0.2, y: 0.2 },
+      { x: 0.3, y: 0.2 },
+      { x: 0.25, y: 0.3 },
+    ];
+    const valid: unknown = {
+      ...base,
+      points: triangle,
+      intent: 'a mill pond with a heron',
+    };
+    expect(MapEditCommandSchema.safeParse(valid).success).toBe(true);
+    const line: unknown = {
+      ...base,
+      points: triangle.slice(0, 2),
+      intent: 'a mill pond',
+    };
+    expect(MapEditCommandSchema.safeParse(line).success).toBe(false);
+    const longIntent: unknown = {
+      ...base,
+      points: triangle,
+      intent: 'x'.repeat(501),
+    };
+    expect(MapEditCommandSchema.safeParse(longIntent).success).toBe(false);
+    const offMap: unknown = {
+      ...base,
+      points: [{ x: 1.2, y: 0.2 }, ...triangle.slice(1)],
+      intent: 'a mill pond',
+    };
+    expect(MapEditCommandSchema.safeParse(offMap).success).toBe(false);
   });
 });
 
