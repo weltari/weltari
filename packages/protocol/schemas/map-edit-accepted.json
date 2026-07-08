@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "accepted": {
+      "type": "boolean",
+      "const": true
+    },
+    "job_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "edit_id": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "accepted",
+    "job_key",
+    "edit_id"
+  ],
+  "additionalProperties": false
+}

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MapSquareSchema } from './events.js';
+import { MapPositionSchema, MapSquareSchema } from './events.js';
 
 // POST command bodies — trust boundary B-http. Validated by
 // fastify-type-provider-zod at the route (Guide B9); strictObject because the
@@ -130,6 +130,38 @@ export const ExploreAcceptedSchema = z.strictObject({
   job_key: z.string().min(1),
 });
 export type ExploreAccepted = z.infer<typeof ExploreAcceptedSchema>;
+
+/**
+ * POST /v1/commands/map-edit — Flow A (Rev 4 §14): the user drew a region
+ * (pencil/lasso) on explored ground and spoke an intent. The command appends
+ * the durable map_edit.requested intent and enqueues ONE `map_edit` ledger
+ * job: GM form (B6 double gate) → sublocation.created at the mask centroid →
+ * painter edit job for the drawn region (composite-back of the masked
+ * interior only). Idempotent per request_id. 409 when the world is unknown or
+ * the drawn centroid lies on unexplored fog.
+ */
+export const MapEditCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  /** The drawn region: a closed polygon in world coordinates ([0,1]²). */
+  points: z.array(MapPositionSchema).min(3).max(128),
+  /** What the user wants there — free text, capped (B7). */
+  intent: z.string().min(1).max(500),
+  /** Client-chosen idempotency token; becomes the edit_id. */
+  request_id: z.string().min(1).max(100),
+});
+export type MapEditCommand = z.infer<typeof MapEditCommandSchema>;
+
+/** 202 response: the map_edit job is on the ledger; the lock overlay, the
+ * sublocation pin and the repaint all arrive as events. */
+export const MapEditAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  /** The ledger idempotency key (`map_edit:<world>:<edit_id>`). */
+  job_key: z.string().min(1),
+  /** The edit id (echoes request_id) — ties every later event to this edit. */
+  edit_id: z.string().min(1),
+});
+export type MapEditAccepted = z.infer<typeof MapEditAcceptedSchema>;
 
 /**
  * POST /v1/commands/advance-time — move the fictional world clock forward
