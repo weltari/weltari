@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -160,12 +160,24 @@ describe('painter pipeline (crop -> feather composite -> resize, kill-safe files
         source: failing,
       }),
     ).rejects.toThrow('provider 503');
-    // The base is untouched and no composite appeared for this job key.
+    // The base is untouched and no composite appeared at all.
     expect(sha256File(basePath)).toBe(baseHash);
-    const expectedName = createHash('sha256')
-      .update('painter:map:w1:fail')
-      .digest('hex')
-      .slice(0, 12);
-    expect(existsSync(join(dir, 'map-w1', `${expectedName}.png`))).toBe(false);
+    expect(readdirSync(join(dir, 'map-w1'))).toEqual(['base.png']);
+  });
+
+  it('output files are content-addressed: the path always matches the bytes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-painter-'));
+    const basePath = await ensureBaseImage(dir, 'map:w1');
+    const result = await compositeRegion({
+      imageId: 'map:w1',
+      region: REGION,
+      jobKey: 'painter:map:w1:addr',
+      imagesDir: dir,
+      basePath,
+    });
+    // The filename IS the bytes' hash prefix — a racing duplicate execution
+    // with different pixels can never overwrite this file (week-7 fix).
+    expect(result.path).toBe(`map-w1/${result.sha256.slice(0, 12)}.png`);
+    expect(sha256File(join(dir, result.path))).toBe(result.sha256);
   });
 });

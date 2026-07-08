@@ -161,6 +161,28 @@ export function createPainterHandler(
 
     // The nastiest kill window: the composited file exists, the event does not.
     await faultPoint('mid_painter');
+    // Last-instant idempotency re-check, with NO await between it and the
+    // append (week-7 fix): a slow real generation can outlive its lease, the
+    // sweep reclaims the "dead" job, and a second execution runs while this
+    // one still awaits the provider. Executions interleave only at await
+    // points in this single-process runtime, so check+append back-to-back is
+    // race-free — the loser lands here, sees the winner's event, and no-ops
+    // (its content-addressed file is an unreferenced orphan, not a lie).
+    const committedMeanwhile = storage.eventLog
+      .readSince(0, 100000)
+      .some(
+        (event) =>
+          event.type === 'painter.completed' &&
+          event.payload.image_id === image_id &&
+          event.payload.job_key === job.idempotency_key,
+      );
+    if (committedMeanwhile) {
+      logger.warn(
+        { job_id: job.id, image_id, job_key: job.idempotency_key },
+        'painter job overlapped its own lease-expiry retry — one duplicate generation, zero duplicate events',
+      );
+      return;
+    }
     sink.append({
       world_id: job.world_id,
       actor_id: 'system:painter',

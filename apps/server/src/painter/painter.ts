@@ -170,13 +170,20 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
     .png()
     .toBuffer();
 
+  // Content-addressed output (week-7 fix): the filename is the BYTES' hash,
+  // never the job key. Two executions of one job racing on a lease-expiry
+  // reclaim (real generations are slow) then write DIFFERENT files — the
+  // event that commits always names a file matching its sha256; the loser's
+  // file is an unreferenced orphan, never a corruption. The deterministic
+  // stub still reruns byte-identically: same bytes => same name => no-op.
+  const digest = sha256Of(composited);
   const relativePath = join(
     safeName(spec.imageId),
-    `${sha256Of(Buffer.from(jobKey)).slice(0, 12)}.png`,
+    `${digest.slice(0, 12)}.png`,
   );
   writeAtomically(join(spec.imagesDir, relativePath), composited);
   return {
     path: relativePath.replaceAll('\\', '/'),
-    sha256: sha256Of(composited),
+    sha256: digest,
   };
 }
