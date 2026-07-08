@@ -6,7 +6,11 @@
 // rendered by the Scene page, which a jump always navigates to first.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapJumpDetailSchema, type PluginInfo } from '@weltari/protocol';
-import { postOpenScene, postStartTurn } from './commands.js';
+import {
+  postOpenScene,
+  postStartTurn,
+  type OpenSceneOptions,
+} from './commands.js';
 import { DevOverlay } from './components/DevOverlay.js';
 import { MapModal } from './components/MapModal.js';
 import { NavRail } from './components/NavRail.js';
@@ -61,7 +65,11 @@ export function App(): React.JSX.Element {
   }, []);
 
   const openSceneCovered = useCallback(
-    (title: string, reason: CoverState['reason']): void => {
+    (
+      title: string,
+      reason: CoverState['reason'],
+      options?: OpenSceneOptions,
+    ): void => {
       if (coverActiveRef.current) return;
       coverActiveRef.current = true;
       setCover({ reason, label: title, leaving: false });
@@ -74,7 +82,7 @@ export function App(): React.JSX.Element {
           dismissCover();
         }, 30000),
       ];
-      postOpenScene(title)
+      postOpenScene(title, options)
         .then(async (sceneId) => {
           if (sceneId === null) return null;
           // The scene opens with narration (VN behavior): the generation this
@@ -117,7 +125,10 @@ export function App(): React.JSX.Element {
       if (!detail.success) return;
       setMapOpen(false);
       navigate('/');
-      openSceneCovered(detail.data.name, 'map-jump');
+      // 0.8.0: the jump opens the scene AT the pin's sublocation.
+      openSceneCovered(detail.data.name, 'map-jump', {
+        sublocationId: detail.data.sublocation_id,
+      });
     }
     window.addEventListener('wl-map-jump', onJump);
     return (): void => {
@@ -156,12 +167,15 @@ export function App(): React.JSX.Element {
           <ScenePage
             pacing={pacing}
             cover={cover}
-            onOpenScene={(title) => {
-              openSceneCovered(title, 'scene-open');
+            onOpenScene={(title, options) => {
+              openSceneCovered(title, 'scene-open', options);
             }}
             mapReady={mapReady}
             onOpenMap={() => {
               setMapOpen(true);
+            }}
+            onOpenMapPage={() => {
+              navigate('/map');
             }}
           />
         )}

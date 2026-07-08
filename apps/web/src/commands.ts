@@ -13,6 +13,7 @@ import {
 
 /** Fixture identity until multi-actor auth exists (actor_id everywhere, §1.3). */
 export const WORLD_ID = 'w1';
+export const WORLD_NAME = 'The Rainy Inn';
 export const ACTOR_ID = 'user:owner';
 
 async function post(path: string, body: unknown): Promise<unknown> {
@@ -119,16 +120,29 @@ export async function postEndScene(
   return parsed.success ? { jobsEnqueued: parsed.data.jobs_enqueued } : null;
 }
 
+export interface OpenSceneOptions {
+  /** Character ids for the new scene's roster; defaults to the fixture cast. */
+  participants?: string[];
+  /** Open the scene AT this known sublocation (0.8.0 — Hang around, pin jumps). */
+  sublocationId?: string;
+}
+
 /** Returns the client-generated scene id on 202 (the §1.14 cover flow
  * starts the opening-narration turn against it), null on refusal. */
-export async function postOpenScene(title: string): Promise<string | null> {
+export async function postOpenScene(
+  title: string,
+  options: OpenSceneOptions = {},
+): Promise<string | null> {
   const sceneId = `s-${crypto.randomUUID().slice(0, 8)}`;
   const raw = await post('/v1/commands/open-scene', {
     world_id: WORLD_ID,
     actor_id: ACTOR_ID,
     scene_id: sceneId,
     title,
-    participants: ['char:elias'],
+    participants: options.participants ?? ['char:elias'],
+    ...(options.sublocationId === undefined
+      ? {}
+      : { sublocation_id: options.sublocationId }),
   });
   return OpenSceneAcceptedSchema.safeParse(raw).success ? sceneId : null;
 }
