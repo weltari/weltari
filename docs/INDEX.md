@@ -26,4 +26,5 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [week3-results.md](week3-results.md) — Milestone 3 part-1 results (drop-in proof, lint-verified map, interrupt durability, idle RSS).
 - [week4-results.md](week4-results.md) — Milestone 3 part-2 results (mid-update kill safety, packaged boots, §1.14 masking, packaged RSS, real-provider tool spot check).
 - [week5-results.md](week5-results.md) — Milestone 4 part-1 results (shell + rail, display modes, Map/Gameday/Config routes, roster event, all criteria PASS).
+- [week6-results.md](week6-results.md) — Milestone 4 part-2 results (splash + History, fog/Explore/materialization, wl-map 0.3.0, mid_materialize kill safety, all criteria PASS).
 - [dependencies.md](dependencies.md) — the dependency ledger (one `##` heading per package; CI keys on headings).
