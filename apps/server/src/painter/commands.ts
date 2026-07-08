@@ -1,7 +1,11 @@
 // paint-region command seam: durable intent before work (Brief §2.4) — the
 // command only writes the ledger row; every pixel is the job handler's
-// business. Region lease = serial_group per (image, region): two jobs for the
-// same region can never run concurrently (FINAL item 10).
+// business. Image lease = serial_group per IMAGE: painter jobs CHAIN — each
+// composites onto the latest completed composite for its image — so two
+// paints for one image must never run concurrently, same region or not.
+// (M2 shipped per-region granularity; week-7's first real-backend run proved
+// that loses tiles: three ~10 s generations claimed together, all read the
+// same base, last writer won. Invisible on the ~5 ms stub.)
 import {
   MAP_FOG_GRID,
   type ImageRegion,
@@ -11,15 +15,6 @@ import {
 import { ok, type Result } from '../errors.js';
 import type { Storage } from '../storage/db.js';
 import { BASE_IMAGE_SIZE } from './painter.js';
-
-export function regionKey(region: {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}): string {
-  return `${String(region.x)}-${String(region.y)}-${String(region.width)}-${String(region.height)}`;
-}
 
 export function createPaintRegionCommand(
   storage: Storage,
@@ -31,7 +26,7 @@ export function createPaintRegionCommand(
       world_id: command.world_id,
       type: 'painter',
       payload: { image_id: command.image_id, region: command.region },
-      serial_group: `painter:${command.image_id}:${regionKey(command.region)}`,
+      serial_group: `painter:${command.image_id}`,
     });
     // A duplicate request_id is a silent no-op (I3) — still a 202: the job exists.
     return ok({ jobKey });
@@ -68,6 +63,6 @@ export function enqueueSquarePaint(
     world_id: worldId,
     type: 'painter',
     payload: { image_id: imageId, region },
-    serial_group: `painter:${imageId}:${regionKey(region)}`,
+    serial_group: `painter:${imageId}`,
   });
 }
