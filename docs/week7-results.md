@@ -132,9 +132,43 @@ real-backend server after the browser session: **151.2 MB**. Spend $2.82/$5.
 | Kill test #1 (FAILED — lease-race duplicates): ~15 tiles | ~$1.05 | $2.12 |
 | Run 4 (prompt v3, accepted): 5 tiles + 2 DeepSeek | ~$0.36 | $2.48 |
 | Kill test #2 (PASS): 4 tiles | ~$0.28 | $2.76 |
-| VLM QA ×2 + browser real reveal (3+1 tiles + DeepSeek) | ~$0.06 | **$2.82** |
+| VLM QA ×2 + browser real reveal (3+1 tiles + DeepSeek) | ~$0.06 | $2.82 |
+| Coherence fix: 2 runs (10 tiles) + VLM QA | ~$0.70 | **$3.52** |
 
 (Exact totals from `GET /v1/credits` deltas; per-line split estimated.)
+
+## Addendum: cross-tile coherence (owner-reported, fixed same week)
+
+The owner reviewed the v3 map and rejected what the criteria run had noted
+only as a "limitation": mixed viewing angles, per-tile styles, houses cut off
+at seams, roads that stop dead. Fix (all under the existing seams, zero new
+deps, prompt+context only — composite-back untouched):
+
+1. **Context-window edit mode**: the compositor crops the region plus one
+   region-size margin of CURRENT pixels and the OpenRouter source sends it as
+   an `input_references` image — "continue this exact painting into the
+   checkerboard fog". Coverage `'window'` results are cut back to the target
+   rect. Windows are 3×3 region-units (2×3/3×2 at map edges; aspect ratio
+   follows).
+2. **Style bible v4**: one shared block pins camera (orthographic), palette,
+   light direction (NW, shadows SE), building scale (largest ≤ ¼ tile, 1–3
+   max — readable at 64 px without dominating) and edge discipline (buildings
+   stay clearly inside the tile; only roads/rivers/fields/forests may run off
+   the edges, so they CAN continue).
+3. **Fog fallback**: an all-grey window (checkerboard = fog has no chroma)
+   means there is nothing to continue — edit mode anchored on nothing drifts
+   (seen live: the seeding tile came out as a zoomed-in courtyard and every
+   subsequent tile faithfully continued the drift,
+   `map-coherence-drift.png`). Such tiles paint plain with the style bible.
+
+Verified on a real run (`map-coherence-final.png`, `seam-junction-4x.png`):
+the river flows from "The Ferryman's Hut" through the Common Room tile into
+"The Ferry Landing" as ONE painting; the isolated shrine tile matches via the
+style bible alone; VLM QA confirms the hut+dock visible (high confidence).
+Remaining nit: strongly building-flavored stubs (the flooded cellar) still
+paint slightly over the ¼-tile size cap — soft-seam acceptable, watch in
+week 8. Mode selection is observable in the debug log (`edit_mode`) and in
+input tokens (~240 plain vs ~640 with window).
 
 ## Notes for week 8
 
