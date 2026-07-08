@@ -42,7 +42,7 @@ for (let i = 1; i < ids.length; i++) {
 
 // 3. Every payload is valid JSON with a scene/turn shape the engine could have written
 const events = db
-  .prepare('SELECT id, type, payload FROM events ORDER BY id')
+  .prepare('SELECT id, world_id, type, payload FROM events ORDER BY id')
   .all();
 for (const event of events) {
   try {
@@ -131,6 +131,27 @@ for (const event of events) {
   }
   if (event.type === 'update.staged') {
     dupCheck('update.staged', payload.version, event.id);
+  }
+  if (event.type === 'sublocation.materialized') {
+    dupCheck(
+      'sublocation.materialized',
+      `${event.world_id}:${payload.square.col}:${payload.square.row}`,
+      event.id,
+    );
+  }
+  if (event.type === 'sublocation.created') {
+    dupCheck(
+      'sublocation.created',
+      `${event.world_id}:${payload.edit_id}`,
+      event.id,
+    );
+  }
+  if (event.type === 'map_click.resolved') {
+    dupCheck(
+      'map_click.resolved',
+      `${event.world_id}:${payload.click_id}`,
+      event.id,
+    );
   }
 }
 

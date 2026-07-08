@@ -34,6 +34,8 @@ const POINTS = [
   'client_disconnect',
   'mid_update',
   'mid_materialize',
+  'mid_map_edit',
+  'mid_map_click',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -160,6 +162,32 @@ function dbCountMaterialized(square) {
        WHERE type = 'sublocation.materialized' AND payload LIKE ?`,
     )
     .get(`%"square":{"col":${square.col},"row":${square.row}}%`);
+  db.close();
+  return row.n;
+}
+
+/** Exactly-once check for a Flow-A edit (the retry must converge, never twin). */
+function dbCountCreated(editId) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'sublocation.created' AND payload LIKE ?`,
+    )
+    .get(`%"edit_id":"${editId}"%`);
+  db.close();
+  return row.n;
+}
+
+/** Exactly-once check for a Flow-B click resolution. */
+function dbCountResolved(clickId) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'map_click.resolved' AND payload LIKE ?`,
+    )
+    .get(`%"click_id":"${clickId}"%`);
   db.close();
   return row.n;
 }
@@ -435,6 +463,27 @@ function nextFreeSquare() {
   }
 }
 let pendingSquare = null;
+// Flow-A edits: a fresh triangle over the common-room square each cycle —
+// the edit_id keys everything, so identical geometry is fine.
+let editSeq = 0;
+let pendingEdit = null;
+// Flow-B classify clicks must land OUTSIDE all radii: corner points of the
+// fixture squares, far enough from every anchor AND from each other that
+// earlier cycles' persistent spawns (radius = half a square) never swallow a
+// later point.
+const CLICK_POINTS = [
+  { x: 0.495, y: 0.505 }, // corners of the common-room square (3,4)…
+  { x: 0.38, y: 0.62 },
+  { x: 0.495, y: 0.62 },
+  { x: 0.505, y: 0.255 }, // …the shrine square (4,2)…
+  { x: 0.62, y: 0.255 },
+  { x: 0.505, y: 0.37 },
+  { x: 0.495, y: 0.745 }, // …and the cellar square (3,5): each ≥ the enter
+  // radius from every fixture anchor, the harness-edit centroid (~0.42,0.55),
+  // every possible materialized square center, and each other.
+];
+let clickSeq = 0;
+let pendingClick = null;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -502,6 +551,58 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       `mid_materialize convergence ok: square ${JSON.stringify(pendingSquare)} materialized exactly once after restart`,
     );
     pendingSquare = null;
+  }
+
+  // M5 part 2: a kill at mid_map_edit must CONVERGE — the leased job retries
+  // and the sublocation is created EXACTLY once (no twins, no lost edit).
+  if (pendingEdit !== null) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const count = dbCountCreated(pendingEdit);
+      if (count === 1) break;
+      if (count > 1) {
+        child.kill('SIGKILL');
+        fail(
+          `duplicate edit: ${count} sublocation.created rows for ${pendingEdit}`,
+        );
+      }
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(`lost edit: ${pendingEdit} never created after mid_map_edit kill`);
+      }
+      await sleep(500);
+    }
+    console.log(
+      `mid_map_edit convergence ok: ${pendingEdit} created exactly once after restart`,
+    );
+    pendingEdit = null;
+  }
+
+  // M5 part 2: a kill at mid_map_click must CONVERGE — the click resolves
+  // EXACTLY once (no duplicate spawns, no lost resolution).
+  if (pendingClick !== null) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const count = dbCountResolved(pendingClick);
+      if (count === 1) break;
+      if (count > 1) {
+        child.kill('SIGKILL');
+        fail(
+          `duplicate resolution: ${count} map_click.resolved rows for ${pendingClick}`,
+        );
+      }
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          `lost click: ${pendingClick} never resolved after mid_map_click kill`,
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      `mid_map_click convergence ok: ${pendingClick} resolved exactly once after restart`,
+    );
+    pendingClick = null;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -590,6 +691,48 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       if (res.status !== 202) fail(`explore returned ${res.status}`);
       await killAt;
       pendingSquare = square;
+      break;
+    }
+    case 'mid_map_edit': {
+      editSeq += 1;
+      const editId = `harness-edit-${editSeq}`;
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_map_edit', 25000);
+      const res = await post('/v1/commands/map-edit', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        points: [
+          { x: 0.4, y: 0.53 },
+          { x: 0.45, y: 0.53 },
+          { x: 0.42, y: 0.58 },
+        ],
+        intent: 'a small stone well between the buildings',
+        request_id: editId,
+      });
+      if (res.status !== 202) fail(`map-edit returned ${res.status}`);
+      await killAt;
+      pendingEdit = editId;
+      break;
+    }
+    case 'mid_map_click': {
+      const point = CLICK_POINTS[clickSeq % CLICK_POINTS.length];
+      clickSeq += 1;
+      const clickId = `harness-click-${clickSeq}`;
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_map_click', 25000);
+      const res = await post('/v1/commands/map-click', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        point,
+        request_id: clickId,
+      });
+      if (res.status !== 202) fail(`map-click returned ${res.status}`);
+      const body = await res.json();
+      if (body.outcome !== 'classify') {
+        fail(
+          `map-click at ${JSON.stringify(point)} answered ${body.outcome} — expected classify (point inside a radius?)`,
+        );
+      }
+      await killAt;
+      pendingClick = clickId;
       break;
     }
     case 'mid_update': {
