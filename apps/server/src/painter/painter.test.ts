@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
+import type { ImageSource, TileRequest } from './image-source.js';
 import {
   BASE_IMAGE_SIZE,
   compositeRegion,
@@ -97,5 +98,74 @@ describe('painter pipeline (crop -> feather composite -> resize, kill-safe files
   it('safeName strips path-hostile characters', () => {
     expect(safeName('map:w1')).toBe('map-w1');
     expect(safeName('../evil')).toBe('---evil');
+  });
+
+  it('paints the injected source´s pixels and hands it the prompt (the seam)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-painter-'));
+    const basePath = await ensureBaseImage(dir, 'map:w1');
+    const requests: TileRequest[] = [];
+    const redSource: ImageSource = {
+      name: 'test-red',
+      async generateTile(request): Promise<Buffer> {
+        requests.push(request);
+        // Odd size on purpose: the compositor's resize must handle it.
+        return sharp({
+          create: {
+            width: 100,
+            height: 100,
+            channels: 3,
+            background: { r: 255, g: 0, b: 0 },
+          },
+        })
+          .png()
+          .toBuffer();
+      },
+    };
+    const result = await compositeRegion({
+      imageId: 'map:w1',
+      region: REGION,
+      jobKey: 'painter:map:w1:red',
+      imagesDir: dir,
+      basePath,
+      source: redSource,
+      prompt: 'a crimson field',
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.prompt).toBe('a crimson field');
+    expect(requests[0]?.jobKey).toBe('painter:map:w1:red');
+    const raw = await sharp(join(dir, result.path)).raw().toBuffer();
+    const offset = ((REGION.y + 32) * BASE_IMAGE_SIZE + REGION.x + 32) * 3;
+    expect(raw[offset]).toBe(255); // the source's red landed in the region
+    expect(raw[offset + 1]).toBe(0);
+  });
+
+  it('a failing source aborts before any file becomes visible (composite-on-success)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-painter-'));
+    const basePath = await ensureBaseImage(dir, 'map:w1');
+    const baseHash = sha256File(basePath);
+    const failing: ImageSource = {
+      name: 'test-fail',
+      async generateTile(): Promise<Buffer> {
+        await Promise.resolve();
+        throw new Error('provider 503');
+      },
+    };
+    await expect(
+      compositeRegion({
+        imageId: 'map:w1',
+        region: REGION,
+        jobKey: 'painter:map:w1:fail',
+        imagesDir: dir,
+        basePath,
+        source: failing,
+      }),
+    ).rejects.toThrow('provider 503');
+    // The base is untouched and no composite appeared for this job key.
+    expect(sha256File(basePath)).toBe(baseHash);
+    const expectedName = createHash('sha256')
+      .update('painter:map:w1:fail')
+      .digest('hex')
+      .slice(0, 12);
+    expect(existsSync(join(dir, 'map-w1', `${expectedName}.png`))).toBe(false);
   });
 });

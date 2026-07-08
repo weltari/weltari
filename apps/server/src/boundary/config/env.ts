@@ -38,6 +38,15 @@ const envSchema = z.object({
   WELTARI_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
   /** Image pixels live as files here; rows/events hold path + hash (Brief §1). */
   WELTARI_IMAGES_DIR: z.string().min(1).default('data/images'),
+  /** Painter tile source. 'stub' (default) = deterministic, free, offline —
+   * tests/harness/CI never touch a provider. 'openrouter' = real generation
+   * (needs OPENROUTER_API_KEY; silently stays on stub without one). */
+  WELTARI_IMAGE_BACKEND: z.enum(['stub', 'openrouter']).default('stub'),
+  /** OpenRouter image model for the real painter backend. */
+  WELTARI_IMAGE_MODEL: z
+    .string()
+    .min(1)
+    .default('google/gemini-3.1-flash-image'),
   /** Drop-in plugin folders live here (FINAL item 13, Guide B10). */
   WELTARI_PLUGINS_DIR: z.string().min(1).default('plugins'),
   /** The built frontend (FINAL item 2). Unset = resolved next to the compiled
@@ -86,6 +95,8 @@ export interface Env {
   faultPauseMs: number;
   leaseSeconds: number;
   imagesDir: string;
+  imageBackend: 'stub' | 'openrouter';
+  imageModel: string;
   pluginsDir: string;
   webDir: string | undefined;
   gaugeIntervalMs: number;
@@ -138,6 +149,8 @@ export function readEnv(
       faultPauseMs: parsed.data.WELTARI_FAULT_PAUSE_MS,
       leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
+      imageBackend: parsed.data.WELTARI_IMAGE_BACKEND,
+      imageModel: parsed.data.WELTARI_IMAGE_MODEL,
       pluginsDir: parsed.data.WELTARI_PLUGINS_DIR,
       webDir: parsed.data.WELTARI_WEB_DIR,
       gaugeIntervalMs: parsed.data.WELTARI_GAUGE_INTERVAL_MS,
