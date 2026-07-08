@@ -241,9 +241,9 @@ describe('WeltariEventSchema', () => {
       ],
       edit_id: 'e1',
     };
-    expect(
-      WeltariEventSchema.safeParse({ ...base, payload }).success,
-    ).toBe(true);
+    expect(WeltariEventSchema.safeParse({ ...base, payload }).success).toBe(
+      true,
+    );
     expect(
       WeltariEventSchema.safeParse({
         ...base,
@@ -267,9 +267,9 @@ describe('WeltariEventSchema', () => {
       error: { kind: 'operational', code: 'llm_down', message: '503' },
     };
     // Pre-0.9.0 rows lack job_key — both must stay readable.
-    expect(
-      WeltariEventSchema.safeParse({ ...base, payload }).success,
-    ).toBe(true);
+    expect(WeltariEventSchema.safeParse({ ...base, payload }).success).toBe(
+      true,
+    );
     expect(
       WeltariEventSchema.safeParse({
         ...base,
