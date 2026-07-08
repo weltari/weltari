@@ -1,0 +1,11 @@
+# Gitleaks config (B15). The pre-commit hook runs `gitleaks dir .`, which
+# scans UNTRACKED files too. `.env` is the documented local secret store
+# (.env.example: "Copy to .env (gitignored)") — it can never be committed
+# (.gitignore) and CI's gitleaks-action scans history, so allowlisting the
+# file here removes only the false positive, not any real protection.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = ".env is the sanctioned gitignored local secret store"
+paths = ['''^\.env$''']
