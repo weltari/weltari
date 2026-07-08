@@ -1,12 +1,12 @@
 {
   "name": "wl-map",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "engine": "0.x",
   "capabilities": {
     "components": ["frontend/wl-map.mjs"]
   },
   "provenance": {
     "source_url": "https://github.com/weltari/weltari/tree/main/plugins/wl-map",
-    "sha256": "9a5ce008338b8ff87268b5f6b5ba5cc5c89ed1024650816b3402e730d56f7ee9"
+    "sha256": "07926217ce60ac355c1d8742eb2812f324cd83ba2483aea771f91e800d2e6733"
   }
 }

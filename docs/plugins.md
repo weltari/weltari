@@ -46,15 +46,25 @@ contract: `frontend/wl-map.mjs` defines `<wl-map>` with ZERO imports —
 lint-proven (`eslint.config.mjs` bans every import specifier under
 `plugins/wl-map/`, M3 criterion b). It consumes only documented surfaces:
 its own `EventSource('/v1/events')` for `painter.completed` (tile source,
-pixels via `GET /v1/images/<path>`) and `sublocation.changed` `map_position`
-pins (world coordinates — a repaint never moves a pin). Canvas 2D tile +
-grid-fog placeholder, DOM overlay pins; themed via the same `--wl-*` tokens.
+pixels via `GET /v1/images/<path>`), `sublocation.changed` `map_position`
+pins (world coordinates — a repaint never moves a pin) and — 0.3.0 (M4
+part 2) — `sublocation.materialized` fog reveals plus the public
+`POST /v1/commands/explore` command. Canvas 2D tile + REAL fog layer
+(8×8 = the documented MAP_FOG_GRID; explored = materialized; faint borders;
+hover overlay; "Unexplored Area" + Explore on click; spinning loader over
+the target square while the materialize job runs — Explore reveals and
+background reveals share the one event render path; job.parked for a
+materialize stops the spinner honestly), DOM overlay pins (fixture trio +
+every materialized square, all clickable jumps); themed via the same
+`--wl-*` tokens (`--wl-map-fog-*`, `--wl-map-pending-fill`,
+`--wl-map-spinner-duration` — inline fallbacks keep the plugin standalone).
 The core web app only hosts a modal slot (`MapModal`) that lights up when any
 plugin defines `<wl-map>` — a community plugin can replace the map wholesale.
 0.2.0 (M3 part 2): pins are clickable and dispatch a bubbling `wl-map-jump`
 CustomEvent whose detail matches `MapJumpDetailSchema` (@weltari/protocol) —
 the HOST validates it and answers with the §1.14 masked scene transition;
-the plugin never opens scenes itself. The web client cache-busts plugin
+the plugin never opens scenes itself (0.8.0: the host passes the detail's
+sublocation_id to open-scene, so jumps land AT the pin's sublocation). The web client cache-busts plugin
 asset URLs with the provenance hash (`?v=…`), so a plugin update is picked
 up on the next reload despite header-less asset serving.
 NOTE: any edit to plugin content requires re-running `computePluginContentHash`
