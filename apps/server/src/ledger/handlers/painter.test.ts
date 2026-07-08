@@ -33,7 +33,7 @@ function jobWith(payload: unknown, key = 'painter:map:w1:r1'): LedgerJob {
     run_at: '2026-07-06T12:00:00.000Z',
     lease_until: '2026-07-06T12:01:00.000Z',
     worker_id: 'w',
-    serial_group: 'painter:map:w1:96-96-64-64',
+    serial_group: 'painter:map:w1',
     last_error: null,
   };
 }

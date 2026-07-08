@@ -6,13 +6,13 @@ Purpose: kill-safe image compositing (FINAL item 10). M2 proved the crash-safety
 
 - Inputs: `painter` ledger jobs (`{image_id, region}` payload) enqueued by the paint-region command; base pixels on disk under `WELTARI_IMAGES_DIR`.
 - Outputs: a NEW composited PNG per job (never overwrites the previous image) + a `painter.completed` event carrying `path` + `sha256` + `job_key` — the event, not the file, is the truth about which image is current (Brief §2.1).
-- Region lease: `serial_group painter:<image_id>:<x>-<y>-<w>-<h>` — two jobs for one region never run concurrently.
+- Image lease: `serial_group painter:<image_id>` — two painter jobs for one image never run concurrently, same region or not. Painter jobs CHAIN (each composites onto the latest completed composite for the image), so per-region granularity is not enough: week-7's first real-backend run had three ~10 s generations claim together, all read the same base, and the last writer dropped the other tiles (invisible on the ~5 ms stub). Region-level parallelism would need a different chaining design — out of V1 scope.
 - Never: let a partial write become visible (temp-file + atomic rename, composite-on-success); duplicate a committed job (idempotency keys on the `painter.completed` EVENT — real backends are not byte-deterministic, so a killed real paint regenerates different-but-valid pixels on retry and the retry's event names the retry's file; the only retry cost is one duplicate API call, Rev 4 §14. The stub source remains byte-deterministic and the byte-identical-rerun tests run against it).
 
 ## Deviations recorded
 
 - `painter/` is a new `apps/server/src` module directory beyond the Guide §0.6 list — mandated by M2 (sharp needs a fence home). Recorded here and in `CLAUDE.md`.
-- Region leases are exact-region granularity in V1; overlapping-but-different regions do not serialize (fixture-scale accepted).
+- ~~Region leases are exact-region granularity in V1~~ — replaced in M5 part 1 by the per-IMAGE lease above: real (slow) generations proved different-region jobs racing on the shared composite chain lose tiles. Rev 4 §14's "the target region is locked while a painter job is in flight" is satisfied a fortiori.
 
 ## File table
 
