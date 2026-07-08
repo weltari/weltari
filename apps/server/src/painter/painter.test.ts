@@ -319,9 +319,11 @@ describe('painter pipeline (crop -> feather composite -> resize, kill-safe files
   it('polygon mask: composite-back touches ONLY the masked interior (Flow A)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'weltari-painter-'));
     const basePath = await ensureBaseImage(dir, 'map:w1');
+    const modes: (string | undefined)[] = [];
     const redSource: ImageSource = {
       name: 'test-red',
-      async generateTile(): Promise<GeneratedTile> {
+      async generateTile(request): Promise<GeneratedTile> {
+        modes.push(request.mode);
         const image = await sharp({
           create: {
             width: 64,
@@ -361,6 +363,9 @@ describe('painter pipeline (crop -> feather composite -> resize, kill-safe files
         buffer[offset + 2] ?? -1,
       ];
     };
+    // A masked paint reaches the source as mode 'modify' (a reveal paints
+    // 'continue') — the backend must know to CHANGE the target, week-8.
+    expect(modes).toEqual(['modify']);
     // Deep inside the triangle: the source's red landed (feather may blend
     // a little base in near edges, so assert dominance, not equality).
     const [ir, ig] = px(raw, 104, 128);

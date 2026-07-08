@@ -188,6 +188,7 @@ const imageSource =
     ? createOpenRouterImageSource({
         apiKey: env.openrouterApiKey,
         model: env.imageModel,
+        editModel: env.editImageModel,
         logger,
       })
     : createStubImageSource();
