@@ -20,6 +20,10 @@ export interface OpenRouterImageSourceOptions {
   apiKey: string;
   /** OpenRouter image model id (WELTARI_IMAGE_MODEL). */
   model: string;
+  /** Model for mode 'modify' paints (WELTARI_EDIT_IMAGE_MODEL) — week-8
+   * visual QA: flash-class never painted the drawn feature; pro-class does.
+   * Absent = `model` handles edits too. */
+  editModel?: string;
   logger: Logger;
   timeoutMs?: number;
 }
@@ -48,20 +52,36 @@ export function createOpenRouterImageSource(
       // seams. The checkerboard is the fog marker (Rev 4 §14 no-mask branch:
       // region-in-words; composite-back remains the sole guarantee).
       const editMode = request.context !== undefined;
+      // Two window framings (week-8 real-output lesson): a fog reveal must
+      // PRESERVE painted pixels and fill the checkerboard; a Flow-A modify
+      // must CHANGE the window's center — told only to preserve, the model
+      // faithfully changes nothing and the drawn edit never appears.
+      const continueText =
+        `${request.prompt}\n\nThe attached image is a crop of the current map canvas, ` +
+        'spanning roughly 300×300 meters seen from high above. Repaint the ENTIRE crop ' +
+        'at the same framing: keep every already-painted area as it is (same layout, ' +
+        'same colors, same style), and replace every gray checkerboard placeholder ' +
+        'area with newly painted terrain at exactly the same aerial viewpoint and the ' +
+        'same small feature scale as the already-painted areas — do NOT zoom in. ' +
+        'Continue roads, rivers, forests and field patterns seamlessly across the old ' +
+        'edges. Return the full repainted crop.';
+      const modifyText =
+        `${request.prompt}\n\nThe attached image is a crop of the current map canvas, ` +
+        'seen from high above. A RED OUTLINE marks the area to change. Repaint the ' +
+        'ENTIRE crop at the same framing and REPLACE the terrain inside the red outline ' +
+        'with the described feature: draw it BOLD and unmistakable — a viewer must ' +
+        'recognize it at a glance — filling the outlined area, its edges blending ' +
+        'naturally into the surroundings. The red outline is only a marker: the finished ' +
+        'crop must contain NO red line. Keep everything outside the outline as it is ' +
+        '(same layout, same colors, same style), keep the exact aerial viewpoint — do ' +
+        'NOT zoom in. Replace any gray checkerboard placeholder with matching terrain. ' +
+        'Return the full repainted crop.';
       const prompt =
         request.context === undefined
           ? request.prompt
           : {
               images: [request.context.window],
-              text:
-                `${request.prompt}\n\nThe attached image is a crop of the current map canvas, ` +
-                'spanning roughly 300×300 meters seen from high above. Repaint the ENTIRE crop ' +
-                'at the same framing: keep every already-painted area as it is (same layout, ' +
-                'same colors, same style), and replace every gray checkerboard placeholder ' +
-                'area with newly painted terrain at exactly the same aerial viewpoint and the ' +
-                'same small feature scale as the already-painted areas — do NOT zoom in. ' +
-                'Continue roads, rivers, forests and field patterns seamlessly across the old ' +
-                'edges. Return the full repainted crop.',
+              text: request.mode === 'modify' ? modifyText : continueText,
             };
       // Regions are square, but a clamped edge window can be 2:3 / 3:2 —
       // ask for the window's ratio so the compositor's fill-resize does not
@@ -70,9 +90,13 @@ export function createOpenRouterImageSource(
         request.context === undefined
           ? ('1:1' as const)
           : aspectRatioOf(request.context.width, request.context.height);
+      const modelId =
+        request.mode === 'modify'
+          ? (options.editModel ?? options.model)
+          : options.model;
       try {
         const result = await generateImage({
-          model: openrouter.imageModel(options.model),
+          model: openrouter.imageModel(modelId),
           prompt,
           aspectRatio,
           abortSignal: AbortSignal.timeout(timeoutMs),
@@ -80,9 +104,10 @@ export function createOpenRouterImageSource(
         // C12: token/size accounting only — never prompt content above trace.
         options.logger.debug(
           {
-            model: options.model,
+            model: modelId,
             job_key: request.jobKey,
             edit_mode: editMode,
+            mode: request.mode ?? 'continue',
             media_type: result.image.mediaType,
             bytes: result.image.uint8Array.byteLength,
             input_tokens: result.usage.inputTokens ?? 0,

@@ -47,6 +47,14 @@ const envSchema = z.object({
     .string()
     .min(1)
     .default('google/gemini-3.1-flash-image'),
+  /** OpenRouter image model for Flow-A EDITS (mode 'modify'). Week-8 visual
+   * QA: flash-class reproduces its reference and drawn features never appear;
+   * pro-class (~4× cost, but edits are rare and user-triggered) paints them
+   * legibly. Reveals stay on WELTARI_IMAGE_MODEL. */
+  WELTARI_EDIT_IMAGE_MODEL: z
+    .string()
+    .min(1)
+    .default('google/gemini-3-pro-image'),
   /** OpenRouter multimodal model for the VLM seam (map QA now, Flow B in M5
    * part 2). Cold-path classification — flash-class is plenty (§16 #3). */
   WELTARI_VLM_MODEL: z.string().min(1).default('google/gemini-3.5-flash'),
@@ -100,6 +108,7 @@ export interface Env {
   imagesDir: string;
   imageBackend: 'stub' | 'openrouter';
   imageModel: string;
+  editImageModel: string;
   vlmModel: string;
   pluginsDir: string;
   webDir: string | undefined;
@@ -155,6 +164,7 @@ export function readEnv(
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
       imageBackend: parsed.data.WELTARI_IMAGE_BACKEND,
       imageModel: parsed.data.WELTARI_IMAGE_MODEL,
+      editImageModel: parsed.data.WELTARI_EDIT_IMAGE_MODEL,
       vlmModel: parsed.data.WELTARI_VLM_MODEL,
       pluginsDir: parsed.data.WELTARI_PLUGINS_DIR,
       webDir: parsed.data.WELTARI_WEB_DIR,

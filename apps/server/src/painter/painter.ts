@@ -130,7 +130,22 @@ async function polygonMask(
   region: ImageRegion,
   points: readonly MaskPoint[],
 ): Promise<Buffer> {
+  // Shrink the compositing polygon a few px toward its centroid: the red
+  // guide outline sent to the editing model sits ON the drawn boundary, and
+  // models sometimes paint it back (seen live, week-8 edit 6) — the shrunk
+  // mask keeps that band's alpha near zero so a remnant can never reach the
+  // canvas. Invisible at map scale; the feather blends the seam anyway.
+  const SHRINK_PX = 3;
+  const cx = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+  const cy = points.reduce((sum, p) => sum + p.y, 0) / points.length;
   const vertices = points
+    .map((p) => {
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      const length = Math.hypot(dx, dy);
+      const pull = length <= SHRINK_PX ? 0 : (length - SHRINK_PX) / length;
+      return { x: cx + dx * pull, y: cy + dy * pull };
+    })
     .map((p) => `${(p.x - region.x).toFixed(2)},${(p.y - region.y).toFixed(2)}`)
     .join(' ');
   const svg =
@@ -217,17 +232,27 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
     })
     .toBuffer();
 
-  // The context window (week-7 coherence fix): the region plus one
-  // region-size margin of CURRENT pixels on each side, clamped to the
-  // canvas. An editing backend continues roads/rivers/style from these
-  // painted neighbors instead of painting blind; the stub ignores it.
+  // The context window (week-7 coherence fix): the region plus a margin of
+  // CURRENT pixels on each side, clamped to the canvas. An editing backend
+  // continues roads/rivers/style from these painted neighbors instead of
+  // painting blind; the stub ignores it. Reveals get a full region-size
+  // margin (coherence needs neighbors); Flow-A modifies get HALF — a small
+  // drawn feature must fill enough of the model's canvas to come back
+  // legible (week-8 real-output lesson: at 1/9 of the window the feature
+  // averaged away to nothing).
   const meta = await sharp(spec.basePath).metadata();
   const baseWidth = meta.width;
   const baseHeight = meta.height;
-  const wx = Math.max(0, region.x - region.width);
-  const wy = Math.max(0, region.y - region.height);
-  const windowWidth = Math.min(baseWidth, region.x + 2 * region.width) - wx;
-  const windowHeight = Math.min(baseHeight, region.y + 2 * region.height) - wy;
+  const marginX =
+    spec.mask === undefined ? region.width : Math.ceil(region.width / 2);
+  const marginY =
+    spec.mask === undefined ? region.height : Math.ceil(region.height / 2);
+  const wx = Math.max(0, region.x - marginX);
+  const wy = Math.max(0, region.y - marginY);
+  const windowWidth =
+    Math.min(baseWidth, region.x + region.width + marginX) - wx;
+  const windowHeight =
+    Math.min(baseHeight, region.y + region.height + marginY) - wy;
   const windowRaw = await sharp(spec.basePath)
     .extract({ left: wx, top: wy, width: windowWidth, height: windowHeight })
     .removeAlpha()
@@ -249,13 +274,33 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
       break;
     }
   }
+  // Flow-A modify windows carry the drawn mask AS PIXELS: a red outline on
+  // the copy sent to the model (never on the base). Week-8 real-output
+  // lesson: region-in-words alone made the editing model faithfully
+  // reproduce its reference — a visible marker localizes the change. The
+  // model is told to remove the line; composite-back + the polygon mask
+  // bound any remnant to the feathered boundary.
+  let windowPng = await sharp(windowRaw, {
+    raw: { width: windowWidth, height: windowHeight, channels: 3 },
+  })
+    .png()
+    .toBuffer();
+  if (spec.mask !== undefined && hasPaintedNeighbor) {
+    const vertices = spec.mask
+      .map((p) => `${(p.x - wx).toFixed(2)},${(p.y - wy).toFixed(2)}`)
+      .join(' ');
+    const outline =
+      `<svg width="${String(windowWidth)}" height="${String(windowHeight)}" ` +
+      'xmlns="http://www.w3.org/2000/svg">' +
+      `<polygon points="${vertices}" fill="none" stroke="#ff2020" stroke-width="2"/></svg>`;
+    windowPng = await sharp(windowPng)
+      .composite([{ input: Buffer.from(outline) }])
+      .png()
+      .toBuffer();
+  }
   const context: TileContext | undefined = hasPaintedNeighbor
     ? {
-        window: await sharp(windowRaw, {
-          raw: { width: windowWidth, height: windowHeight, channels: 3 },
-        })
-          .png()
-          .toBuffer(),
+        window: windowPng,
         target: {
           x: region.x - wx,
           y: region.y - wy,
@@ -272,6 +317,9 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
     region,
     prompt: spec.prompt ?? '',
     ...(context === undefined ? {} : { context }),
+    // A masked paint is a Flow-A edit: the backend must CHANGE the target,
+    // not preserve it (the composite-back still guards everything outside).
+    mode: spec.mask === undefined ? 'continue' : 'modify',
   });
 
   // Edit-mode backends repaint the WHOLE window; only the target rect enters

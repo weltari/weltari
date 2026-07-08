@@ -32,6 +32,14 @@ export interface TileRequest {
   region: ImageRegion;
   prompt: string;
   context?: TileContext;
+  /**
+   * What the paint MEANS (week-8 real-output lesson): `continue` = a fog
+   * reveal — preserve every painted pixel, fill the checkerboard (the week-7
+   * coherence framing); `modify` = a Flow-A edit — CHANGE the center of the
+   * window to realize the prompt (told to preserve, an editing model
+   * faithfully changes nothing). Composite-back guards either way.
+   */
+  mode?: 'continue' | 'modify';
 }
 
 export interface GeneratedTile {
