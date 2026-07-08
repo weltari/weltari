@@ -70,6 +70,22 @@ export function createWorldAgentHandler(
     });
     if (!result.ok) throw result.error; // operational -> runner retries (C7)
 
+    // Last-instant idempotency re-check, NO await between it and the append
+    // (the week-7 painter lease-expiry overlap class, docs/painter.md): the
+    // loser of an overlapped retry lands here, sees the winner's event, no-ops.
+    const committedMeanwhile = storage.eventLog
+      .readSince(0, 100000)
+      .some(
+        (e) =>
+          e.type === 'world_agent.committed' && e.payload.scene_id === scene_id,
+      );
+    if (committedMeanwhile) {
+      logger.warn(
+        { job_id: job.id, scene_id },
+        'world agent overlapped its own lease-expiry retry — one duplicate generation, zero duplicate events',
+      );
+      return;
+    }
     sink.append({
       world_id: job.world_id,
       actor_id: 'system:world_agent',

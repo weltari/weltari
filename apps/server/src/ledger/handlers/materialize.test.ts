@@ -201,6 +201,42 @@ describe('materialize job handler (B6 double gate)', () => {
     expect(paint?.idempotency_key).toBe('painter:map:w1:sq-3-4');
   });
 
+  it('overlapping executions of ONE job commit exactly one row (lease-expiry overlap, week-7 painter class)', async () => {
+    // A slow generation can outlive its lease: the sweep reclaims the job and
+    // a second execution runs while the first still awaits the provider. The
+    // gate-2 occupied check sits before an await (mid_materialize), so only
+    // the fused re-check keeps the loser from minting a twin sublocation.
+    const release: (() => void)[] = [];
+    const slow: LlmClient = {
+      streamCall: async (): Promise<Result<LlmCallResult>> => {
+        await new Promise<void>((r) => release.push(r));
+        return ok({
+          text: '{"name":"The Mill Pond","description":"A still pond."}',
+          usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+          model: 'fake/slow',
+          durationMs: 0,
+          toolCalls: [],
+        });
+      },
+    };
+    const ctx = setup(slow);
+    const job = jobWith({ square: { col: 5, row: 1 } });
+    const first = ctx.handler(job);
+    const second = ctx.handler({ ...job }); // the reclaimed re-execution
+    while (release.length < 2) await new Promise((r) => setTimeout(r, 5));
+    for (const r of release) r();
+    await Promise.all([first, second]);
+
+    const materialized = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'sublocation.materialized');
+    expect(materialized).toHaveLength(1); // the loser no-oped at the fused re-check
+    // …and the paint enqueue stays deduped to one job.
+    const paint = ctx.storage.ledger.claimNext('test-worker');
+    expect(paint?.idempotency_key).toBe('painter:map:w1:sq-5-1');
+    expect(ctx.storage.ledger.claimNext('test-worker')).toBeNull();
+  });
+
   it('LLM failure surfaces as operational — nothing durable (B6)', async () => {
     const failing: LlmClient = {
       streamCall: async () =>

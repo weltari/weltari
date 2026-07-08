@@ -66,6 +66,16 @@ export function createWorldCronCodeHandler(
       return;
     }
     await faultPoint('mid_cron');
+    // Last-instant idempotency re-check, NO await between it and the append
+    // (the week-7 painter lease-expiry overlap class, docs/painter.md) — the
+    // faultPoint above is an await point, so an overlapped retry can slip in.
+    if (alreadyCompleted(storage, job.world_id, cron_type, scheduled_for)) {
+      logger.warn(
+        { job_id: job.id, cron_type, scheduled_for },
+        'world cron occurrence overlapped its own lease-expiry retry — zero duplicate events',
+      );
+      return;
+    }
     sink.append({
       world_id: job.world_id,
       actor_id: 'system:world_cron',
@@ -124,6 +134,16 @@ export function createWorldCronLlmHandler(
     if (!result.ok) throw result.error; // operational -> runner retries (C7)
 
     await faultPoint('mid_cron');
+    // Last-instant idempotency re-check, NO await between it and the append
+    // (the week-7 painter lease-expiry overlap class, docs/painter.md): a slow
+    // generation can outlive its lease and overlap its own reclaimed retry.
+    if (alreadyCompleted(storage, job.world_id, cron_type, scheduled_for)) {
+      logger.warn(
+        { job_id: job.id, cron_type, scheduled_for },
+        'world cron occurrence overlapped its own lease-expiry retry — one duplicate generation, zero duplicate events',
+      );
+      return;
+    }
     sink.append({
       world_id: job.world_id,
       actor_id: 'system:world_cron',
