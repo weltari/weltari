@@ -75,6 +75,16 @@ dashed outline + centroid spinner (`data-wl-map-lock=<edit_id>`) from
 spinner: a refusal unlocks) until the edit's `painter.completed`
 (`job_key painter:map:<w>:edit-<id>`) or a `job.parked` carrying the
 edit's job_key; `sublocation.created` drops the pin at the mask centroid.
+0.5.0 (M5 part 2, Rev 4 §14 Flow B): clicks on explored ground run the
+documented radius rule locally (footprint containment, else nearest pin
+within half a fog square — the engine's `sublocationNear` mirror): a hit
+dispatches the normal `wl-map-jump` with zero server calls; a miss POSTs
+the public `/v1/commands/map-click` and shows a pulse ring
+(`data-wl-map-click=<click_id>`) until `map_click.resolved` — `created`
+drops the pin and auto-jumps (this client's clicks only), `transient`
+shows a dismissable discovery card (`data-wl-map-discovery`); a
+`job.parked` carrying the click's job_key clears the ring. A server
+`enter` answer (the authoritative radius) also jumps directly.
 The web client cache-busts plugin
 asset URLs with the provenance hash (`?v=…`), so a plugin update is picked
 up on the next reload despite header-less asset serving.

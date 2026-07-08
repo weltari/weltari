@@ -39,6 +39,9 @@ class WlMap extends HTMLElement {
     this._stroke = null; // active lasso points [{x,y} unit coords]
     this._draft = null; // finished lasso awaiting its intent text
     this._locks = new Map(); // edit_id -> {points} regions locked in flight
+    this._footprints = new Map(); // sublocation_id -> [{x,y}] Flow-A shapes
+    this._clicks = new Map(); // click_id -> {x,y} Flow-B classify in flight
+    this._discovery = null; // {name, description} transient outcome card
   }
 
   connectedCallback() {
@@ -127,9 +130,31 @@ class WlMap extends HTMLElement {
       const square = this._squareAt(mouse);
       if (square === null) return;
       const key = `${square.col},${square.row}`;
-      // Clicks on explored ground do nothing here: pins carry the jumps and
-      // Flow-B click classification needs a VLM (a later milestone).
-      if (this._explored.has(key) || this._pending.has(key)) return;
+      if (this._pending.has(key)) return;
+      // Flow B (Rev 4 §14): a click on explored ground. Inside a known
+      // footprint or radius = enter that sublocation, zero model calls;
+      // outside all radii = ask the server to classify the spot.
+      if (this._explored.has(key)) {
+        if (this._discovery !== null) {
+          this._discovery = null; // any map click dismisses the card
+          this._paint();
+        }
+        const point = this._unitAt(mouse);
+        if (point === null) return;
+        const near = this._sublocationNear(point);
+        if (near !== null) {
+          this.dispatchEvent(
+            new CustomEvent('wl-map-jump', {
+              bubbles: true,
+              composed: true,
+              detail: { sublocation_id: near.id, name: near.name },
+            }),
+          );
+          return;
+        }
+        this._classify(point);
+        return;
+      }
       this._selected = this._selected === key ? null : key;
       this._paint();
     });
@@ -291,7 +316,8 @@ class WlMap extends HTMLElement {
       this._locks.set(event.payload.edit_id, { points: event.payload.points });
       this._paint();
     }
-    // Flow A step 6: the created sublocation's pin at the mask centroid.
+    // Flow A step 6: the created sublocation's pin at the mask centroid
+    // (its footprint joins the Flow-B hit-test surface).
     if (
       event.type === 'sublocation.created' &&
       event.payload &&
@@ -305,6 +331,53 @@ class WlMap extends HTMLElement {
         y: Number(event.payload.map_position.y),
         current: current ? current.current : false,
       });
+      if (Array.isArray(event.payload.footprint)) {
+        this._footprints.set(
+          event.payload.sublocation_id,
+          event.payload.footprint,
+        );
+      }
+      this._paint();
+    }
+    // Flow B outcome: a persistent spawn drops a pin (and auto-jumps if this
+    // client asked); a transient one shows the discovery card once.
+    if (
+      event.type === 'map_click.resolved' &&
+      event.payload &&
+      typeof event.payload.click_id === 'string'
+    ) {
+      const mine = this._clicks.delete(event.payload.click_id);
+      if (
+        event.payload.outcome === 'created' &&
+        typeof event.payload.sublocation_id === 'string' &&
+        event.payload.point
+      ) {
+        this._pins.set(event.payload.sublocation_id, {
+          name: String(event.payload.name ?? event.payload.sublocation_id),
+          x: Number(event.payload.point.x),
+          y: Number(event.payload.point.y),
+          current: false,
+        });
+        if (mine) {
+          this.dispatchEvent(
+            new CustomEvent('wl-map-jump', {
+              bubbles: true,
+              composed: true,
+              detail: {
+                sublocation_id: event.payload.sublocation_id,
+                name: String(
+                  event.payload.name ?? event.payload.sublocation_id,
+                ),
+              },
+            }),
+          );
+        }
+      } else if (event.payload.outcome === 'transient' && mine) {
+        this._discovery = {
+          name: String(event.payload.name ?? ''),
+          description: String(event.payload.description ?? ''),
+        };
+      }
       this._paint();
     }
     if (
@@ -369,6 +442,14 @@ class WlMap extends HTMLElement {
       if (key.startsWith(editJob)) released = key.slice(editJob.length);
       if (key.startsWith(editPaint)) released = key.slice(editPaint.length);
       if (released !== null && this._locks.delete(released)) this._paint();
+      // A parked classify never resolves — clear its pulse marker.
+      const clickJob = `map_click:${this._worldId}:`;
+      if (
+        key.startsWith(clickJob) &&
+        this._clicks.delete(key.slice(clickJob.length))
+      ) {
+        this._paint();
+      }
     }
   }
 
@@ -390,6 +471,85 @@ class WlMap extends HTMLElement {
       x: Math.min(1, Math.max(0, x)),
       y: Math.min(1, Math.max(0, y)),
     };
+  }
+
+  /** The Flow-B radius rule — same numbers as the engine (documented
+   * contract, like GRID): a footprint containing the point wins, else the
+   * nearest pin within half a fog square. */
+  _sublocationNear(point) {
+    const RADIUS = 1 / (2 * GRID);
+    for (const [id, polygon] of this._footprints) {
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const a = polygon[i];
+        const b = polygon[j];
+        if (
+          a.y > point.y !== b.y > point.y &&
+          point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x
+        ) {
+          inside = !inside;
+        }
+      }
+      if (inside) {
+        const pin = this._pins.get(id);
+        return { id, name: pin ? pin.name : id };
+      }
+    }
+    let best = null;
+    let bestDistance = RADIUS;
+    for (const [id, pin] of this._pins) {
+      const distance = Math.hypot(pin.x - point.x, pin.y - point.y);
+      if (distance <= bestDistance) {
+        best = { id, name: pin.name };
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  _classify(point) {
+    const clickId = `c-${crypto.randomUUID().slice(0, 8)}`;
+    // Optimistic pulse marker, honest like every spinner: a refusal clears.
+    this._clicks.set(clickId, point);
+    this._paint();
+    fetch('/v1/commands/map-click', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: this._worldId,
+        actor_id: this._actorId,
+        point,
+        request_id: clickId,
+      }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          this._clicks.delete(clickId);
+          this._paint();
+          return;
+        }
+        // The server is the radius authority: it may answer `enter` for a
+        // sublocation this renderer missed — jump instead of waiting.
+        const body = await response.json();
+        if (body && body.outcome === 'enter' && body.sublocation_id) {
+          this._clicks.delete(clickId);
+          this._paint();
+          this.dispatchEvent(
+            new CustomEvent('wl-map-jump', {
+              bubbles: true,
+              composed: true,
+              detail: {
+                sublocation_id: String(body.sublocation_id),
+                name: String(body.name ?? body.sublocation_id),
+              },
+            }),
+          );
+        }
+      })
+      .catch(() => {
+        this._clicks.delete(clickId);
+        this._paint();
+      });
   }
 
   _showIntentBox() {
@@ -622,6 +782,59 @@ class WlMap extends HTMLElement {
         'wl-map-spin var(--wl-map-spinner-duration, 1.1s) linear infinite';
       ring.setAttribute('data-wl-map-lock', editId);
       this._overlay.appendChild(ring);
+    }
+
+    // A pulse ring at each classify-in-flight click (Flow B; DOM-samplable:
+    // data-wl-map-click=<click_id>).
+    for (const [clickId, point] of this._clicks) {
+      const ring = document.createElement('div');
+      ring.style.position = 'absolute';
+      ring.style.left = `${point.x * 100}%`;
+      ring.style.top = `${point.y * 100}%`;
+      ring.style.transform = 'translate(-50%, -50%)';
+      ring.style.width = '1.1rem';
+      ring.style.height = '1.1rem';
+      ring.style.border = '3px solid var(--wl-border, rgba(255,255,255,0.25))';
+      ring.style.borderTopColor = 'var(--wl-accent, #d8a748)';
+      ring.style.borderRadius = '50%';
+      ring.style.animation =
+        'wl-map-spin var(--wl-map-spinner-duration, 1.1s) linear infinite';
+      ring.setAttribute('data-wl-map-click', clickId);
+      this._overlay.appendChild(ring);
+    }
+
+    // The transient discovery card (Flow B: resolves and vanishes — the map
+    // shows it once, any click dismisses it, nothing persists).
+    if (this._discovery !== null) {
+      const card = document.createElement('div');
+      card.setAttribute('data-wl-map-discovery', '');
+      card.style.position = 'absolute';
+      card.style.left = '50%';
+      card.style.bottom = '3rem';
+      card.style.transform = 'translateX(-50%)';
+      card.style.maxWidth = '70%';
+      card.style.padding = '0.5rem 0.75rem';
+      card.style.borderRadius = 'var(--wl-radius, 10px)';
+      card.style.border = '1px solid var(--wl-accent, #d8a748)';
+      card.style.background = 'var(--wl-panel, #1e2128)';
+      card.style.fontFamily = 'var(--wl-font-ui, sans-serif)';
+      card.style.pointerEvents = 'auto';
+      card.style.cursor = 'pointer';
+      const title = document.createElement('div');
+      title.textContent = this._discovery.name;
+      title.style.fontSize = '0.78rem';
+      title.style.color = 'var(--wl-accent, #d8a748)';
+      const body = document.createElement('div');
+      body.textContent = this._discovery.description;
+      body.style.fontSize = '0.7rem';
+      body.style.color = 'var(--wl-text, #e8e4da)';
+      card.appendChild(title);
+      card.appendChild(body);
+      card.addEventListener('click', () => {
+        this._discovery = null;
+        this._paint();
+      });
+      this._overlay.appendChild(card);
     }
 
     // The clicked unexplored square: "Unexplored Area" + Explore.
