@@ -354,10 +354,15 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
           .png()
           .toBuffer()
       : generated.image;
+  // Backdrops composite UNFEATHERED (week-9 visual QA): the paint covers the
+  // whole canvas, so the feather's only effect was an 8 px band of base
+  // checkerboard bleeding through at the edges — seen on real output.
   const mask =
-    spec.mask === undefined
-      ? await featherMask(region.width, region.height)
-      : await polygonMask(region, spec.mask);
+    spec.kind === 'backdrop'
+      ? undefined
+      : spec.mask === undefined
+        ? await featherMask(region.width, region.height)
+        : await polygonMask(region, spec.mask);
   // Two sharp passes on purpose: sharp orders removeAlpha AFTER joinChannel
   // inside one pipeline regardless of call order, silently stripping the
   // just-joined mask (found by the week-8 polygon-mask test — the M2 feather
@@ -367,14 +372,21 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
     .removeAlpha()
     .raw()
     .toBuffer();
-  const feathered = await sharp(tileRgb, {
-    raw: { width: region.width, height: region.height, channels: 3 },
-  })
-    .joinChannel(mask, {
-      raw: { width: region.width, height: region.height, channels: 1 },
-    })
-    .png()
-    .toBuffer();
+  const feathered =
+    mask === undefined
+      ? await sharp(tileRgb, {
+          raw: { width: region.width, height: region.height, channels: 3 },
+        })
+          .png()
+          .toBuffer()
+      : await sharp(tileRgb, {
+          raw: { width: region.width, height: region.height, channels: 3 },
+        })
+          .joinChannel(mask, {
+            raw: { width: region.width, height: region.height, channels: 1 },
+          })
+          .png()
+          .toBuffer();
 
   // removeAlpha keeps the output RGB like the base — chained composites see a
   // constant channel layout no matter how many regions have been painted.
