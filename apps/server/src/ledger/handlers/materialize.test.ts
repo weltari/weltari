@@ -302,6 +302,50 @@ describe('materialize job handler (B6 double gate)', () => {
     expect(ctx.storage.ledger.claimNext('test-worker')).toBeNull();
   });
 
+  it('overlapping executions of ONE stub job commit exactly one row (lease-expiry overlap)', async () => {
+    // The stub branch has no LLM await — its only interleave point is the
+    // fault-point hook. Gate both executions there: the winner appends, the
+    // loser's fused re-check sees the row and no-ops (week-7/8 pattern).
+    const release: (() => void)[] = [];
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-materialize-'));
+    const logger = quietLogger();
+    const local = openStorage({ dbPath: join(dir, 'w.sqlite') });
+    const sink = createEventSink(local, new Bus(logger));
+    local.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'scene.started',
+      payload: { scene_id: 's-seed', title: 'Seed' },
+    });
+    appendStub(local, 'subloc:stub-the-river-park');
+    const handler = createMaterializeHandler({
+      storage: local,
+      sink,
+      llm: createFakeLlmClient(),
+      narrator: NARRATOR,
+      logger,
+      faultPoint: (point) =>
+        point === 'mid_materialize'
+          ? new Promise<void>((r) => release.push(r))
+          : undefined,
+    });
+    const job = jobWith({
+      stub_sublocation_id: 'subloc:stub-the-river-park',
+      anchor: { x: 0.42, y: 0.55 },
+    });
+    const first = handler(job);
+    const second = handler({ ...job }); // the reclaimed re-execution
+    while (release.length < 2) await new Promise((r) => setTimeout(r, 5));
+    for (const r of release) r();
+    await Promise.all([first, second]);
+
+    const materialized = local.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'sublocation.materialized');
+    expect(materialized).toHaveLength(1);
+    local.close();
+  });
+
   it('a stub job for a stub that never committed is corrupt state (torn log)', async () => {
     const ctx = setup();
     await expect(

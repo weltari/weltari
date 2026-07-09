@@ -36,6 +36,11 @@ const POINTS = [
   'mid_materialize',
   'mid_map_edit',
   'mid_map_click',
+  // M6 part 1: the in-scene creation loop — a Narrator create_sublocation
+  // turn whose PARENTLESS stub is killed mid-placement (the stub branch of
+  // the materialize handler shares the mid_materialize fault point; the
+  // creation commit itself is one transaction with the turn).
+  'mid_stub_create',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -164,6 +169,32 @@ function dbCountMaterialized(square) {
     .get(`%"square":{"col":${square.col},"row":${square.row}}%`);
   db.close();
   return row.n;
+}
+
+/** Exactly-once checks for a Narrator stub (M6 part 1): the identity commit
+ * and its materialization each happen at most once per stub id. */
+function dbCountStub(stubId) {
+  const db = new Database(dbPath);
+  const created = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'sublocation.stub_created' AND payload LIKE ?`,
+    )
+    .get(`%"sublocation_id":"${stubId}"%`).n;
+  const materialized = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'sublocation.materialized' AND payload LIKE ?`,
+    )
+    .get(`%"sublocation_id":"${stubId}"%`).n;
+  const backdrops = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'painter.completed' AND payload LIKE ?`,
+    )
+    .get(`%"image_id":"backdrop:${stubId}"%`).n;
+  db.close();
+  return { created, materialized, backdrops };
 }
 
 /** Exactly-once check for a Flow-A edit (the retry must converge, never twin). */
@@ -333,12 +364,12 @@ async function post(path, body) {
   return res;
 }
 
-async function postTurn(sceneId, expectStatus = 202) {
+async function postTurn(sceneId, expectStatus = 202, text = 'Harness turn.') {
   const res = await post('/v1/commands/start-turn', {
     world_id: 'w1',
     actor_id: 'user:owner',
     scene_id: sceneId,
-    text: 'Harness turn.',
+    text,
   });
   if (res.status !== expectStatus) fail(`start-turn returned ${res.status}`);
   const body = await res.json();
@@ -471,6 +502,11 @@ let pendingEdit = null;
 // fixture squares, far enough from every anchor AND from each other that
 // earlier cycles' persistent spawns (radius = half a square) never swallow a
 // later point.
+// M6 part 1 creation-loop cycles: a parentless Narrator create killed
+// mid-placement; convergence = the stub committed once, materialized once,
+// and its backdrop landed.
+let stubSeq = 0;
+let pendingStub = null;
 const CLICK_POINTS = [
   { x: 0.495, y: 0.505 }, // corners of the common-room square (3,4)…
   { x: 0.38, y: 0.62 },
@@ -605,6 +641,40 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
     pendingClick = null;
   }
 
+  // M6 part 1: a kill mid-stub-placement must CONVERGE — the stub committed
+  // exactly once (atomic with its turn), its materialization retries to
+  // exactly one row, and its backdrop paint lands.
+  if (pendingStub !== null) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const counts = dbCountStub(pendingStub);
+      if (counts.created !== 1) {
+        child.kill('SIGKILL');
+        fail(
+          `stub ${pendingStub}: ${counts.created} sublocation.stub_created rows (expected exactly 1)`,
+        );
+      }
+      if (counts.materialized > 1) {
+        child.kill('SIGKILL');
+        fail(
+          `duplicate stub placement: ${counts.materialized} sublocation.materialized rows for ${pendingStub}`,
+        );
+      }
+      if (counts.materialized === 1 && counts.backdrops >= 1) break;
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          `stub ${pendingStub} never converged (materialized=${counts.materialized}, backdrops=${counts.backdrops})`,
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      `mid_stub_create convergence ok: ${pendingStub} committed once, placed once, backdrop landed`,
+    );
+    pendingStub = null;
+  }
+
   // A scene ended by a previous cycle needs a successor — and getting one is
   // itself the criterion-b demonstration (blocked only while jobs pend).
   // The FIRST cycle opens one too: fresh worlds boot scene-less (M4 part 2).
@@ -733,6 +803,21 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       }
       await killAt;
       pendingClick = clickId;
+      break;
+    }
+    case 'mid_stub_create': {
+      stubSeq += 1;
+      const slug = `harness-annex-${stubSeq}`;
+      // The stub branch of the materialize handler shares mid_materialize:
+      // by the time it fires, the turn (stub + job rows) has committed.
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_materialize', 30000);
+      await postTurn(
+        currentScene,
+        202,
+        `Somewhere new calls. !query !createwild ${slug}`,
+      );
+      await killAt;
+      pendingStub = `subloc:stub-${slug}`;
       break;
     }
     case 'mid_update': {

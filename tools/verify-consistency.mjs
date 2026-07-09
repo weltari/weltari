@@ -138,6 +138,20 @@ for (const event of events) {
       `${event.world_id}:${payload.square.col}:${payload.square.row}`,
       event.id,
     );
+    // M6 part 1: a Narrator stub materializes at most once — the natural key
+    // is the stub id, not just the (solver-chosen) square.
+    dupCheck(
+      'sublocation.materialized:id',
+      `${event.world_id}:${payload.sublocation_id}`,
+      event.id,
+    );
+  }
+  if (event.type === 'sublocation.stub_created') {
+    dupCheck(
+      'sublocation.stub_created',
+      `${event.world_id}:${payload.sublocation_id}`,
+      event.id,
+    );
   }
   if (event.type === 'sublocation.created') {
     dupCheck(
@@ -152,6 +166,29 @@ for (const event of events) {
       `${event.world_id}:${payload.click_id}`,
       event.id,
     );
+  }
+}
+
+// 4g. Create-tool atomicity (M6 part 1, Rev 4 §6): a sublocation.stub_created
+//     commits in ONE transaction with its backdrop paint job — and, when
+//     parentless, its eager materialize job. The event without the rows is a
+//     torn transaction.
+for (const event of events) {
+  if (event.type !== 'sublocation.stub_created') continue;
+  const payload = JSON.parse(event.payload);
+  const backdropKey = `painter:backdrop:${payload.sublocation_id}:initial`;
+  if (jobKeyExists.get(backdropKey).n !== 1) {
+    failures.push(
+      `sublocation.stub_created ${payload.sublocation_id}: missing job ${backdropKey}`,
+    );
+  }
+  if (payload.parent_id === undefined) {
+    const materializeKey = `materialize:stub:${payload.sublocation_id}`;
+    if (jobKeyExists.get(materializeKey).n !== 1) {
+      failures.push(
+        `parentless stub ${payload.sublocation_id}: missing job ${materializeKey}`,
+      );
+    }
   }
 }
 
