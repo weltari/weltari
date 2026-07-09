@@ -604,6 +604,145 @@ describe('narrator tool pipeline (B6 two gates)', () => {
     ctx.storage.close();
   });
 
+  it('mid-call gate feedback: a refused parentless create self-corrects in ONE turn (M6 part 2)', async () => {
+    // Mimics the real client with a gate executor: step 1 tries the create
+    // unqueried (must read back the fixed Rev 4 refusal as a tool ERROR),
+    // step 2 runs the required query, step 3 retries (must read a staged
+    // ack) — all inside one LlmClient.streamCall, like the SDK multi-step.
+    const observed: string[] = [];
+    const fake = createFakeLlmClient();
+    const midCallClient: LlmClient = {
+      async streamCall(call): Promise<Result<LlmCallResult>> {
+        if (
+          call.kind !== 'narrator' ||
+          call.gate === undefined ||
+          call.queries === undefined
+        ) {
+          return fake.streamCall(call);
+        }
+        const create = {
+          tool: 'create_sublocation',
+          input: { name: 'the river park', brief: 'Willows over slow water.' },
+        };
+        observed.push(call.gate(create));
+        observed.push(call.queries.query_sublocations({ mode: 'parentless' }));
+        observed.push(call.gate(create));
+        call.onTextDelta('The park takes shape beyond the fence.');
+        return ok({
+          text: 'The park takes shape beyond the fence.',
+          usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+          model: 'fake/gated-midcall',
+          durationMs: 0,
+          // Gate-executed calls never come back as data (double-stage guard).
+          toolCalls: [],
+        });
+      },
+    };
+    const ctx = setup(midCallClient);
+    seedSceneStarted(ctx);
+    await runTurn(ctx, 'take me somewhere green');
+
+    // The refusal reached the MODEL, not just the trail (the week-9 upgrade).
+    expect(observed[0]).toMatch(/^ERROR: /);
+    expect(observed[0]).toContain('use the query tool');
+    expect(observed[1]).toContain('parentless');
+    expect(observed[2]).toMatch(/^staged: /);
+    expect(observed[2]).toContain('subloc:stub-the-river-park');
+
+    // Exactly one stub committed, with its backdrop + eager materialize jobs.
+    const stubs = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'sublocation.stub_created');
+    expect(stubs).toHaveLength(1);
+    expect(
+      ctx.storage.ledger.countByKey(
+        'painter:backdrop:subloc:stub-the-river-park:initial',
+      ),
+    ).toBe(1);
+    expect(
+      ctx.storage.ledger.countByKey(
+        'materialize:stub:subloc:stub-the-river-park',
+      ),
+    ).toBe(1);
+    // The trail saw both the rejection and the accepted call (C11 parity).
+    expect(
+      ctx.devFrames.some(
+        (f) =>
+          f.type === 'dev.tool_rejected' &&
+          f.gate === 'state' &&
+          f.reason.includes('use the query tool'),
+      ),
+    ).toBe(true);
+    expect(
+      ctx.devFrames.some(
+        (f) => f.type === 'dev.tool_call' && f.tool === 'create_sublocation',
+      ),
+    ).toBe(true);
+    ctx.storage.close();
+  });
+
+  it('the gate executor refuses after an interrupt: nothing stages, the model is told to stop', async () => {
+    let release = (): void => undefined;
+    const gatePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let signalStreamed = (): void => undefined;
+    const streamed = new Promise<void>((resolve) => {
+      signalStreamed = resolve;
+    });
+    const observed: string[] = [];
+    const fake = createFakeLlmClient();
+    const blockedClient: LlmClient = {
+      async streamCall(call): Promise<Result<LlmCallResult>> {
+        if (call.kind !== 'narrator' || call.gate === undefined) {
+          return fake.streamCall(call);
+        }
+        call.onTextDelta('The rain thickens. ');
+        signalStreamed();
+        await gatePromise;
+        // The user interrupted inside the window — this late tool call must
+        // bounce off the gate, not stage a world change.
+        observed.push(
+          call.gate({
+            tool: 'change_sublocation',
+            input: { sublocation_id: 'subloc:cellar' },
+          }),
+        );
+        return ok({
+          text: 'The rain thickens.',
+          usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+          model: 'fake/gated-midcall',
+          durationMs: 0,
+          toolCalls: [],
+        });
+      },
+    };
+    const ctx = setup(blockedClient);
+    seedSceneStarted(ctx);
+    const started = await ctx.engine.startTurn(COMMAND);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    await streamed;
+    const interrupted = ctx.engine.interruptTurn({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: started.value.turnId,
+      seen: { call: 'narrator', sentence_index: 0 },
+    });
+    expect(interrupted.ok).toBe(true);
+    release();
+    await started.value.completion;
+
+    expect(observed[0]).toMatch(/^ERROR: /);
+    expect(observed[0]).toContain('interrupted');
+    expect(
+      ctx.storage.eventLog
+        .readSince(0)
+        .some((e) => e.type === 'sublocation.changed'),
+    ).toBe(false);
+    ctx.storage.close();
+  });
+
   it('a second change_sublocation in one turn moves again; same target is state-rejected', async () => {
     const ctx = setup();
     await runTurn(ctx, '!move subloc:cellar');

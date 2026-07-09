@@ -51,6 +51,7 @@ import {
 import {
   createToolStage,
   currentSublocationId,
+  type StagedToolEffect,
   type ToolStage,
 } from './scene-tools.js';
 import { createSentenceSplitter } from './sentences.js';
@@ -301,6 +302,21 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                 return turn.stage.querySublocations(input);
               },
             },
+            // The mid-call gate executor (M6 part 2, owner decision
+            // 2026-07-09): both B6 gates run DURING the call and the model
+            // reads the staged-ack or the refusal as its tool result — a
+            // rejected create is no longer trail-only, the Narrator can
+            // self-correct in the same turn. Staging stays in-memory;
+            // durability still only happens at turn.committed below.
+            gate: (raw: RawToolCall): string => {
+              if (turn.interrupted) {
+                return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
+              }
+              const gated = gateOne(raw, turn.stage, turnId);
+              return gated.ok
+                ? stagedAck(gated.value)
+                : `ERROR: ${gated.error.message}`;
+            },
           }),
     });
     if (!result.ok) return result;
@@ -315,42 +331,71 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     });
   }
 
-  /** Both B6 gates over one call's raw tool calls; valid effects stage, every
-   * rejection is a trail frame and nothing else (I8: zero rows). */
+  /** One raw call through both B6 gates: valid → staged (in-memory) + a
+   * dev.tool_call frame; rejected → a dev.tool_rejected frame and nothing
+   * else (I8: zero rows). Shared by the post-call loop (fake/legacy clients
+   * return calls as data) and the mid-call gate executor (M6 part 2). */
+  function gateOne(
+    raw: RawToolCall,
+    stage: ToolStage,
+    turnId: string,
+  ): Result<StagedToolEffect> {
+    const parsed = parseToolCall(raw, logger);
+    if (!parsed.ok) {
+      devBus.publish({
+        type: 'dev.tool_rejected',
+        turn_id: turnId,
+        tool: raw.tool,
+        gate: 'schema',
+        reason: parsed.error.message,
+      });
+      return parsed;
+    }
+    const staged = stage.apply(parsed.value);
+    if (!staged.ok) {
+      devBus.publish({
+        type: 'dev.tool_rejected',
+        turn_id: turnId,
+        tool: parsed.value.tool,
+        gate: 'state',
+        reason: staged.error.message,
+      });
+      return staged;
+    }
+    devBus.publish({
+      type: 'dev.tool_call',
+      turn_id: turnId,
+      tool: parsed.value.tool,
+      input_json: JSON.stringify(parsed.value.input),
+    });
+    return staged;
+  }
+
+  /** The mid-call acknowledgement for a staged effect — names the ids so the
+   * model can reference them later in the same reply (create →
+   * change_sublocation → end_scene, the creation loop). */
+  function stagedAck(effect: StagedToolEffect): string {
+    switch (effect.kind) {
+      case 'sublocation':
+        return `staged: the scene moves to ${effect.sublocationId} (${effect.name}) when this reply commits.`;
+      case 'art':
+        return `staged: ${effect.characterId} switches to art "${effect.artId}".`;
+      case 'create':
+        return `staged: ${effect.sublocationId} ("${effect.name}") will be created when this reply commits — you may change_sublocation to it or register it as next_scene now.`;
+      case 'end_scene':
+        return `staged: the scene closes (${effect.endType}) when this reply commits.`;
+    }
+  }
+
+  /** Both B6 gates over one call's raw tool calls — the post-call path for
+   * clients that return mutating calls as data (no mid-call gate). */
   function runToolGates(
     rawCalls: readonly RawToolCall[],
     stage: ToolStage,
     turnId: string,
   ): void {
     for (const raw of rawCalls) {
-      const parsed = parseToolCall(raw, logger);
-      if (!parsed.ok) {
-        devBus.publish({
-          type: 'dev.tool_rejected',
-          turn_id: turnId,
-          tool: raw.tool,
-          gate: 'schema',
-          reason: parsed.error.message,
-        });
-        continue;
-      }
-      const staged = stage.apply(parsed.value);
-      if (!staged.ok) {
-        devBus.publish({
-          type: 'dev.tool_rejected',
-          turn_id: turnId,
-          tool: parsed.value.tool,
-          gate: 'state',
-          reason: staged.error.message,
-        });
-        continue;
-      }
-      devBus.publish({
-        type: 'dev.tool_call',
-        turn_id: turnId,
-        tool: parsed.value.tool,
-        input_json: JSON.stringify(parsed.value.input),
-      });
+      gateOne(raw, stage, turnId);
     }
   }
 

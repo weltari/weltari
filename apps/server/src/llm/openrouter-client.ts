@@ -43,19 +43,53 @@ const NARRATOR_TOOLS: ToolSet = {
 /**
  * How many model steps a narrator call may take when queries are offered:
  * query → (result) → maybe a refining query → (result) → the final step
- * whose text + mutating tool calls the engine gates. Mutating tools carry no
- * execute, so a step that calls one ends the loop regardless.
+ * whose text + mutating tool calls the engine gates. Without a gate executor
+ * mutating tools carry no execute, so a step that calls one ends the loop.
  */
 const QUERY_STEP_LIMIT = 3;
+/** With the gate executor a refusal costs a step: rejected create → the
+ * required query → the corrected create → the closing text (M6 part 2). */
+const GATED_STEP_LIMIT = 4;
 
-/** The narrator toolset, with query_sublocations wired to the engine's
- * executor when the call offers one (queries run mid-call, Rev 4 §6 —
- * mutations never get an execute: they come back as data for the B6 gates). */
+/** The narrator toolset, wired to the engine's executors the call offers.
+ * query_sublocations runs mid-call (Rev 4 §6). With `gate` (M6 part 2) the
+ * mutating tools ALSO execute mid-call — but their execute is the engine's
+ * B6 double gate returning a staged-ack or the refusal string; staging stays
+ * in-memory and durability still only happens at turn.committed. Without
+ * `gate`, mutations carry no execute and come back as data for the gates. */
 function narratorToolsFor(call: LlmCall): ToolSet {
-  if (call.queries === undefined) return NARRATOR_TOOLS;
+  const gate = call.gate;
+  const mutating: ToolSet =
+    gate === undefined
+      ? NARRATOR_TOOLS
+      : {
+          end_scene: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.end_scene,
+            inputSchema: EndSceneToolSchema,
+            execute: (input): string => gate({ tool: 'end_scene', input }),
+          }),
+          change_sublocation: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.change_sublocation,
+            inputSchema: ChangeSublocationToolSchema,
+            execute: (input): string =>
+              gate({ tool: 'change_sublocation', input }),
+          }),
+          switch_art: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.switch_art,
+            inputSchema: SwitchArtToolSchema,
+            execute: (input): string => gate({ tool: 'switch_art', input }),
+          }),
+          create_sublocation: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.create_sublocation,
+            inputSchema: CreateSublocationToolSchema,
+            execute: (input): string =>
+              gate({ tool: 'create_sublocation', input }),
+          }),
+        };
+  if (call.queries === undefined) return mutating;
   const queries = call.queries;
   return {
-    ...NARRATOR_TOOLS,
+    ...mutating,
     query_sublocations: tool({
       description: NARRATOR_TOOL_DESCRIPTIONS.query_sublocations,
       inputSchema: QuerySublocationsToolSchema,
@@ -142,17 +176,24 @@ export function createOpenRouterClient(
           temperature: route.temperature,
           maxOutputTokens: route.maxOutputTokens,
           abortSignal: AbortSignal.timeout(timeoutMs),
-          // Mutating tools carry no execute functions: their calls come back
-          // as data for the B6 gates — the SDK must never run a world
-          // mutation itself. Only the read-only query executor runs mid-call
-          // (multi-step), feeding its result back to the model.
+          // Without a gate executor, mutating tools carry no execute: their
+          // calls come back as data for the B6 gates — the SDK must never run
+          // a world mutation itself. With one (M6 part 2), their execute IS
+          // the engine's double gate (in-memory staging only) so the model
+          // reads the ack/refusal mid-call and can self-correct in one turn.
           ...(call.toolset === 'narrator'
             ? {
                 tools: narratorToolsFor(call),
                 toolChoice: 'auto' as const,
-                ...(call.queries === undefined
+                ...(call.queries === undefined && call.gate === undefined
                   ? {}
-                  : { stopWhen: stepCountIs(QUERY_STEP_LIMIT) }),
+                  : {
+                      stopWhen: stepCountIs(
+                        call.gate === undefined
+                          ? QUERY_STEP_LIMIT
+                          : GATED_STEP_LIMIT,
+                      ),
+                    }),
               }
             : {}),
           // Our system message MUST live in messages[] to carry the
@@ -181,8 +222,11 @@ export function createOpenRouterClient(
         // Collect mutating tool calls across ALL steps (a query step may
         // precede the step that creates/moves/ends): executed queries are
         // filtered out — they already ran mid-call and are never staged.
+        // With a gate executor EVERY tool executed mid-call (and staged
+        // engine-side), so nothing comes back as data — returning them
+        // again would double-stage (M6 part 2).
         const toolCalls: RawToolCall[] =
-          call.toolset === undefined
+          call.toolset === undefined || call.gate !== undefined
             ? []
             : (await result.steps)
                 .flatMap((step) => step.toolCalls)
