@@ -50,6 +50,7 @@ for (const required of [
   join(ROOT, 'apps', 'server', 'dist', 'main.js'),
   join(ROOT, 'apps', 'web', 'dist', 'index.html'),
   join(ROOT, 'packages', 'protocol', 'dist', 'index.js'),
+  join(ROOT, 'minisign.pub'),
 ]) {
   if (!existsSync(required))
     fail(`missing ${required} — run \`npm run build\` first`);
@@ -66,6 +67,12 @@ const copies = [
   ['package.json'],
   ['package-lock.json'],
   ['.npmrc'],
+  // The baked update-verification PUBLIC key (owner decision, 2026-07-09):
+  // shipping it is what makes auto-apply work out of the box — main.js reads
+  // it from the app root when WELTARI_UPDATE_PUBKEY is unset (the
+  // Sparkle/Tauri model; the private key never travels). Included in the
+  // update artifact too, so post-update versions keep it.
+  ['minisign.pub'],
   ['packages', 'protocol', 'package.json'],
   ['packages', 'protocol', 'dist'],
   ['packages', 'plugin-sdk', 'package.json'],

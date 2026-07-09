@@ -1,7 +1,7 @@
 // Composition root. Startup IS recovery (Brief §2.4): open storage (runs
 // migrations; the runner's first tick sweeps expired leases), seed the fixture
 // world if the log is empty, start HTTP + runner loops.
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { ApplyUpdateCommand, StartTurnCommand } from '@weltari/protocol';
 import { readAppVersion } from './boundary/config/app-version.js';
@@ -344,13 +344,31 @@ const gatewayHost = createGatewayHost({
 const appVersion =
   env.appVersion ??
   readAppVersion(resolve(import.meta.dirname, '../package.json'), logger);
+// The baked default verification key (owner decision, 2026-07-09): every
+// shipped layout carries the project's `minisign.pub` at the app root —
+// repo root in dev, versions/<v>/ in the Windows zip, /app in Docker — so
+// auto-apply works out of the box (the Sparkle/Tauri model: the maintainer
+// bakes the PUBLIC key at build time; the private key never travels).
+// WELTARI_UPDATE_PUBKEY stays the override for forks with their own key.
+function readBakedPubkey(): string | undefined {
+  const file = resolve(import.meta.dirname, '../../../minisign.pub');
+  if (!existsSync(file)) return undefined;
+  const keyLine = readFileSync(file, 'utf8')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('untrusted comment'))
+    .at(-1);
+  if (keyLine === undefined) {
+    logger.warn({ file }, 'minisign.pub present but empty — updates disabled');
+  }
+  return keyLine;
+}
+const updatePubkey = env.updatePubkey ?? readBakedPubkey();
 // Notify vs apply (FINAL item 12): checking needs no key (it never
 // downloads); applying needs the key AND a native install — Docker images
 // run notify-and-let-host-pull (WELTARI_UPDATE_NOTIFY_ONLY=1).
-const updateNotifyEnabled =
-  env.updatePubkey !== undefined || env.updateNotifyOnly;
-const updateApplyEnabled =
-  env.updatePubkey !== undefined && !env.updateNotifyOnly;
+const updateNotifyEnabled = updatePubkey !== undefined || env.updateNotifyOnly;
+const updateApplyEnabled = updatePubkey !== undefined && !env.updateNotifyOnly;
 cleanStaleStaging(env.versionsDir, logger);
 const updateFetch: FetchLike = async (url) =>
   fetch(url, {
@@ -438,7 +456,7 @@ const runner = createRunner({
           }),
         }
       : {}),
-    ...(updateApplyEnabled && env.updatePubkey !== undefined
+    ...(updateApplyEnabled && updatePubkey !== undefined
       ? {
           update_apply: createUpdateApplyHandler({
             storage,
@@ -448,7 +466,7 @@ const runner = createRunner({
             releasesUrl: env.updateReleasesUrl,
             fetchFn: updateFetch,
             versionsDir: env.versionsDir,
-            publicKeyBase64: env.updatePubkey,
+            publicKeyBase64: updatePubkey,
             maxArtifactBytes: env.updateMaxBytes,
             ...(faultPoint === undefined ? {} : { faultPoint }),
           }),

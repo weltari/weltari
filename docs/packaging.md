@@ -40,8 +40,10 @@ weltari-win-x64/
 2. On Windows: `npm run build && node scripts/package-win.mjs` →
    zip + update artifact + `.sha256`.
 3. Sign: `minisign -Sm weltari-app-X.Y.Z-win32-x64.tar.gz` (secret key never
-   enters the repo; the matching public key is what users set as
-   `WELTARI_UPDATE_PUBKEY`).
+   enters the repo; the matching PUBLIC key ships baked as the committed
+   `minisign.pub` — packaged into the zip/artifact/image automatically, so
+   users need to set nothing; `WELTARI_UPDATE_PUBKEY` is the fork override.
+   See docs/update.md "Public-key distribution").
 4. Attach zip + artifact + `.sha256` + `.minisig` to the GitHub Release.
 
 ## Verified by (M3 part-2 criterion b + d, 2026-07-07)

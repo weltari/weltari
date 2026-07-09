@@ -54,8 +54,8 @@ staged once).
 ## Configuration
 
 - `WELTARI_UPDATE_PUBKEY` — the minisign public key (base64 body line).
-  **Absent = updates disabled** (safe default until the owner generates a
-  keypair: `minisign -G`).
+  Absent = the BAKED default applies (below); set it only to override
+  (forks with their own keypair).
 - `WELTARI_UPDATE_NOTIFY_ONLY=1` — notify-and-let-host-pull (the Docker
   image sets this): the release check runs without a key (it never
   downloads), `apply-update` always 409s.
@@ -66,6 +66,23 @@ staged once).
   (default: the server package.json version) · `WELTARI_UPDATE_CHECK_CRON`
   (default daily 08:00 UTC) · `WELTARI_UPDATE_MAX_BYTES` (download cap,
   default 128 MiB).
+
+### Public-key distribution — baked default (resolved 2026-07-09, owner decision)
+
+`WELTARI_UPDATE_PUBKEY` must be the SAME value on every installation that
+wants auto-apply — it verifies signatures made by the owner's one private
+key. Following prior art (Sparkle, Tauri), the PUBLIC key ships baked into
+every layout instead of asking end users to paste it: `minisign.pub` is
+committed at the repo root, `scripts/package-win.mjs` copies it into
+`versions/<v>/` (so the user zip AND the update artifact both carry it —
+post-update versions keep verifying), and the `Dockerfile` copies it to
+`/app` (cosmetic there: images run notify-only). When the env var is unset,
+`main.ts` reads the key from `minisign.pub` at the app root (repo root in
+dev, `versions/<v>/` packaged, `/app` in Docker) — the standard two-line
+minisign format; the comment line is skipped. The env var remains the
+override for forks with their own keypair; an unreadable/absent file simply
+leaves updates disabled as before. The SECRET `minisign.key` lives outside
+the repo and is additionally `.dockerignore`d by name.
 
 ## Verified by
 
