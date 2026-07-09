@@ -36,6 +36,10 @@ COPY --from=build /app/apps/server/package.json ./apps/server/package.json
 COPY --from=build /app/apps/server/migrations ./apps/server/migrations
 COPY --from=build /app/apps/web/dist ./apps/web/dist
 COPY plugins ./plugins
+# The baked update-verification PUBLIC key: cosmetic here (the image runs
+# notify-only — hosts pull new images), but every shipped layout carries it
+# at the app root for consistency (see docs/update.md).
+COPY minisign.pub ./minisign.pub
 RUN mkdir -p /data && chown node:node /data
 USER node
 VOLUME /data
