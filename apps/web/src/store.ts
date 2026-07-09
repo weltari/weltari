@@ -43,6 +43,9 @@ export interface CommittedTurn {
 export interface SceneEnd {
   end_type: 'rest' | 'continuation' | 'travel';
   divider_text: string;
+  /** The continuation registration (0.10.0) — where "Jump to the next
+   * scene" opens; may name a stub created mid-scene. */
+  next_scene?: { sublocation_id: string; premise_seed?: string | undefined };
 }
 
 export interface CastMember {
@@ -112,6 +115,11 @@ export interface SceneStore {
   sublocationName: string;
   /** The backdrop we are sliding away from (previous layer of the transition). */
   previousSublocationId: string | null;
+  /** sublocation_id → painter-generated backdrop path (0.10.0): fed by
+   * painter.completed for `backdrop:<id>` images and by
+   * sublocation.changed's backdrop_path. Absent id = themed placeholder;
+   * a live arrival replays the slide transition (UI Spec §1.6). */
+  backdropBySublocation: Record<string, string>;
   /** character_id → current art_id (art.switched projection). */
   artByCharacter: Record<string, string>;
   turns: CommittedTurn[];
@@ -204,6 +212,9 @@ function applyOne(
         sceneEnd: {
           end_type: event.payload.end_type ?? 'rest',
           divider_text: event.payload.divider_text ?? '— the scene rests —',
+          ...(event.payload.next_scene === undefined
+            ? {}
+            : { next_scene: event.payload.next_scene }),
         },
         // replayCaughtUp still holds the PRE-event value here (the flip
         // happens after applyOne) — a replayed end is not a live end.
@@ -260,6 +271,14 @@ function applyOne(
         previousSublocationId: state.sublocationId,
         sublocationId: event.payload.sublocation_id,
         sublocationName: event.payload.name,
+        ...(event.payload.backdrop_path === undefined
+          ? {}
+          : {
+              backdropBySublocation: {
+                ...state.backdropBySublocation,
+                [event.payload.sublocation_id]: event.payload.backdrop_path,
+              },
+            }),
       }));
       return;
     case 'art.switched':
@@ -386,12 +405,32 @@ function applyOne(
         };
       });
       return;
+    case 'painter.completed': {
+      // The backdrop image class (0.10.0): `backdrop:<sublocation_id>`. A
+      // live arrival for the CURRENT sublocation re-keys the stage layer —
+      // the slide transition plays the moment the real backdrop lands
+      // (UI Spec §1.6). Map paints stay the wl-map plugin's business.
+      const prefix = 'backdrop:';
+      if (!event.payload.image_id.startsWith(prefix)) return;
+      const sublocationId = event.payload.image_id.slice(prefix.length);
+      const path = event.payload.path;
+      set((state) => ({
+        backdropBySublocation: {
+          ...state.backdropBySublocation,
+          [sublocationId]: path,
+        },
+      }));
+      return;
+    }
+    case 'sublocation.stub_created':
+      // Stubs are enterable through scenes only (Rev 4 §14) — no client
+      // projection: the map ignores them and Hang around never lands on one.
+      return;
     // No projection (yet): these surfaces arrive in later milestones
     // (map refresh, feed, job status UI). map_edit.requested is the map
     // plugin's lock overlay — it reads the stream directly.
     case 'reflection.committed':
     case 'world_agent.committed':
-    case 'painter.completed':
     case 'map_edit.requested':
       return;
   }
@@ -417,6 +456,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
   sublocationId: '',
   sublocationName: '',
   previousSublocationId: null,
+  backdropBySublocation: {},
   artByCharacter: {},
   turns: [],
   openTurnId: null,

@@ -18,6 +18,16 @@
       "port": 7777
     },
     {
+      "name": "weltari-fake",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$env:WELTARI_FAKE_LLM='1'; $env:WELTARI_DB_PATH=\"$env:TEMP\\weltari-fake\\w.sqlite\"; $env:WELTARI_IMAGES_DIR=\"$env:TEMP\\weltari-fake\\images\"; node apps/server/dist/main.js"
+      ],
+      "port": 7777
+    },
+    {
       "name": "weltari-masking",
       "runtimeExecutable": "powershell",
       "runtimeArgs": [

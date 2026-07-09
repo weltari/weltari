@@ -341,6 +341,10 @@ body {
   position: absolute;
   inset: 0;
   background: var(--wl-backdrop-default);
+  /* Painter-generated backdrops (square 512²) cover-crop onto the wide
+     stage; inline style supplies background-image when one has landed. */
+  background-size: cover;
+  background-position: center;
 }
 
 .wl-backdrop[data-sublocation='subloc:common_room'] {

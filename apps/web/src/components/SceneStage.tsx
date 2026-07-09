@@ -12,23 +12,48 @@ export function SceneStage(props: {
   const previousSublocationId = useSceneStore((s) => s.previousSublocationId);
   const sublocationName = useSceneStore((s) => s.sublocationName);
   const artByCharacter = useSceneStore((s) => s.artByCharacter);
+  // Painter-generated backdrops (0.10.0): an id with a landed backdrop
+  // renders the real image; without one, the themed placeholder gradient.
+  const backdropBySublocation = useSceneStore((s) => s.backdropBySublocation);
   // The roster projection (character.joined events) — the Narrator never
   // appears in the line-up (UI Spec §1.5). Art switches arrive per character_id.
   const cast = useSceneStore((s) => s.cast);
 
+  const backdropPath = backdropBySublocation[sublocationId];
+  const previousPath =
+    previousSublocationId === null
+      ? undefined
+      : backdropBySublocation[previousSublocationId];
+
   return (
     <section className="wl-stage" aria-label="scene stage">
       {previousSublocationId !== null ? (
-        <div className="wl-backdrop" data-sublocation={previousSublocationId} />
+        <div
+          className="wl-backdrop"
+          data-sublocation={previousSublocationId}
+          style={
+            previousPath === undefined
+              ? undefined
+              : { backgroundImage: `url(/v1/images/${previousPath})` }
+          }
+        />
       ) : null}
       <div
-        key={sublocationId === '' ? 'default' : sublocationId}
+        // The path is part of the key: a backdrop landing LIVE for the
+        // current sublocation re-mounts the layer and replays the slide
+        // transition (UI Spec §1.6 — placeholder until then).
+        key={`${sublocationId === '' ? 'default' : sublocationId}|${backdropPath ?? ''}`}
         className={
-          previousSublocationId !== null
+          previousSublocationId !== null || backdropPath !== undefined
             ? 'wl-backdrop wl-backdrop-enter'
             : 'wl-backdrop'
         }
         data-sublocation={sublocationId}
+        style={
+          backdropPath === undefined
+            ? undefined
+            : { backgroundImage: `url(/v1/images/${backdropPath})` }
+        }
       />
       {sublocationName !== '' ? (
         <span className="wl-sublocation-chip">{sublocationName}</span>
