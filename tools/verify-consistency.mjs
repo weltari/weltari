@@ -192,6 +192,15 @@ for (const event of events) {
       event.id,
     );
   }
+  // M6 part 2 (Rev 4 §10): one subwiki entry per scene per sublocation —
+  // the World Agent's pass rides world_agent.committed's transaction.
+  if (event.type === 'subwiki.updated') {
+    dupCheck(
+      'subwiki.updated',
+      `${payload.scene_id}:${payload.sublocation_id}`,
+      event.id,
+    );
+  }
 }
 
 // 4h. Chat-end atomicity (M6 part 2, Rev 4 §8): a chat.ended commits in ONE

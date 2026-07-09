@@ -266,6 +266,29 @@ export const CacheAppendedEventSchema = z.strictObject({
 });
 
 /**
+ * A sublocation's wiki entry was written or extended (M6 part 2, Rev 4 §10):
+ * the World Agent's scene-end pass covers every NARRATOR-CREATED sublocation
+ * that participated in the scene (owner rule, week 9: created = gets a wiki;
+ * transient/mentioned-only places never do). Observable-now snapshots only —
+ * events and speech are never wiki material (source-typing rule). The wiki
+ * VIEW is a projection of these events (latest per sublocation wins; full
+ * history stays auditable — wiki writes carry provenance via scene_id).
+ * Emitted by: the world_agent job handler, atomically with
+ * world_agent.committed. Consumed by: future wiki surfaces (M6 part 3),
+ * scene context assembly.
+ */
+export const SubwikiUpdatedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('subwiki.updated'),
+  payload: z.strictObject({
+    sublocation_id: z.string().min(1),
+    /** Provenance: the scene whose end-pass wrote this entry. */
+    scene_id: z.string().min(1),
+    entry: z.string().min(1).max(4000),
+  }),
+});
+
+/**
  * The engine-owned fictional clock moved forward (a time skip). Appended
  * atomically with every world-cron occurrence row the skip made due (code-class
  * all enqueued; LLM-class capped by the per-skip budget — Brief §4). The
@@ -659,6 +682,7 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   ChatEndedEventSchema,
   ReflectChatCommittedEventSchema,
   CacheAppendedEventSchema,
+  SubwikiUpdatedEventSchema,
   SublocationChangedEventSchema,
   SublocationMaterializedEventSchema,
   SublocationCreatedEventSchema,
