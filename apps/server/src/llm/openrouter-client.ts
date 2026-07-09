@@ -1,7 +1,7 @@
 // The only file that touches the AI SDK + OpenRouter provider (fence A11).
 // Catches SDK exceptions at the edge and returns err(operational) — B-llm
 // boundary code never throws for provider failures (Guide C2).
-import { streamText, tool, type ToolSet } from 'ai';
+import { stepCountIs, streamText, tool, type ToolSet } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { z } from 'zod';
 import { err, ok, OperationalError, type Result } from '../errors.js';
@@ -9,8 +9,10 @@ import type { Logger } from '../observability/logger.js';
 import type { ModelRegistry } from './model-registry.js';
 import {
   ChangeSublocationToolSchema,
+  CreateSublocationToolSchema,
   EndSceneToolSchema,
   NARRATOR_TOOL_DESCRIPTIONS,
+  QuerySublocationsToolSchema,
   SwitchArtToolSchema,
   type RawToolCall,
 } from './tools.js';
@@ -32,7 +34,35 @@ const NARRATOR_TOOLS: ToolSet = {
     description: NARRATOR_TOOL_DESCRIPTIONS.switch_art,
     inputSchema: SwitchArtToolSchema,
   }),
+  create_sublocation: tool({
+    description: NARRATOR_TOOL_DESCRIPTIONS.create_sublocation,
+    inputSchema: CreateSublocationToolSchema,
+  }),
 };
+
+/**
+ * How many model steps a narrator call may take when queries are offered:
+ * query → (result) → maybe a refining query → (result) → the final step
+ * whose text + mutating tool calls the engine gates. Mutating tools carry no
+ * execute, so a step that calls one ends the loop regardless.
+ */
+const QUERY_STEP_LIMIT = 3;
+
+/** The narrator toolset, with query_sublocations wired to the engine's
+ * executor when the call offers one (queries run mid-call, Rev 4 §6 —
+ * mutations never get an execute: they come back as data for the B6 gates). */
+function narratorToolsFor(call: LlmCall): ToolSet {
+  if (call.queries === undefined) return NARRATOR_TOOLS;
+  const queries = call.queries;
+  return {
+    ...NARRATOR_TOOLS,
+    query_sublocations: tool({
+      description: NARRATOR_TOOL_DESCRIPTIONS.query_sublocations,
+      inputSchema: QuerySublocationsToolSchema,
+      execute: (input): string => queries.query_sublocations(input),
+    }),
+  };
+}
 
 export interface OpenRouterClientOptions {
   apiKey: string;
@@ -112,10 +142,18 @@ export function createOpenRouterClient(
           temperature: route.temperature,
           maxOutputTokens: route.maxOutputTokens,
           abortSignal: AbortSignal.timeout(timeoutMs),
-          // No execute functions: calls come back as data for the B6 gates —
-          // the SDK must never run a world mutation itself.
+          // Mutating tools carry no execute functions: their calls come back
+          // as data for the B6 gates — the SDK must never run a world
+          // mutation itself. Only the read-only query executor runs mid-call
+          // (multi-step), feeding its result back to the model.
           ...(call.toolset === 'narrator'
-            ? { tools: NARRATOR_TOOLS, toolChoice: 'auto' }
+            ? {
+                tools: narratorToolsFor(call),
+                toolChoice: 'auto' as const,
+                ...(call.queries === undefined
+                  ? {}
+                  : { stopWhen: stepCountIs(QUERY_STEP_LIMIT) }),
+              }
             : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable
@@ -140,15 +178,23 @@ export function createOpenRouterClient(
           );
         }
 
+        // Collect mutating tool calls across ALL steps (a query step may
+        // precede the step that creates/moves/ends): executed queries are
+        // filtered out — they already ran mid-call and are never staged.
         const toolCalls: RawToolCall[] =
           call.toolset === undefined
             ? []
-            : (await result.toolCalls).map((c) => ({
-                tool: c.toolName,
-                input: c.input,
-              }));
+            : (await result.steps)
+                .flatMap((step) => step.toolCalls)
+                .filter((c) => c.toolName !== 'query_sublocations')
+                .map((c) => ({
+                  tool: c.toolName,
+                  input: c.input,
+                }));
 
-        const usage = usageSchema.safeParse(await result.usage);
+        // totalUsage sums every step (a query round-trip is still one call's
+        // spend); identical to usage for the single-step case.
+        const usage = usageSchema.safeParse(await result.totalUsage);
         const metadata = metadataSchema.safeParse(
           await result.providerMetadata,
         );
