@@ -167,6 +167,45 @@ for (const event of events) {
       event.id,
     );
   }
+  // M6 part 2 (Weltari Chat): user/character messages are unique per
+  // (conversation, message_id) — duplicate sends and kill-retries never twin.
+  if (event.type === 'chat.message_committed') {
+    dupCheck(
+      'chat.message_committed',
+      `${payload.conversation_id}:${payload.message_id}`,
+      event.id,
+    );
+  }
+  // A conversation range closes at most once (chat.ended per range end)…
+  if (event.type === 'chat.ended') {
+    dupCheck(
+      'chat.ended',
+      `${payload.conversation_id}:${payload.range_end_id}`,
+      event.id,
+    );
+  }
+  // …and reflects at most once (the reflect_chat natural key).
+  if (event.type === 'reflect_chat.committed') {
+    dupCheck(
+      'reflect_chat.committed',
+      `${payload.conversation_id}:${payload.range_end_id}`,
+      event.id,
+    );
+  }
+}
+
+// 4h. Chat-end atomicity (M6 part 2, Rev 4 §8): a chat.ended commits in ONE
+//     transaction with its reflect_chat job — the event without the row is a
+//     torn transaction.
+for (const event of events) {
+  if (event.type !== 'chat.ended') continue;
+  const payload = JSON.parse(event.payload);
+  const key = `reflect_chat:${payload.conversation_id}:${payload.range_end_id}`;
+  if (jobKeyExists.get(key).n !== 1) {
+    failures.push(
+      `chat.ended ${payload.conversation_id}: missing job ${key} (torn transaction)`,
+    );
+  }
 }
 
 // 4g. Create-tool atomicity (M6 part 1, Rev 4 §6): a sublocation.stub_created
