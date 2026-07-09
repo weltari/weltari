@@ -68,9 +68,6 @@ export const QuerySublocationsToolSchema = z.strictObject({
   /** mode `search`: keyword matched against names and descriptions. */
   keyword: z.string().min(1).max(120).optional(),
 });
-export type QuerySublocationsToolInput = z.infer<
-  typeof QuerySublocationsToolSchema
->;
 
 /** change_sublocation — moves the scene backdrop (UI Spec §1.6). */
 export const ChangeSublocationToolSchema = z.strictObject({
