@@ -6,6 +6,7 @@
 // engine-side idempotency/state check, and only the committed event is durable.
 import { z } from 'zod';
 import { CorruptStateError, BugError } from '../../errors.js';
+import { capCacheLine } from '../../engine/cache.js';
 import type {
   CharacterProfile,
   TurnLine,
@@ -124,11 +125,34 @@ export function createReflectionHandler(
       );
       return;
     }
-    sink.append({
-      world_id: job.world_id,
-      actor_id: character_id,
-      type: 'reflection.committed',
-      payload: { scene_id, character_id, summary: result.value.text },
-    });
+    // The scene-origin CACHE line rides the SAME transaction (M6 part 2,
+    // Rev 4 §11 first slice): until the C-Module writes CACHE in-scene, the
+    // character's own reflection summary is its "just happened to me" pointer
+    // — character-authored, engine-wrapped, and chat catch-up reads it as the
+    // latest scene experience.
+    const cacheLine = capCacheLine(result.value.text);
+    sink.appendMany([
+      {
+        world_id: job.world_id,
+        actor_id: character_id,
+        type: 'reflection.committed',
+        payload: { scene_id, character_id, summary: result.value.text },
+      },
+      ...(cacheLine === undefined
+        ? []
+        : [
+            {
+              world_id: job.world_id,
+              actor_id: character_id,
+              type: 'cache.appended' as const,
+              payload: {
+                character_id,
+                origin: 'scene' as const,
+                context_id: scene_id,
+                line: cacheLine,
+              },
+            },
+          ]),
+    ]);
   };
 }

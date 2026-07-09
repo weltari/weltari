@@ -87,6 +87,28 @@ describe('reflection job handler', () => {
     }
   });
 
+  it('the scene-origin CACHE line rides the same commit, exactly once (M6 part 2, Rev 4 §11)', async () => {
+    const ctx = setup();
+    const job = jobWith({ scene_id: 's1', character_id: ELIAS.character_id });
+    await ctx.handler(job);
+    await ctx.handler(job); // retry: neither event may twin
+
+    const cacheEntries = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'cache.appended');
+    expect(cacheEntries).toHaveLength(1);
+    const entry = cacheEntries[0];
+    if (entry?.type === 'cache.appended') {
+      expect(entry.payload).toMatchObject({
+        character_id: ELIAS.character_id,
+        origin: 'scene',
+        context_id: 's1',
+      });
+      expect(entry.payload.line.length).toBeLessThanOrEqual(300);
+      expect(entry.actor_id).toBe(ELIAS.character_id);
+    }
+  });
+
   it('overlapping executions of ONE job commit exactly one event (lease-expiry overlap, week-7 painter class)', async () => {
     // A slow generation can outlive its lease: the sweep reclaims the job and
     // a second execution runs while the first still awaits the provider. A

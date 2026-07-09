@@ -8,6 +8,12 @@ import type { Storage } from '../storage/db.js';
 
 export interface EventSink {
   append(event: NewEvent): WeltariEvent;
+  /**
+   * Append several events in ONE WriteGate transaction — all durable or none
+   * (Brief §2.4); published after commit in append order (M6 part 2: a
+   * reflection and its CACHE line, a chat reply and its CACHE line).
+   */
+  appendMany(events: readonly NewEvent[]): WeltariEvent[];
 }
 
 export function createEventSink(
@@ -18,6 +24,16 @@ export function createEventSink(
     append(event: NewEvent): WeltariEvent {
       const persisted = storage.eventLog.append(event);
       eventBus.publish(persisted);
+      return persisted;
+    },
+    appendMany(events: readonly NewEvent[]): WeltariEvent[] {
+      const persisted: WeltariEvent[] = [];
+      storage.transact(() => {
+        for (const event of events) {
+          persisted.push(storage.eventLog.append(event));
+        }
+      });
+      for (const event of persisted) eventBus.publish(event);
       return persisted;
     },
   };
