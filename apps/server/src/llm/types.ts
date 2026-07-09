@@ -44,6 +44,16 @@ export interface LlmCall {
   queries?: {
     query_sublocations: (input: unknown) => string;
   };
+  /**
+   * Engine-owned gate executor (M6 part 2). When offered, the client runs
+   * BOTH B6 gates on each mutating tool call DURING the call (multi-step) and
+   * feeds the result string back to the model: a staged-acknowledgement, or
+   * the refusal reason as a tool ERROR the model can self-correct against in
+   * the same turn (the week-9 trail-only-rejection upgrade). Staging stays
+   * in-memory — nothing durable happens before turn.committed (Guide B6).
+   * Calls gated mid-call are NOT returned in LlmCallResult.toolCalls.
+   */
+  gate?: (raw: RawToolCall) => string;
 }
 
 export interface LlmUsage {
