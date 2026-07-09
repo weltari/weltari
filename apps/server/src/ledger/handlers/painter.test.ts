@@ -11,7 +11,11 @@ import { createRootLogger } from '../../observability/logger.js';
 import type { GeneratedTile, ImageSource } from '../../painter/image-source.js';
 import { openStorage, type Storage } from '../../storage/db.js';
 import type { LedgerJob } from '../../storage/repositories/ledger.js';
-import { createPainterHandler, tilePromptFor } from './painter.js';
+import {
+  backdropPromptFor,
+  createPainterHandler,
+  tilePromptFor,
+} from './painter.js';
 
 function quietLogger(): ReturnType<typeof createRootLogger> {
   const sink = new Writable({
@@ -280,5 +284,97 @@ describe('painter job handler', () => {
     });
     expect(prompt).toContain('The Mill Pond');
     expect(prompt).toContain('moss-covered wheel');
+  });
+
+  function appendStub(s: Storage, parentId?: string): void {
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'sublocation.stub_created',
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-the-inn-kitchen',
+        name: 'The Inn Kitchen',
+        description: 'Steam and copper pots behind the common room.',
+        ...(parentId === undefined ? {} : { parent_id: parentId }),
+      },
+    });
+  }
+
+  it('backdropPromptFor: the stub´s identity + its parent flavor the VN-stage prompt (M6 part 1)', () => {
+    const ctx = setup();
+    appendStub(ctx.storage, 'subloc:common_room');
+    const prompt = backdropPromptFor(
+      ctx.storage,
+      'w1',
+      'backdrop:subloc:stub-the-inn-kitchen',
+    );
+    expect(prompt).toContain('visual-novel background');
+    expect(prompt).toContain('The Inn Kitchen');
+    expect(prompt).toContain('copper pots');
+    expect(prompt).toContain('The Common Room'); // the parent's coherence line
+    expect(prompt).toContain('no people');
+  });
+
+  it('a backdrop job paints its own image class: full-region, backdrop prompt, NO map context — even chained', async () => {
+    const requests: { prompt: string; hasContext: boolean }[] = [];
+    const recordingSource: ImageSource = {
+      name: 'recording',
+      async generateTile(request): Promise<GeneratedTile> {
+        requests.push({
+          prompt: request.prompt,
+          hasContext: request.context !== undefined,
+        });
+        // A saturated color: without the backdrop kind, the SECOND paint
+        // would see this chroma and build a map-context window.
+        return {
+          image: await sharp({
+            create: {
+              width: 64,
+              height: 64,
+              channels: 3,
+              background: { r: 200, g: 40, b: 40 },
+            },
+          })
+            .png()
+            .toBuffer(),
+          coverage: 'region',
+        };
+      },
+    };
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-backdrop-'));
+    const logger = quietLogger();
+    const local = openStorage({ dbPath: join(dir, 'w.sqlite') });
+    appendStub(local);
+    const handler = createPainterHandler({
+      storage: local,
+      sink: createEventSink(local, new Bus(logger)),
+      imagesDir: join(dir, 'images'),
+      logger,
+      imageSource: recordingSource,
+    });
+    const payload = {
+      image_id: 'backdrop:subloc:stub-the-inn-kitchen',
+      region: { x: 0, y: 0, width: 512, height: 512 },
+    };
+    await handler(
+      jobWith(payload, 'painter:backdrop:subloc:stub-the-inn-kitchen:initial'),
+    );
+    await handler(
+      jobWith(payload, 'painter:backdrop:subloc:stub-the-inn-kitchen:retry2'),
+    );
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.prompt).toContain('visual-novel background');
+      expect(request.prompt).toContain('The Inn Kitchen');
+      // The map's coherence window never applies to a backdrop — not even
+      // when chaining onto an already-painted (chromatic) composite.
+      expect(request.hasContext).toBe(false);
+    }
+    const completed = local.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'painter.completed');
+    expect(completed).toHaveLength(2);
+    local.close();
   });
 });

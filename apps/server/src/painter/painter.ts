@@ -56,6 +56,13 @@ export interface PaintSpec {
    * model painted there. Absent = the whole region composites (fog reveals).
    */
   mask?: readonly MaskPoint[];
+  /**
+   * `backdrop` (M6 part 1): a scene backdrop in its own coordinate space —
+   * plain text-to-image generation, never a map continuation: no context
+   * window is built (the map-crop framings would mislead the model), no
+   * red-outline marker, whole-region composite. Absent = a map paint.
+   */
+  kind?: 'backdrop';
 }
 
 export interface PaintResult {
@@ -298,19 +305,23 @@ export async function compositeRegion(spec: PaintSpec): Promise<PaintResult> {
       .png()
       .toBuffer();
   }
-  const context: TileContext | undefined = hasPaintedNeighbor
-    ? {
-        window: windowPng,
-        target: {
-          x: region.x - wx,
-          y: region.y - wy,
-          width: region.width,
-          height: region.height,
-        },
-        width: windowWidth,
-        height: windowHeight,
-      }
-    : undefined;
+  // Backdrops are their own coordinate space (Rev 4 §14 Flow B step 4): the
+  // map's coherence window has nothing to continue from, and its aerial
+  // framings would actively mislead — always generate from the prompt alone.
+  const context: TileContext | undefined =
+    hasPaintedNeighbor && spec.kind !== 'backdrop'
+      ? {
+          window: windowPng,
+          target: {
+            x: region.x - wx,
+            y: region.y - wy,
+            width: region.width,
+            height: region.height,
+          },
+          width: windowWidth,
+          height: windowHeight,
+        }
+      : undefined;
 
   const generated = await source.generateTile({
     jobKey,

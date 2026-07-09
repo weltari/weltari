@@ -41,7 +41,8 @@ import {
   FIXTURE_START_SUBLOCATION_ID,
   type SublocationDefinition,
 } from './fixture/rainy-inn.js';
-import { knownSublocations } from './sublocations.js';
+import { knownSublocations, latestBackdropPath } from './sublocations.js';
+import { enqueueBackdropPaint } from '../painter/commands.js';
 import type { FaultPointHook } from './fault-points.js';
 import {
   appendSceneEndWithFanOut,
@@ -83,6 +84,10 @@ export interface TurnEngineOptions {
   artSets?: ReadonlyMap<string, readonly string[]>;
   /** Characters present in the scene (fixture default). */
   presentCharacterIds?: readonly string[];
+  /** Drain the ledger now — a committed create's backdrop/materialize jobs
+   * start on the spot instead of waiting out the runner's 1 s poll (the
+   * same immediacy explore/map-edit get). Absent in tests: they tick. */
+  kickRunner?: () => void;
 }
 
 export interface TurnEngine {
@@ -278,7 +283,25 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       onTextDelta: (delta) => {
         splitter.push(delta);
       },
-      ...(plan.toolset === undefined ? {} : { toolset: plan.toolset }),
+      ...(plan.toolset === undefined
+        ? {}
+        : {
+            toolset: plan.toolset,
+            // The read-only query executor (Rev 4 §6): runs mid-call, feeds
+            // its result back to the model, arms the stage's query-first
+            // flag — and leaves a dev-trail frame like any tool call (C11).
+            queries: {
+              query_sublocations: (input: unknown): string => {
+                devBus.publish({
+                  type: 'dev.tool_call',
+                  turn_id: turnId,
+                  tool: 'query_sublocations',
+                  input_json: JSON.stringify(input),
+                });
+                return turn.stage.querySublocations(input);
+              },
+            },
+          }),
     });
     if (!result.ok) return result;
     splitter.flush();
@@ -413,8 +436,25 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         await faultPoint('pre_commit');
         if (turn.interrupted || turn.closed) return;
 
+        // A parentless create's materialize anchor: the sublocation the
+        // creating scene was in (Rev 4 §14's default) — resolved before the
+        // commit so the payload is durable and replay-stable.
+        const anchorPosition = ((): { x: number; y: number } => {
+          const currentId = currentSublocationId(
+            storage,
+            command.scene_id,
+            startSublocationId,
+          );
+          return (
+            worldSublocations(command.world_id).find(
+              (s) => s.sublocation_id === currentId,
+            )?.map_position ?? { x: 0.5, y: 0.5 }
+          );
+        })();
+
         // One WriteGate transaction: the turn text, every staged tool effect
-        // and (when end_scene staged) scene.ended + its fan-out jobs commit or
+        // (incl. created stubs + their backdrop/materialize job rows) and
+        // (when end_scene staged) scene.ended + its fan-out jobs commit or
         // vanish together (Brief §2.4). Publish only after commit.
         const appended: WeltariEvent[] = [];
         storage.transact(() => {
@@ -428,6 +468,13 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
           );
           for (const effect of stage.staged()) {
             if (effect.kind === 'sublocation') {
+              // The current backdrop rides along when its paint already
+              // landed (UI Spec §1.6) — absent means the client's themed
+              // placeholder until painter.completed arrives live.
+              const backdropPath = latestBackdropPath(
+                storage,
+                effect.sublocationId,
+              );
               appended.push(
                 storage.eventLog.append({
                   world_id: command.world_id,
@@ -437,7 +484,12 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                     scene_id: command.scene_id,
                     sublocation_id: effect.sublocationId,
                     name: effect.name,
-                    map_position: effect.mapPosition,
+                    ...(effect.mapPosition === undefined
+                      ? {}
+                      : { map_position: effect.mapPosition }),
+                    ...(backdropPath === undefined
+                      ? {}
+                      : { backdrop_path: backdropPath }),
                   },
                 }),
               );
@@ -454,6 +506,45 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                   },
                 }),
               );
+            } else if (effect.kind === 'create') {
+              // The identity stub (Rev 4 §6: creation is hot) + its backdrop
+              // job in the SAME transaction; parentless stubs also enqueue
+              // their eager materialization (map presence is cold).
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: narrator.character_id,
+                  type: 'sublocation.stub_created',
+                  payload: {
+                    scene_id: command.scene_id,
+                    sublocation_id: effect.sublocationId,
+                    name: effect.name,
+                    description: effect.brief,
+                    ...(effect.parentId === undefined
+                      ? {}
+                      : { parent_id: effect.parentId }),
+                    ...(effect.narrativeAnchor === undefined
+                      ? {}
+                      : { narrative_anchor: effect.narrativeAnchor }),
+                  },
+                }),
+              );
+              enqueueBackdropPaint(
+                storage,
+                command.world_id,
+                effect.sublocationId,
+              );
+              if (effect.parentId === undefined) {
+                storage.ledger.enqueue({
+                  idempotency_key: `materialize:stub:${effect.sublocationId}`,
+                  world_id: command.world_id,
+                  type: 'materialize',
+                  payload: {
+                    stub_sublocation_id: effect.sublocationId,
+                    anchor: anchorPosition,
+                  },
+                });
+              }
             }
             // end_scene is appended LAST so clients see the turn + moves first.
           }
@@ -467,12 +558,27 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
               ...(end.dividerText === undefined
                 ? {}
                 : { divider_text: end.dividerText }),
+              ...(end.nextScene === undefined
+                ? {}
+                : {
+                    next_scene: {
+                      sublocation_id: end.nextScene.sublocationId,
+                      ...(end.nextScene.premiseSeed === undefined
+                        ? {}
+                        : { premise_seed: end.nextScene.premiseSeed }),
+                    },
+                  }),
             });
             appended.push(core.event);
           }
         });
         turn.closed = true;
         for (const event of appended) eventBus.publish(event);
+        // The backdrop fires immediately (Rev 4 §6) — start it now, not at
+        // the runner's next poll.
+        if (stage.staged().some((effect) => effect.kind === 'create')) {
+          options.kickRunner?.();
+        }
       })().finally(() => {
         running.delete(turnId);
       });

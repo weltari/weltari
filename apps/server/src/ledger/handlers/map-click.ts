@@ -126,6 +126,8 @@ export function createMapClickHandler(
     const at = squareOf(point);
     const anchors = knownSublocations(storage, job.world_id)
       .filter((s) => {
+        // Interiors/unmaterialized stubs have no map presence — never anchors.
+        if (s.map_position === undefined) return false;
         const sq = squareOf(s.map_position);
         return Math.abs(sq.col - at.col) <= 1 && Math.abs(sq.row - at.row) <= 1;
       })

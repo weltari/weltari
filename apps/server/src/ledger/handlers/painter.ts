@@ -99,7 +99,8 @@ export function tilePromptFor(
       return `${style} Uncharted wilderness at the map frontier.`;
     }
     const here = knownSublocations(storage, worldId).find((s) => {
-      if (s.footprint === undefined) return false;
+      if (s.footprint === undefined || s.map_position === undefined)
+        return false;
       const px = s.map_position.x * BASE_IMAGE_SIZE;
       const py = s.map_position.y * BASE_IMAGE_SIZE;
       return (
@@ -109,13 +110,14 @@ export function tilePromptFor(
         py < region.y + region.height
       );
     });
-    if (here === undefined) {
+    if (here?.map_position === undefined) {
       return `${style} Uncharted wilderness at the map frontier.`;
     }
     const at = squareOf(here.map_position);
     const near = knownSublocations(storage, worldId)
       .filter((s) => {
         if (s.sublocation_id === here.sublocation_id) return false;
+        if (s.map_position === undefined) return false;
         const sq = squareOf(s.map_position);
         return Math.abs(sq.col - at.col) <= 1 && Math.abs(sq.row - at.row) <= 1;
       })
@@ -137,6 +139,7 @@ export function tilePromptFor(
   const neighbors = knownSublocations(storage, worldId)
     .filter((s) => {
       if (s.sublocation_id === here.sublocation_id) return false;
+      if (s.map_position === undefined) return false;
       const at = squareOf(s.map_position);
       return (
         Math.abs(at.col - square.col) <= 1 && Math.abs(at.row - square.row) <= 1
@@ -148,6 +151,44 @@ export function tilePromptFor(
       ? ''
       : ` It borders these areas of the same map: ${neighbors.join(', ')} — blend naturally toward them at the edges.`;
   return `${style} The area being revealed contains: ${here.name} — ${here.description}${neighborLine}`;
+}
+
+/**
+ * The backdrop prompt (M6 part 1, Rev 4 §6: one sublocation = one backdrop
+ * image). Derived from the DB at paint time like every tile prompt — the
+ * created stub (or any registry entry) supplies the flavor; an interior also
+ * names its exterior-atomic parent for coherence. The style block is the
+ * backdrop counterpart of the map's style bible: eye-level VN stage, no
+ * people, no text — the week-7/8 iterate-by-looking loop starts from v1 here.
+ */
+export function backdropPromptFor(
+  storage: Storage,
+  worldId: string,
+  imageId: string,
+): string {
+  const style =
+    'A visual-novel background illustration seen from eye level, as if ' +
+    'standing inside the scene: hand-painted, soft ambient light, muted ' +
+    'earthy palette of moss green, ochre, slate grey and warm lamplight — ' +
+    'the same rainy storybook world as its map. An EMPTY stage awaiting its ' +
+    'actors: no people, no characters, no animals, no text, no labels, no ' +
+    'UI, no frame, no border. The scene fills the canvas edge-to-edge with ' +
+    'a calm, uncluttered lower third where dialogue panels will sit.';
+  const sublocationId = imageId.slice('backdrop:'.length);
+  const known = knownSublocations(storage, worldId);
+  const here = known.find((s) => s.sublocation_id === sublocationId);
+  if (here === undefined) {
+    return `${style} A quiet, half-lit interior whose story has not begun.`;
+  }
+  const parent =
+    here.parent_id === undefined
+      ? undefined
+      : known.find((s) => s.sublocation_id === here.parent_id);
+  const parentLine =
+    parent === undefined
+      ? ''
+      : ` It lies inside ${parent.name} — ${parent.description}`;
+  return `${style} The place: ${here.name} — ${here.description}${parentLine}`;
 }
 
 export interface PainterHandlerOptions {
@@ -202,6 +243,7 @@ export function createPainterHandler(
         ? await ensureBaseImage(imagesDir, image_id)
         : join(imagesDir, currentPath);
 
+    const isBackdrop = image_id.startsWith('backdrop:');
     const result = await compositeRegion({
       imageId: image_id,
       region,
@@ -212,7 +254,10 @@ export function createPainterHandler(
         ? {}
         : { source: options.imageSource }),
       ...(mask === undefined ? {} : { mask }),
-      prompt: tilePromptFor(storage, job.world_id, image_id, region),
+      ...(isBackdrop ? { kind: 'backdrop' as const } : {}),
+      prompt: isBackdrop
+        ? backdropPromptFor(storage, job.world_id, image_id)
+        : tilePromptFor(storage, job.world_id, image_id, region),
     });
 
     // The nastiest kill window: the composited file exists, the event does not.

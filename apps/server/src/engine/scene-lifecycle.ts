@@ -14,7 +14,7 @@ import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { EventBus } from '../http/bus.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
-import { knownSublocations } from './sublocations.js';
+import { knownSublocations, latestBackdropPath } from './sublocations.js';
 
 export interface KnownCharacter {
   character_id: string;
@@ -70,6 +70,10 @@ export interface SceneEndRequest {
   /** Present on Narrator end_scene tool closes; absent on the bare HTTP command. */
   end_type?: 'rest' | 'continuation' | 'travel';
   divider_text?: string;
+  /** The continuation registration (M6 part 1): where "Jump to the next
+   * scene" opens. Present exactly when end_type is `continuation` — the
+   * tool stage gates that; the bare HTTP command never carries it. */
+  next_scene?: { sublocation_id: string; premise_seed?: string };
 }
 
 /**
@@ -103,6 +107,9 @@ export function appendSceneEndWithFanOut(
       ...(request.divider_text === undefined
         ? {}
         : { divider_text: request.divider_text }),
+      ...(request.next_scene === undefined
+        ? {}
+        : { next_scene: request.next_scene }),
     },
   });
   for (const characterId of participants) {
@@ -248,7 +255,13 @@ export function createSceneLifecycle(
         }
         // The scene opens AT the named sublocation: the backdrop move is part
         // of the same transaction, so a kill leaves no scene stranded halfway.
+        // Stubs open too (M6 part 1 — that is the "Jump to the next scene"
+        // payoff): position-less until materialized, backdrop when painted.
         if (openAt !== undefined) {
+          const backdropPath = latestBackdropPath(
+            storage,
+            openAt.sublocation_id,
+          );
           events.push(
             storage.eventLog.append({
               world_id: command.world_id,
@@ -258,7 +271,12 @@ export function createSceneLifecycle(
                 scene_id: command.scene_id,
                 sublocation_id: openAt.sublocation_id,
                 name: openAt.name,
-                map_position: openAt.map_position,
+                ...(openAt.map_position === undefined
+                  ? {}
+                  : { map_position: openAt.map_position }),
+                ...(backdropPath === undefined
+                  ? {}
+                  : { backdrop_path: backdropPath }),
               },
             }),
           );

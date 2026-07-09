@@ -68,6 +68,32 @@ export function enqueueSquarePaint(
   });
 }
 
+/**
+ * THE backdrop paint job for one sublocation (M6 part 1, Rev 4 §6: the
+ * backdrop-image job fires immediately at creation). Deterministic key per
+ * sublocation, so the create tool's commit, any retry and any heal path
+ * converge on one job — the ledger dedupes forever. Its own image id
+ * (`backdrop:<sublocation_id>`) = its own lease: backdrops never contend
+ * with the world map's paint chain, and interiors never touch the map.
+ */
+export function enqueueBackdropPaint(
+  storage: Storage,
+  worldId: string,
+  sublocationId: string,
+): void {
+  const imageId = `backdrop:${sublocationId}`;
+  storage.ledger.enqueue({
+    idempotency_key: `painter:${imageId}:initial`,
+    world_id: worldId,
+    type: 'painter',
+    payload: {
+      image_id: imageId,
+      region: { x: 0, y: 0, width: BASE_IMAGE_SIZE, height: BASE_IMAGE_SIZE },
+    },
+    serial_group: `painter:${imageId}`,
+  });
+}
+
 /** The VLM's view of a Flow-B click: a two-square window centered on the
  * click, clamped to the canvas (painter-owned geometry, Rev 4 §14). */
 export function clickWindow(point: MapPosition): ImageRegion {
