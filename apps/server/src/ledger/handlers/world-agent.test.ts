@@ -115,4 +115,105 @@ describe('world agent job handler', () => {
       kind: 'corrupt_state',
     });
   });
+
+  it('the subwiki pass (Rev 4 §10): one entry per participating Narrator stub, exactly once', async () => {
+    const ctx = setup();
+    // A stub created IN the scene, one visited by the scene (created
+    // earlier), one unrelated stub, and a transient Flow-B discovery —
+    // owner rule: only the first two get wiki entries.
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'sublocation.stub_created',
+      payload: {
+        scene_id: 's0',
+        sublocation_id: 'subloc:stub-the-drying-loft',
+        name: 'the drying loft',
+        description: 'Hooks and hams under the rafters.',
+      },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'sublocation.stub_created',
+      payload: {
+        scene_id: 's0',
+        sublocation_id: 'subloc:stub-the-mill-yard',
+        name: 'the mill yard',
+        description: 'Wet cobbles behind the mill.',
+      },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'sublocation.stub_created',
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-the-smokehouse',
+        name: 'the smokehouse',
+        description: 'Fish and hams in the smoke.',
+      },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'sublocation.changed',
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-the-drying-loft',
+        name: 'the drying loft',
+      },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'map_click.resolved',
+      payload: {
+        click_id: 'c1',
+        point: { x: 0.2, y: 0.2 },
+        outcome: 'transient',
+        name: 'a heron in the reeds',
+        description: 'It resolves and vanishes.',
+      },
+    });
+
+    const job = jobWith({ scene_id: 's1' });
+    await ctx.handler(job);
+    await ctx.handler(job); // kill-retry: nothing may twin
+
+    const entries = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'subwiki.updated');
+    expect(entries.map((e) => e.payload.sublocation_id).sort()).toEqual([
+      'subloc:stub-the-drying-loft',
+      'subloc:stub-the-smokehouse',
+    ]);
+    for (const entry of entries) {
+      expect(entry.payload.scene_id).toBe('s1');
+      expect(entry.payload.entry.length).toBeGreaterThan(0);
+      expect(entry.actor_id).toBe('system:world_agent');
+    }
+    // The mill-yard stub never participated; the transient never could.
+    expect(
+      entries.some(
+        (e) => e.payload.sublocation_id === 'subloc:stub-the-mill-yard',
+      ),
+    ).toBe(false);
+    // The pass is one transaction with world_agent.committed.
+    expect(
+      ctx.storage.eventLog
+        .readSince(0)
+        .filter((e) => e.type === 'world_agent.committed'),
+    ).toHaveLength(1);
+  });
+
+  it('a scene with no participating stubs writes no subwiki entries', async () => {
+    const ctx = setup();
+    await ctx.handler(jobWith({ scene_id: 's1' }));
+    expect(
+      ctx.storage.eventLog
+        .readSince(0)
+        .some((e) => e.type === 'subwiki.updated'),
+    ).toBe(false);
+  });
 });

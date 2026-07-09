@@ -35,7 +35,9 @@
  * cache.appended events (DMs on the ONE event stream; the CACHE store is a
  * projection); send-chat-message / exit-chat / start-scene-from-chat
  * commands (the startscene() bridge); scene.started optional premise +
- * place_request (the chat→scene handoff surface).
+ * place_request (the chat→scene handoff surface); subwiki.updated event
+ * (Rev 4 §10: the World Agent's scene-end pass writes wiki entries for
+ * Narrator-created sublocations that participated — transient places never).
  */
 export const PROTOCOL_VERSION = '0.11.0';
 
@@ -66,6 +68,7 @@ export {
   SublocationCreatedEventSchema,
   SublocationMaterializedEventSchema,
   SublocationStubCreatedEventSchema,
+  SubwikiUpdatedEventSchema,
   TurnCommittedEventSchema,
   TurnStartedEventSchema,
   TurnStepSchema,

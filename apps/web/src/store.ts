@@ -504,6 +504,7 @@ function applyOne(
     case 'map_edit.requested':
     case 'reflect_chat.committed':
     case 'cache.appended':
+    case 'subwiki.updated': // the Wiki surface arrives with M6 part 3
       return;
   }
 }

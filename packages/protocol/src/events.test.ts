@@ -126,6 +126,40 @@ describe('chat event family (0.11.0, Rev 4 §8/§11)', () => {
     expect(WeltariEventSchema.safeParse(oversized).success).toBe(false);
   });
 
+  it('accepts subwiki.updated and rejects an oversized entry or extra key (B5)', () => {
+    const valid: unknown = {
+      ...envelope,
+      type: 'subwiki.updated',
+      payload: {
+        sublocation_id: 'subloc:stub-the-smokehouse',
+        scene_id: 's1',
+        entry: 'Hooks of fish and hams hang in cool smoke; the firepit glows.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const oversized: unknown = {
+      ...envelope,
+      type: 'subwiki.updated',
+      payload: {
+        sublocation_id: 's',
+        scene_id: 's1',
+        entry: 'x'.repeat(4001),
+      },
+    };
+    expect(WeltariEventSchema.safeParse(oversized).success).toBe(false);
+    const extra: unknown = {
+      ...envelope,
+      type: 'subwiki.updated',
+      payload: {
+        sublocation_id: 's',
+        scene_id: 's1',
+        entry: 'ok',
+        secret: true,
+      },
+    };
+    expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
+  });
+
   it('scene.started accepts the 0.11.0 premise + place_request handoff fields', () => {
     const started: unknown = {
       ...envelope,
