@@ -14,7 +14,11 @@ export type CallKind =
   /** M5 part 2: the Flow-A GM form (drawn region + intent → name/description). */
   | 'map_edit'
   /** M5 part 2: the Flow-B story invention inside a VLM classification. */
-  | 'jump_in';
+  | 'jump_in'
+  /** M6 part 2: a Weltari Chat DM reply (Rev 4 §8) — short context, chat toolset. */
+  | 'chat'
+  /** M6 part 2: the reflect_chat pass over an ended conversation range. */
+  | 'reflect_chat';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */
@@ -29,10 +33,12 @@ export interface LlmCall {
   onTextDelta: (delta: string) => void;
   /**
    * Offer a toolset to the model ('narrator' = end_scene / change_sublocation
-   * / switch_art / create_sublocation / query_sublocations). Returned calls
-   * are RAW — the caller must run both B6 gates.
+   * / switch_art / create_sublocation / query_sublocations; 'chat' = the
+   * character-side messaging tools, M6 part 2: cache — data-only, never
+   * executed by the SDK). Returned calls are RAW — the caller must run both
+   * B6 gates.
    */
-  toolset?: 'narrator';
+  toolset?: 'narrator' | 'chat';
   /**
    * Engine-owned read-only query executors offered alongside the toolset
    * (M6 part 1, Rev 4 §6). The client runs these DURING the call and feeds

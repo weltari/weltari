@@ -107,6 +107,26 @@ export const NARRATOR_TOOL_DESCRIPTIONS: Record<NarratorToolName, string> = {
     'Look up existing sublocations before creating or moving. mode "parentless" lists every exterior-atomic place (REQUIRED before any parentless create_sublocation); mode "children" lists the interiors under parent_id; mode "search" matches keyword against names and descriptions. The result returns to you immediately.',
 };
 
+/**
+ * cache — the character's mandatory 1–2 line private recap after every chat
+ * reply (M6 part 2, Rev 4 §11: CACHE is written every trigger; the character
+ * authors ONLY the one-liner — every structured field is engine-written).
+ * Data-only: the chat engine gates and appends it, never the SDK.
+ */
+export const CacheToolSchema = z.strictObject({
+  line: z.string().min(1).max(300),
+});
+export type CacheToolInput = z.infer<typeof CacheToolSchema>;
+
+export const CHAT_TOOL_NAMES = ['cache'] as const;
+export type ChatToolName = (typeof CHAT_TOOL_NAMES)[number];
+
+/** Static descriptions for the chat toolset (stable strings — never state). */
+export const CHAT_TOOL_DESCRIPTIONS: Record<ChatToolName, string> = {
+  cache:
+    'REQUIRED after every reply: record a private 1-2 line recap of what just happened in this conversation, in your own words ("line"). This is your own short-term memory pointer — nobody else reads it.',
+};
+
 /** A tool call as the provider (or the fake) returned it — unvalidated. */
 export interface RawToolCall {
   tool: string;
@@ -200,6 +220,42 @@ export function parseToolCall(
           'unknown_tool',
           `no such narrator tool: ${raw.tool}`,
         ),
+      );
+  }
+}
+
+/** A chat tool call that passed gate 1 (shape). Gate 2 (state) still applies. */
+export interface ValidatedCacheToolCall {
+  tool: 'cache';
+  input: CacheToolInput;
+}
+/** Grows into a union as the chat toolset does (startscene arrives with the bridge). */
+export type ValidatedChatToolCall = ValidatedCacheToolCall;
+
+/**
+ * Gate 1 for the chat toolset (M6 part 2): shape-validate one raw call from a
+ * chat reply. Same contract as parseToolCall — reject as a value, zero rows.
+ */
+export function parseChatToolCall(
+  raw: RawToolCall,
+  logger: Logger,
+): Result<ValidatedChatToolCall> {
+  switch (raw.tool) {
+    case 'cache': {
+      const input = validateAt(
+        'llm',
+        'tool:cache',
+        CacheToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'cache', input: input.value } }
+        : input;
+    }
+    default:
+      return err(
+        new OperationalError('unknown_tool', `no such chat tool: ${raw.tool}`),
       );
   }
 }

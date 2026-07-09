@@ -36,6 +36,10 @@ const envSchema = z.object({
   /** Job lease length. The kill harness shortens it so a killed-mid-job lease
    * expires (and the sweep reclaims the job) within one harness cycle. */
   WELTARI_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
+  /** Chat idle timeout in minutes (Rev 4 §8; owner default 30, 2026-07-09):
+   * an untouched conversation range closes and its reflect_chat enqueues.
+   * Demos/harness set fractions (0.05 = 3 s) — the sweep works in ms. */
+  WELTARI_CHAT_IDLE_MINUTES: z.coerce.number().positive().default(30),
   /** Image pixels live as files here; rows/events hold path + hash (Brief §1). */
   WELTARI_IMAGES_DIR: z.string().min(1).default('data/images'),
   /** Painter tile source. 'stub' (default) = deterministic, free, offline —
@@ -105,6 +109,7 @@ export interface Env {
   prefixTokens: number;
   faultPauseMs: number;
   leaseSeconds: number;
+  chatIdleMinutes: number;
   imagesDir: string;
   imageBackend: 'stub' | 'openrouter';
   imageModel: string;
@@ -161,6 +166,7 @@ export function readEnv(
       prefixTokens: parsed.data.WELTARI_PREFIX_TOKENS,
       faultPauseMs: parsed.data.WELTARI_FAULT_PAUSE_MS,
       leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
+      chatIdleMinutes: parsed.data.WELTARI_CHAT_IDLE_MINUTES,
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
       imageBackend: parsed.data.WELTARI_IMAGE_BACKEND,
       imageModel: parsed.data.WELTARI_IMAGE_MODEL,

@@ -27,6 +27,8 @@ export interface TurnLine {
 
 export interface SceneContext {
   scene_id: string;
+  /** Tail heading label (default `Scene`; chat contexts pass `Conversation`). */
+  heading?: string;
   /** Rendered fictional time (engine-owned world clock) — dynamic, tail-only. */
   world_clock_text: string;
   /** Recent transcript — external-influenced, tail-only. */
@@ -35,6 +37,12 @@ export interface SceneContext {
   user_input?: string;
   /** Wiki excerpts — external, tail-only, delimiter-wrapped (B14 hostile fixture). */
   wiki: readonly string[];
+  /**
+   * The latest-per-origin CACHE recap (M6 part 2, Rev 4 §11) — re-read FRESH
+   * for every call. Character-authored text re-entering a prompt is data,
+   * so it rides the tail delimiter-wrapped like any external block (B14).
+   */
+  cache_recap?: string;
 }
 
 export interface AssembledContext {
@@ -76,9 +84,12 @@ export function assembleContext(
   ].join('\n');
 
   const tailParts: string[] = [
-    `## Scene ${scene.scene_id}`,
+    `## ${scene.heading ?? 'Scene'} ${scene.scene_id}`,
     `World clock: ${scene.world_clock_text}`,
   ];
+  if (scene.cache_recap !== undefined && scene.cache_recap !== '') {
+    tailParts.push(externalBlock('cache', scene.cache_recap));
+  }
   if (scene.wiki.length > 0) {
     tailParts.push(externalBlock('wiki', scene.wiki.join('\n')));
   }

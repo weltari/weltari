@@ -212,6 +212,26 @@ describe('HTTP layer (SSE + commands)', () => {
         command.version === 'disabled'
           ? err(new OperationalError('updates_disabled', 'no key'))
           : ok({ jobKey: `update_apply:${command.version}` }),
+      // Weltari Chat stubs (M6 part 2): 'char:ghost' exercises the 409 path;
+      // 'char:busy' exercises the offline (in_scene) presence answer.
+      sendChatMessage: (command) =>
+        command.character_id === 'char:ghost'
+          ? err(new OperationalError('unknown_character', 'no such character'))
+          : ok({
+              conversationId: `chat:${command.actor_id}:${command.character_id}`,
+              messageId: command.request_id,
+              replying: command.character_id !== 'char:busy',
+              presence:
+                command.character_id === 'char:busy' ? 'in_scene' : 'available',
+            }),
+      exitChat: (command) =>
+        command.character_id === 'char:ghost'
+          ? err(new OperationalError('unknown_character', 'no such character'))
+          : ok({
+              conversationId: `chat:${command.actor_id}:${command.character_id}`,
+              ended: true,
+              jobKey: 'reflect_chat:c1:9',
+            }),
       heartbeatMs: 60000,
     });
     // Windows: listen({port: 0}) draws from the ephemeral range (49152+),
@@ -294,6 +314,94 @@ describe('HTTP layer (SSE + commands)', () => {
     expect(await rejected.json()).toEqual({
       accepted: false,
       error: 'updates_disabled',
+    });
+  });
+
+  it('send-chat-message -> 202 with the presence answer; unknown character -> 409', async () => {
+    const ctx = await setup();
+    const replying = await fetchRetry(
+      `${ctx.baseUrl}/v1/commands/send-chat-message`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          character_id: 'char:elias',
+          text: 'Evening, Elias.',
+          request_id: 'm-1',
+        }),
+      },
+    );
+    expect(replying.status).toBe(202);
+    expect(await replying.json()).toEqual({
+      accepted: true,
+      conversation_id: 'chat:user:owner:char:elias',
+      message_id: 'm-1',
+      replying: true,
+      presence: 'available',
+    });
+
+    // The presence rule (UI Spec §2.4): in_scene = offline, no reply coming.
+    const offline = await fetchRetry(
+      `${ctx.baseUrl}/v1/commands/send-chat-message`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          character_id: 'char:busy',
+          text: 'You there?',
+          request_id: 'm-2',
+        }),
+      },
+    );
+    expect(offline.status).toBe(202);
+    const offlineBody: unknown = await offline.json();
+    expect(offlineBody).toMatchObject({
+      replying: false,
+      presence: 'in_scene',
+    });
+
+    const rejected = await fetchRetry(
+      `${ctx.baseUrl}/v1/commands/send-chat-message`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          character_id: 'char:ghost',
+          text: 'Hello?',
+          request_id: 'm-3',
+        }),
+      },
+    );
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toEqual({
+      accepted: false,
+      error: 'unknown_character',
+    });
+  });
+
+  it('exit-chat -> 202 with the reflect_chat job key', async () => {
+    const ctx = await setup();
+    const accepted = await fetchRetry(`${ctx.baseUrl}/v1/commands/exit-chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:elias',
+      }),
+    });
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toEqual({
+      accepted: true,
+      conversation_id: 'chat:user:owner:char:elias',
+      ended: true,
+      job_key: 'reflect_chat:c1:9',
     });
   });
 

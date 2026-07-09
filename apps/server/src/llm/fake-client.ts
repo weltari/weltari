@@ -32,6 +32,11 @@ const SCRIPT: Record<string, string> = {
   // at the seam in the handler tests.
   jump_in:
     '{"name":"The Heron Shallows","description":"A gravel shallows where herons stalk the reeds; the water hides more than fish.","persistence":"persistent"}',
+  // Weltari Chat (M6 part 2): the DM reply — deterministic, in-character,
+  // grounded in Elias's fixture memory core (the criterion-(a) shape).
+  chat: 'Storm has the roads to itself tonight. The common room is quiet for once — just me, the ledger, and that cracked bell upstairs refusing to ring. What do you need?',
+  reflect_chat:
+    'The traveler keeps texting about the weather when they mean something else. Patience. They will say it eventually — probably about the ferry.',
 };
 
 /**
@@ -192,7 +197,20 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
         model: 'fake/scripted',
         durationMs: 0,
         toolCalls:
-          call.toolset === 'narrator' ? scriptedToolCalls(call.prompt) : [],
+          call.toolset === 'narrator'
+            ? scriptedToolCalls(call.prompt)
+            : call.toolset === 'chat'
+              ? // The mandatory CACHE line rides every scripted chat reply
+                // (Rev 4 §11) — tests and the harness get real entries at $0.
+                [
+                  {
+                    tool: 'cache',
+                    input: {
+                      line: 'Texted with the traveler; quiet stormy night at the inn.',
+                    },
+                  },
+                ]
+              : [],
       });
     },
   };
