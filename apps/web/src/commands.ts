@@ -6,8 +6,11 @@ import {
   ApplyUpdateAcceptedSchema,
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
+  ExitChatAcceptedSchema,
   InterruptTurnAcceptedSchema,
   OpenSceneAcceptedSchema,
+  SendChatMessageAcceptedSchema,
+  StartSceneFromChatAcceptedSchema,
   StartTurnAcceptedSchema,
 } from '@weltari/protocol';
 
@@ -15,6 +18,13 @@ import {
 export const WORLD_ID = 'w1';
 export const WORLD_NAME = 'The Rainy Inn';
 export const ACTOR_ID = 'user:owner';
+
+/** The DM-able roster (Weltari Chat, §2.4) — the fixture cast until a
+ * character-list surface exists (same constant open-scene already uses). */
+export const CHAT_CHARACTERS: readonly {
+  character_id: string;
+  name: string;
+}[] = [{ character_id: 'char:elias', name: 'Elias' }];
 
 async function post(path: string, body: unknown): Promise<unknown> {
   const response = await fetch(path, {
@@ -125,6 +135,60 @@ export interface OpenSceneOptions {
   participants?: string[];
   /** Open the scene AT this known sublocation (0.8.0 — Hang around, pin jumps). */
   sublocationId?: string;
+}
+
+/** DM a character (Weltari Chat, 0.11.0). The 202 answers the presence rule
+ * — `replying: false` + `in_scene` = offline, no reply coming; the durable
+ * message itself arrives back as a chat.message_committed event. */
+export async function postSendChatMessage(
+  characterId: string,
+  text: string,
+): Promise<{ replying: boolean; presence: 'available' | 'in_scene' } | null> {
+  const raw = await post('/v1/commands/send-chat-message', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    character_id: characterId,
+    text,
+    request_id: `m-${crypto.randomUUID().slice(0, 12)}`,
+  });
+  const parsed = SendChatMessageAcceptedSchema.safeParse(raw);
+  return parsed.success
+    ? { replying: parsed.data.replying, presence: parsed.data.presence }
+    : null;
+}
+
+/** Explicit exit() (Rev 4 §8): closes the conversation range; the character
+ * reflects on it (reflect_chat). chat.ended arrives on the stream. */
+export async function postExitChat(
+  characterId: string,
+): Promise<{ ended: boolean } | null> {
+  const raw = await post('/v1/commands/exit-chat', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    character_id: characterId,
+  });
+  const parsed = ExitChatAcceptedSchema.safeParse(raw);
+  return parsed.success ? { ended: parsed.data.ended } : null;
+}
+
+/** The startscene() bridge, user side (Rev 4 §8): ends the chat and opens a
+ * real scene with the character at `place` (existing sublocation or free
+ * text — the Narrator resolves free text via the standard create workflow). */
+export async function postStartSceneFromChat(
+  characterId: string,
+  characterName: string,
+  place: string,
+): Promise<{ sceneId: string } | null> {
+  const raw = await post('/v1/commands/start-scene-from-chat', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    character_id: characterId,
+    scene_id: `s-chat-${crypto.randomUUID().slice(0, 8)}`,
+    title: `Meeting ${characterName}: ${place}`.slice(0, 200),
+    place,
+  });
+  const parsed = StartSceneFromChatAcceptedSchema.safeParse(raw);
+  return parsed.success ? { sceneId: parsed.data.scene_id } : null;
 }
 
 /** Returns the client-generated scene id on 202 (the §1.14 cover flow
