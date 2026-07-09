@@ -1,0 +1,149 @@
+// The reflect_chat job handler (M6 part 2, Rev 4 §8): the chat analogue of
+// scene reflection — runs when a conversation range closes (exit / idle /
+// startscene), reads the range's messages, and commits ONE
+// reflect_chat.committed. No scene-style summary product (sessionsummarist =
+// FALSE per Rev 4 §8): the outcome is the character's own private note.
+// Idempotent per (conversation, range_end_id) with the fused lease-overlap
+// re-check (docs/ledger.md) — the week-7 painter bug class stays fixed here.
+import { z } from 'zod';
+import { CorruptStateError, BugError } from '../../errors.js';
+import type {
+  CharacterProfile,
+  TurnLine,
+} from '../../engine/context-assembler.js';
+import { assembleContext } from '../../engine/context-assembler.js';
+import type { EventSink } from '../../engine/event-sink.js';
+import type { FaultPointHook } from '../../engine/fault-points.js';
+import type { Logger } from '../../observability/logger.js';
+import type { LlmClient } from '../../llm/types.js';
+import type { Storage } from '../../storage/db.js';
+import type { JobHandler } from '../runner.js';
+
+const payloadSchema = z.strictObject({
+  conversation_id: z.string().min(1),
+  character_id: z.string().min(1),
+  range_end_id: z.int().positive(),
+});
+
+export interface ReflectChatHandlerOptions {
+  storage: Storage;
+  sink: EventSink;
+  llm: LlmClient;
+  profiles: readonly CharacterProfile[];
+  logger: Logger;
+  faultPoint?: FaultPointHook;
+}
+
+/** The closed range's transcript: this conversation's messages up to and
+ * including the range end (the previous range's lines age out of the slice). */
+function rangeTranscript(
+  storage: Storage,
+  conversationId: string,
+  rangeEndId: number,
+  characterName: string,
+): TurnLine[] {
+  const lines: TurnLine[] = [];
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (
+      event.type === 'chat.message_committed' &&
+      event.payload.conversation_id === conversationId &&
+      event.id <= rangeEndId
+    ) {
+      lines.push({
+        speaker: event.payload.sender === 'user' ? 'User' : characterName,
+        text: event.payload.text,
+      });
+    }
+  }
+  return lines.slice(-40);
+}
+
+export function createReflectChatHandler(
+  options: ReflectChatHandlerOptions,
+): JobHandler {
+  const { storage, sink, llm, profiles, logger } = options;
+  const faultPoint = options.faultPoint ?? ((): void => undefined);
+
+  return async (job): Promise<void> => {
+    const payload = payloadSchema.safeParse(job.payload);
+    if (!payload.success) {
+      // Our own stored data failed its schema — corruption, not input (C2).
+      throw new CorruptStateError(
+        'reflect_chat_payload',
+        `job ${String(job.id)} payload does not match {conversation_id, character_id, range_end_id}`,
+      );
+    }
+    const { conversation_id, character_id, range_end_id } = payload.data;
+
+    const profile = profiles.find((p) => p.character_id === character_id);
+    if (profile === undefined) {
+      throw new BugError(
+        'unknown_character',
+        `no profile for ${character_id} — enqueue and registry disagree`,
+      );
+    }
+
+    const alreadyCommitted = (): boolean =>
+      storage.eventLog
+        .readSince(0, 100000)
+        .some(
+          (e) =>
+            e.type === 'reflect_chat.committed' &&
+            e.payload.conversation_id === conversation_id &&
+            e.payload.range_end_id === range_end_id,
+        );
+
+    // Idempotency gate: the retry after a kill -9 must not reflect twice.
+    if (alreadyCommitted()) {
+      logger.debug(
+        { job_id: job.id, conversation_id, range_end_id },
+        'reflect_chat already committed — idempotent no-op',
+      );
+      return;
+    }
+
+    const context = assembleContext(profile, {
+      scene_id: conversation_id,
+      heading: 'Conversation',
+      world_clock_text: 'The chat has just ended.',
+      latest_turns: rangeTranscript(
+        storage,
+        conversation_id,
+        range_end_id,
+        profile.name,
+      ),
+      wiki: [],
+    });
+    const result = await llm.streamCall({
+      kind: 'reflect_chat',
+      characterId: character_id,
+      system: context.stablePrefix,
+      prompt: `${context.dynamicTail}\n\n## Instruction\nThe chat above has ended. Reflect on it in 2-4 sentences from your own point of view: what you learned about the other person, what you intend to do. First person, private thoughts — nobody else reads this.`,
+      onTextDelta: (): void => undefined, // reflections do not stream to clients
+    });
+    if (!result.ok) throw result.error; // operational -> runner retries (C7)
+
+    await faultPoint('mid_reflect_chat');
+    // Fused lease-overlap re-check: NO await between this check and the
+    // append (executions interleave only at await points) — the loser of an
+    // overlap no-ops here, one duplicate generation, zero duplicate events.
+    if (alreadyCommitted()) {
+      logger.warn(
+        { job_id: job.id, conversation_id, range_end_id },
+        'reflect_chat overlapped its own lease-expiry retry — one duplicate generation, zero duplicate events',
+      );
+      return;
+    }
+    sink.append({
+      world_id: job.world_id,
+      actor_id: character_id,
+      type: 'reflect_chat.committed',
+      payload: {
+        conversation_id,
+        character_id,
+        range_end_id,
+        summary: result.value.text,
+      },
+    });
+  };
+}

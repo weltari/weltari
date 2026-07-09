@@ -41,6 +41,11 @@ const POINTS = [
   // the materialize handler shares the mid_materialize fault point; the
   // creation commit itself is one transaction with the turn).
   'mid_stub_create',
+  // M6 part 2 (Weltari Chat): a DM'd + exited conversation whose reflect_chat
+  // job is killed mid-reflection; convergence = exactly one
+  // reflect_chat.committed for the range (Elias is in_scene during harness
+  // cycles, so the DM stores without a reply — fully deterministic).
+  'mid_reflect_chat',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -219,6 +224,22 @@ function dbCountResolved(clickId) {
        WHERE type = 'map_click.resolved' AND payload LIKE ?`,
     )
     .get(`%"click_id":"${clickId}"%`);
+  db.close();
+  return row.n;
+}
+
+/** Exactly-once check for a chat reflection range (M6 part 2). */
+function dbCountReflectChat(conversationId, rangeEndId) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'reflect_chat.committed' AND payload LIKE ? AND payload LIKE ?`,
+    )
+    .get(
+      `%"conversation_id":"${conversationId}"%`,
+      `%"range_end_id":${rangeEndId}%`,
+    );
   db.close();
   return row.n;
 }
@@ -520,6 +541,10 @@ const CLICK_POINTS = [
 ];
 let clickSeq = 0;
 let pendingClick = null;
+// M6 part 2 chat cycles: DM + exit → reflect_chat killed mid-reflection;
+// convergence = exactly one reflect_chat.committed for the exited range.
+let chatSeq = 0;
+let pendingReflectChat = null;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -675,6 +700,36 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
     pendingStub = null;
   }
 
+  // M6 part 2: a kill at mid_reflect_chat must CONVERGE — the leased job
+  // retries and the range reflects EXACTLY once (no twins, no lost note).
+  if (pendingReflectChat !== null) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const count = dbCountReflectChat(
+        pendingReflectChat.conversationId,
+        pendingReflectChat.rangeEndId,
+      );
+      if (count === 1) break;
+      if (count > 1) {
+        child.kill('SIGKILL');
+        fail(
+          `duplicate reflection: ${count} reflect_chat.committed rows for range ${pendingReflectChat.rangeEndId}`,
+        );
+      }
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          `lost reflection: range ${pendingReflectChat.rangeEndId} never reflected after mid_reflect_chat kill`,
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      `mid_reflect_chat convergence ok: range ${pendingReflectChat.rangeEndId} reflected exactly once after restart`,
+    );
+    pendingReflectChat = null;
+  }
+
   // A scene ended by a previous cycle needs a successor — and getting one is
   // itself the criterion-b demonstration (blocked only while jobs pend).
   // The FIRST cycle opens one too: fresh worlds boot scene-less (M4 part 2).
@@ -818,6 +873,42 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       );
       await killAt;
       pendingStub = `subloc:stub-${slug}`;
+      break;
+    }
+    case 'mid_reflect_chat': {
+      chatSeq += 1;
+      // Elias is in_scene (the harness scene) — the DM stores, no reply
+      // generates, and exit-chat closes a one-message range deterministically.
+      const sendRes = await post('/v1/commands/send-chat-message', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:elias',
+        text: `Harness DM ${chatSeq}: how goes the storm?`,
+        request_id: `harness-chat-${chatSeq}`,
+      });
+      if (sendRes.status !== 202)
+        fail(`send-chat-message returned ${sendRes.status}`);
+      const sendBody = await sendRes.json();
+      if (sendBody.replying !== false) {
+        fail(
+          'presence rule violated: Elias is in a scene but the chat engine started a reply',
+        );
+      }
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_reflect_chat', 25000);
+      const exitRes = await post('/v1/commands/exit-chat', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:elias',
+      });
+      if (exitRes.status !== 202) fail(`exit-chat returned ${exitRes.status}`);
+      const exitBody = await exitRes.json();
+      if (exitBody.ended !== true) fail('exit-chat closed nothing');
+      await killAt;
+      const rangeEndId = Number(exitBody.job_key.split(':').at(-1));
+      pendingReflectChat = {
+        conversationId: exitBody.conversation_id,
+        rangeEndId,
+      };
       break;
     }
     case 'mid_update': {

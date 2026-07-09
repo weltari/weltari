@@ -39,6 +39,7 @@ import { createMapClickHandler } from './ledger/handlers/map-click.js';
 import { createMapEditHandler } from './ledger/handlers/map-edit.js';
 import { createMaterializeHandler } from './ledger/handlers/materialize.js';
 import { createPainterHandler } from './ledger/handlers/painter.js';
+import { createReflectChatHandler } from './ledger/handlers/reflect-chat.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
 import { createUpdateApplyHandler } from './ledger/handlers/update-apply.js';
 import { createUpdateCheckHandler } from './ledger/handlers/update-check.js';
@@ -401,6 +402,14 @@ const runner = createRunner({
   storage,
   handlers: {
     reflection: createReflectionHandler({
+      storage,
+      sink,
+      llm,
+      profiles: [elias],
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
+    reflect_chat: createReflectChatHandler({
       storage,
       sink,
       llm,

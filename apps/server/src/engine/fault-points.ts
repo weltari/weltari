@@ -20,7 +20,10 @@ export type FaultPoint =
   | 'mid_map_edit'
   /** M5 part 2: inside the map_click job — classification + story invention
    * generated + gated, map_click.resolved not yet appended. */
-  | 'mid_map_click';
+  | 'mid_map_click'
+  /** M6 part 2: inside the reflect_chat job — the reflection generated,
+   * reflect_chat.committed not yet appended. */
+  | 'mid_reflect_chat';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;
