@@ -222,6 +222,11 @@ const engine = createTurnEngine({
   logger,
   stablePrefixTokens: env.prefixTokens,
   knownCharacters,
+  // A committed create's backdrop/materialize jobs start on the spot —
+  // drainLedger is hoisted; it only runs after startup completes.
+  kickRunner: (): void => {
+    catchAndLog(drainLedger(), logger, 'ledger.drain');
+  },
   ...(faultPoint === undefined ? {} : { faultPoint }),
 });
 

@@ -36,8 +36,10 @@ export function sublocationIdForSquare(square: MapSquare): string {
  * Every sublocation the engine accepts for this world, in event order after
  * the fixture trio: materialized fog reveals AND Flow-A created ones (M5
  * part 2 — those carry a footprint and may share a square with the reveal
- * sublocation). Scans the log like every other projection — the log is
- * the source of truth and stays small in V1.
+ * sublocation) AND Narrator-created identity stubs (M6 part 1 — interiors
+ * anchor to their parent's point; parentless stubs have no position until
+ * their materialization lands). Scans the log like every other projection —
+ * the log is the source of truth and stays small in V1.
  */
 export function knownSublocations(
   storage: Storage,
@@ -54,6 +56,25 @@ export function knownSublocations(
         name: event.payload.name,
         description: event.payload.description,
         map_position: event.payload.map_position,
+      });
+    } else if (event.type === 'sublocation.stub_created') {
+      const parent =
+        event.payload.parent_id === undefined
+          ? undefined
+          : byId.get(event.payload.parent_id);
+      byId.set(event.payload.sublocation_id, {
+        sublocation_id: event.payload.sublocation_id,
+        name: event.payload.name,
+        description: event.payload.description,
+        // An interior's anchor is its parent's point (Rev 4 §14); a
+        // parentless stub stays position-less until materialized (the later
+        // sublocation.materialized for this id overwrites this entry).
+        ...(parent?.map_position === undefined
+          ? {}
+          : { map_position: parent.map_position }),
+        ...(event.payload.parent_id === undefined
+          ? {}
+          : { parent_id: event.payload.parent_id }),
       });
     } else if (event.type === 'sublocation.created') {
       byId.set(event.payload.sublocation_id, {
@@ -129,6 +150,9 @@ export function sublocationNear(
   let best: SublocationDefinition | undefined;
   let bestDistance = SUBLOCATION_RADIUS;
   for (const s of known) {
+    // Interiors and unmaterialized stubs have no own map presence — clicks
+    // never land IN them (Rev 4 §14: reachable through scenes only).
+    if (s.map_position === undefined || s.parent_id !== undefined) continue;
     const distance = Math.hypot(
       s.map_position.x - point.x,
       s.map_position.y - point.y,
@@ -154,6 +178,9 @@ export function sublocationAt(
 ): SublocationDefinition | undefined {
   return knownSublocations(storage, worldId).find((s) => {
     if (s.footprint !== undefined) return false;
+    // Interiors anchor to their parent's point but never claim the square;
+    // position-less stubs claim nothing until materialized (M6 part 1).
+    if (s.map_position === undefined || s.parent_id !== undefined) return false;
     const at = squareOf(s.map_position);
     return at.col === square.col && at.row === square.row;
   });
@@ -165,4 +192,82 @@ export function worldExists(storage: Storage, worldId: string): boolean {
   return storage.eventLog
     .readSince(0, 100000)
     .some((event) => event.world_id === worldId);
+}
+
+/**
+ * The code-owned frontier solver (M6 part 1, Rev 4 §14: no LLM ever picks a
+ * coordinate). Scores every free fog square that touches the explored area
+ * (8-neighborhood — the map grows contiguously) by distance to the anchor
+ * (the sublocation the creating scene was in); nearest wins, ties break
+ * deterministically by row then column. A world with no explored square yet
+ * falls back to the anchor's own square; a full map returns undefined — the
+ * stub simply stays map-less (scenes still reach it via its backdrop).
+ */
+export function solveFrontierSquare(
+  storage: Storage,
+  worldId: string,
+  anchor: { x: number; y: number },
+): MapSquare | undefined {
+  const occupied = new Set<string>();
+  for (const s of knownSublocations(storage, worldId)) {
+    if (
+      s.footprint !== undefined ||
+      s.map_position === undefined ||
+      s.parent_id !== undefined
+    ) {
+      continue;
+    }
+    const at = squareOf(s.map_position);
+    occupied.add(`${String(at.col)}:${String(at.row)}`);
+  }
+  if (occupied.size === 0) return squareOf(anchor);
+
+  let best: MapSquare | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let row = 0; row < MAP_FOG_GRID; row++) {
+    for (let col = 0; col < MAP_FOG_GRID; col++) {
+      if (occupied.has(`${String(col)}:${String(row)}`)) continue;
+      let touchesExplored = false;
+      for (let dr = -1; dr <= 1 && !touchesExplored; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          if (occupied.has(`${String(col + dc)}:${String(row + dr)}`)) {
+            touchesExplored = true;
+            break;
+          }
+        }
+      }
+      if (!touchesExplored) continue;
+      const center = squareCenter({ col, row });
+      const distance = Math.hypot(center.x - anchor.x, center.y - anchor.y);
+      if (distance < bestDistance) {
+        best = { col, row };
+        bestDistance = distance;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * The current backdrop image for a sublocation, if its painter job has
+ * landed: the latest painter.completed for image id
+ * `backdrop:<sublocation_id>` — the event, never the file, is the truth
+ * (Brief §2.1). Absent = clients render their themed placeholder (UI Spec
+ * §1.6: the slide transition plays the moment the real backdrop arrives).
+ */
+export function latestBackdropPath(
+  storage: Storage,
+  sublocationId: string,
+): string | undefined {
+  let path: string | undefined;
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (
+      event.type === 'painter.completed' &&
+      event.payload.image_id === `backdrop:${sublocationId}`
+    ) {
+      path = event.payload.path;
+    }
+  }
+  return path;
 }

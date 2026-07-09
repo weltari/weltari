@@ -7,7 +7,7 @@
 // square: the deterministic sublocation id + the already-materialized check
 // make the post-kill lease retry converge instead of minting twins (I4,
 // mid_materialize).
-import { MapSquareSchema } from '@weltari/protocol';
+import { MapPositionSchema, MapSquareSchema } from '@weltari/protocol';
 import { z } from 'zod';
 import { CorruptStateError, OperationalError } from '../../errors.js';
 import type { CharacterProfile } from '../../engine/context-assembler.js';
@@ -16,7 +16,9 @@ import type { EventSink } from '../../engine/event-sink.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
 import {
   knownSublocations,
+  solveFrontierSquare,
   squareCenter,
+  squareOf,
   sublocationAt,
   sublocationIdForSquare,
   worldExists,
@@ -29,7 +31,16 @@ import type { Storage } from '../../storage/db.js';
 import { validateAt } from '../../boundary/validate.js';
 import type { JobHandler } from '../runner.js';
 
-const payloadSchema = z.strictObject({ square: MapSquareSchema });
+/** Two job shapes converge on one handler: an Explore click names its square
+ * (placement = the click); a Narrator stub (M6 part 1) names the stub and
+ * its anchor — the frontier solver picks the square at execution time. */
+const payloadSchema = z.union([
+  z.strictObject({ square: MapSquareSchema }),
+  z.strictObject({
+    stub_sublocation_id: z.string().min(1),
+    anchor: MapPositionSchema,
+  }),
+]);
 
 /** Gate 1 subject: the stub the LLM must return, and nothing else. */
 const stubSchema = z.strictObject({
@@ -58,9 +69,103 @@ export function createMaterializeHandler(
     if (!payload.success) {
       throw new CorruptStateError(
         'materialize_payload',
-        `job ${String(job.id)} payload does not match {square}`,
+        `job ${String(job.id)} payload matches neither {square} nor {stub_sublocation_id, anchor}`,
       );
     }
+
+    // The Narrator-stub branch (M6 part 1, Rev 4 §14): the stub already has
+    // its identity — NO LLM call; this job is pure code-owned placement.
+    if ('stub_sublocation_id' in payload.data) {
+      const stubId = payload.data.stub_sublocation_id;
+      const anchor = payload.data.anchor;
+      const stub = knownSublocations(storage, job.world_id).find(
+        (s) => s.sublocation_id === stubId,
+      );
+      if (stub === undefined) {
+        // The stub event commits in the same transaction as this row — a
+        // missing stub means a torn log, never a normal race.
+        throw new CorruptStateError(
+          'materialize_stub_missing',
+          `no sublocation.stub_created for ${stubId}`,
+        );
+      }
+      const alreadyAt = ((): boolean =>
+        storage.eventLog
+          .readSince(0, 100000)
+          .some(
+            (event) =>
+              event.type === 'sublocation.materialized' &&
+              event.world_id === job.world_id &&
+              event.payload.sublocation_id === stubId,
+          ))();
+      if (alreadyAt) {
+        // Heal path (I4): a kill between the event append and the paint
+        // enqueue lands here on the lease retry — re-enqueue (deduped).
+        if (stub.map_position !== undefined) {
+          enqueueSquarePaint(
+            storage,
+            job.world_id,
+            squareOf(stub.map_position),
+          );
+        }
+        logger.debug(
+          { job_id: job.id, stub_id: stubId },
+          'stub already materialized — idempotent no-op',
+        );
+        return;
+      }
+      const solved = solveFrontierSquare(storage, job.world_id, anchor);
+      if (solved === undefined) {
+        // A full map is a legitimate terminal state: the stub stays map-less
+        // (scenes still reach it via its backdrop) — never a retry storm.
+        logger.warn(
+          { job_id: job.id, stub_id: stubId },
+          'no free frontier square — stub stays map-less',
+        );
+        return;
+      }
+      await faultPoint('mid_materialize');
+      // Last-instant idempotency re-check fused to the append (the week-7
+      // lease-expiry overlap class): NO await between here and the append.
+      const committedMeanwhile = storage.eventLog
+        .readSince(0, 100000)
+        .some(
+          (event) =>
+            event.type === 'sublocation.materialized' &&
+            event.world_id === job.world_id &&
+            event.payload.sublocation_id === stubId,
+        );
+      if (committedMeanwhile) {
+        logger.warn(
+          { job_id: job.id, stub_id: stubId },
+          'stub materialize overlapped its own lease-expiry retry — zero duplicate rows',
+        );
+        return;
+      }
+      // The solver only returns free squares and executions interleave only
+      // at await points — the square check rides the same fused window.
+      if (sublocationAt(storage, job.world_id, solved) !== undefined) {
+        throw new OperationalError(
+          'square_taken_midflight',
+          'the solved square was claimed during the fault window — retry re-solves',
+        );
+      }
+      sink.append({
+        world_id: job.world_id,
+        actor_id: 'system:engine',
+        type: 'sublocation.materialized',
+        payload: {
+          sublocation_id: stubId,
+          name: stub.name,
+          description: stub.description,
+          square: solved,
+          map_position: squareCenter(solved),
+        },
+      });
+      enqueueSquarePaint(storage, job.world_id, solved);
+      return;
+    }
+
     const { square } = payload.data;
     if (sublocationAt(storage, job.world_id, square) !== undefined) {
       // Re-enqueue the paint too (deduped by key): a kill between the event

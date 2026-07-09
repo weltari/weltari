@@ -16,11 +16,17 @@ export interface SublocationDefinition {
    * LLM-generated (B6-gated) for materialized squares. */
   description: string;
   /** World-map anchor (unit square) — pins anchor to world coordinates,
-   * never pixels (UI Spec §1.8). */
-  map_position: { x: number; y: number };
+   * never pixels (UI Spec §1.8). ABSENT only for a parentless Narrator stub
+   * awaiting materialization (M6 part 1): enterable in scenes, invisible to
+   * the map's mechanical loops until the materialize job lands (Rev 4 §14). */
+  map_position?: { x: number; y: number };
   /** Flow-A sublocations only (M5 part 2): the drawn polygon, world
    * coordinates — the Flow-B footprint hit-test surface. */
   footprint?: readonly { x: number; y: number }[];
+  /** Narrator-created interiors only (M6 part 1, Rev 4 §6): the
+   * exterior-atomic parent (always flat). Interiors never touch the map —
+   * their anchor is the parent's point; their only asset is the backdrop. */
+  parent_id?: string;
 }
 
 /**
@@ -31,7 +37,9 @@ export interface SublocationDefinition {
  * trio (sublocation.materialized), so clients and map plugins learn them
  * over the wire like any other sublocation.
  */
-export const FIXTURE_SUBLOCATIONS: readonly SublocationDefinition[] = [
+export const FIXTURE_SUBLOCATIONS: readonly (SublocationDefinition & {
+  map_position: { x: number; y: number };
+})[] = [
   {
     sublocation_id: 'subloc:common_room',
     name: 'The Common Room',

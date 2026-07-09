@@ -350,7 +350,9 @@ describe('narrator tool pipeline (B6 two gates)', () => {
   it('end_scene commits scene.ended LAST with end_type + fan-out jobs in one transaction', async () => {
     const ctx = setup();
     seedSceneStarted(ctx);
-    await runTurn(ctx, '!end continuation');
+    // A continuation must register next_scene (M6 part 1) — the fake's
+    // !endnext scripts exactly that.
+    await runTurn(ctx, '!endnext subloc:cellar');
     const events = ctx.storage.eventLog.readSince(0);
     expect(events.map((e) => e.type)).toEqual([
       'scene.started',
@@ -362,12 +364,243 @@ describe('narrator tool pipeline (B6 two gates)', () => {
     if (ended?.type === 'scene.ended') {
       expect(ended.payload.end_type).toBe('continuation');
       expect(ended.payload.divider_text).toBe('— the rain eases —');
+      expect(ended.payload.next_scene?.sublocation_id).toBe('subloc:cellar');
       // Elias spoke in THIS turn's committed steps — the fan-out sees it
       // because turn.committed and scene.ended share one transaction.
       expect(ended.payload.participants).toEqual(['char:elias']);
     }
     expect(ctx.storage.ledger.countByKey('reflection:char:elias:s1')).toBe(1);
     expect(ctx.storage.ledger.countByKey('world_agent:s1')).toBe(1);
+    ctx.storage.close();
+  });
+
+  it('a continuation WITHOUT next_scene is state-rejected: zero rows (I8)', async () => {
+    const ctx = setup();
+    seedSceneStarted(ctx);
+    await runTurn(ctx, '!end continuation');
+    const events = ctx.storage.eventLog.readSince(0);
+    expect(events.some((e) => e.type === 'scene.ended')).toBe(false);
+    const rejected = ctx.devFrames.find((f) => f.type === 'dev.tool_rejected');
+    expect(rejected).toBeDefined();
+    if (rejected?.type === 'dev.tool_rejected') {
+      expect(rejected.gate).toBe('state');
+      expect(rejected.reason).toContain('next_scene');
+    }
+    ctx.storage.close();
+  });
+
+  it('create_sublocation (interior) commits the stub + its backdrop job atomically, no materialize', async () => {
+    const ctx = setup();
+    seedSceneStarted(ctx);
+    await runTurn(ctx, '!create the-inn-kitchen subloc:common_room');
+    const events = ctx.storage.eventLog.readSince(0);
+    const stub = events.find((e) => e.type === 'sublocation.stub_created');
+    expect(stub).toBeDefined();
+    if (stub?.type === 'sublocation.stub_created') {
+      expect(stub.payload).toMatchObject({
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-the-inn-kitchen',
+        name: 'the inn kitchen',
+        parent_id: 'subloc:common_room',
+      });
+      expect(stub.actor_id).toBe('char:narrator');
+    }
+    // The backdrop fires immediately (Rev 4 section 6), in the SAME
+    // transaction; interiors never enqueue materialization.
+    expect(
+      ctx.storage.ledger.countByKey(
+        'painter:backdrop:subloc:stub-the-inn-kitchen:initial',
+      ),
+    ).toBe(1);
+    expect(
+      ctx.storage.ledger.countByKey(
+        'materialize:stub:subloc:stub-the-inn-kitchen',
+      ),
+    ).toBe(0);
+    ctx.storage.close();
+  });
+
+  it('create then change_sublocation to the new stub works in ONE turn (the creation loop)', async () => {
+    const ctx = setup();
+    seedSceneStarted(ctx);
+    await runTurn(
+      ctx,
+      '!create the-inn-kitchen subloc:common_room !move subloc:stub-the-inn-kitchen',
+    );
+    const types = ctx.storage.eventLog.readSince(0).map((e) => e.type);
+    expect(types).toEqual([
+      'scene.started',
+      'turn.started',
+      'turn.committed',
+      'sublocation.stub_created',
+      'sublocation.changed',
+    ]);
+    const moved = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'sublocation.changed');
+    if (moved?.type === 'sublocation.changed') {
+      expect(moved.payload.sublocation_id).toBe('subloc:stub-the-inn-kitchen');
+      // The interior inherits its parent's anchor; no backdrop landed yet.
+      expect(moved.payload.map_position).toEqual({ x: 0.42, y: 0.55 });
+      expect(moved.payload.backdrop_path).toBeUndefined();
+    }
+    ctx.storage.close();
+  });
+
+  it('a parentless create WITHOUT the all-parentless query is refused with the fixed instruction (I8)', async () => {
+    const ctx = setup();
+    seedSceneStarted(ctx);
+    await runTurn(ctx, '!createwild the-river-park');
+    const events = ctx.storage.eventLog.readSince(0);
+    expect(events.some((e) => e.type === 'sublocation.stub_created')).toBe(
+      false,
+    );
+    expect(
+      ctx.storage.ledger.countByKey(
+        'materialize:stub:subloc:stub-the-river-park',
+      ),
+    ).toBe(0);
+    const rejected = ctx.devFrames.find((f) => f.type === 'dev.tool_rejected');
+    expect(rejected).toBeDefined();
+    if (rejected?.type === 'dev.tool_rejected') {
+      expect(rejected.gate).toBe('state');
+      expect(rejected.reason).toContain('use the query tool');
+    }
+    ctx.storage.close();
+  });
+
+  it('query (mode parentless) then a parentless create commits stub + backdrop + eager materialize', async () => {
+    const ctx = setup();
+    seedSceneStarted(ctx);
+    await runTurn(ctx, '!query !createwild the-river-park');
+    const stub = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'sublocation.stub_created');
+    expect(stub).toBeDefined();
+    if (stub?.type === 'sublocation.stub_created') {
+      expect(stub.payload.parent_id).toBeUndefined();
+      expect(stub.payload.narrative_anchor).toBeDefined();
+    }
+    expect(
+      ctx.storage.ledger.countByKey(
+        'painter:backdrop:subloc:stub-the-river-park:initial',
+      ),
+    ).toBe(1);
+    // Parentless: the eager materialize job (Rev 4 section 14) rides the
+    // same transaction, anchored at the creating scene's sublocation.
+    expect(
+      ctx.storage.ledger.countByKey(
+        'materialize:stub:subloc:stub-the-river-park',
+      ),
+    ).toBe(1);
+    // The mid-call query left a dev trail frame like any tool call.
+    const queryFrame = ctx.devFrames.find(
+      (f) => f.type === 'dev.tool_call' && f.tool === 'query_sublocations',
+    );
+    expect(queryFrame).toBeDefined();
+    ctx.storage.close();
+  });
+
+  it('a near-duplicate name is rejected with a did-you-mean (the resolver)', async () => {
+    const ctx = setup();
+    seedSceneStarted(ctx);
+    await runTurn(ctx, '!create The-Common-Room subloc:cellar');
+    expect(
+      ctx.storage.eventLog
+        .readSince(0)
+        .some((e) => e.type === 'sublocation.stub_created'),
+    ).toBe(false);
+    const rejected = ctx.devFrames.find((f) => f.type === 'dev.tool_rejected');
+    expect(rejected).toBeDefined();
+    if (rejected?.type === 'dev.tool_rejected') {
+      expect(rejected.gate).toBe('state');
+      expect(rejected.reason).toContain('subloc:common_room');
+      expect(rejected.reason).toContain('change_sublocation');
+    }
+    ctx.storage.close();
+  });
+
+  it('end_scene continuation may register a stub created THIS turn', async () => {
+    const ctx = setup();
+    seedSceneStarted(ctx);
+    await runTurn(
+      ctx,
+      '!create the-inn-kitchen subloc:common_room !endnext subloc:stub-the-inn-kitchen',
+    );
+    const ended = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'scene.ended');
+    expect(ended).toBeDefined();
+    if (ended?.type === 'scene.ended') {
+      expect(ended.payload.end_type).toBe('continuation');
+      expect(ended.payload.next_scene?.sublocation_id).toBe(
+        'subloc:stub-the-inn-kitchen',
+      );
+    }
+    ctx.storage.close();
+  });
+
+  it('an interrupted turn discards staged creates: no stub, no jobs (B6)', async () => {
+    // A narrator call that streams, then BLOCKS until released — the test
+    // interrupts inside that window; the staged create must never persist.
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let signalStreamed = (): void => undefined;
+    const streamed = new Promise<void>((resolve) => {
+      signalStreamed = resolve;
+    });
+    const fake = createFakeLlmClient();
+    const gatedClient: LlmClient = {
+      async streamCall(call): Promise<Result<LlmCallResult>> {
+        if (call.kind !== 'narrator') return fake.streamCall(call);
+        call.onTextDelta('The kitchen door swings open. ');
+        signalStreamed();
+        await gate;
+        return ok({
+          text: 'The kitchen door swings open.',
+          usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+          model: 'fake/gated',
+          durationMs: 0,
+          toolCalls: [
+            {
+              tool: 'create_sublocation',
+              input: {
+                name: 'the inn kitchen',
+                brief: 'Steam and copper pots.',
+                parent_id: 'subloc:common_room',
+              },
+            },
+          ],
+        });
+      },
+    };
+    const ctx = setup(gatedClient);
+    seedSceneStarted(ctx);
+    const started = await ctx.engine.startTurn(COMMAND);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    await streamed;
+    const interrupted = ctx.engine.interruptTurn({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: started.value.turnId,
+      seen: { call: 'narrator', sentence_index: 0 },
+    });
+    expect(interrupted.ok).toBe(true);
+    release();
+    await started.value.completion;
+    expect(
+      ctx.storage.eventLog
+        .readSince(0)
+        .some((e) => e.type === 'sublocation.stub_created'),
+    ).toBe(false);
+    expect(
+      ctx.storage.ledger.countByKey(
+        'painter:backdrop:subloc:stub-the-inn-kitchen:initial',
+      ),
+    ).toBe(0);
     ctx.storage.close();
   });
 

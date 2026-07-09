@@ -237,6 +237,83 @@ describe('materialize job handler (B6 double gate)', () => {
     expect(ctx.storage.ledger.claimNext('test-worker')).toBeNull();
   });
 
+  function appendStub(s: Storage, sublocationId: string): void {
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'sublocation.stub_created',
+      payload: {
+        scene_id: 's1',
+        sublocation_id: sublocationId,
+        name: 'The River Park',
+        description: 'Willows over slow water.',
+      },
+    });
+  }
+
+  it('a stub job materializes the stub at a code-solved frontier square with ZERO LLM calls (M6 part 1)', async () => {
+    let llmCalls = 0;
+    const counting: LlmClient = {
+      streamCall: async (): Promise<Result<LlmCallResult>> => {
+        llmCalls += 1;
+        return Promise.resolve(err(new OperationalError('never', 'unused')));
+      },
+    };
+    const ctx = setup(counting);
+    appendStub(ctx.storage, 'subloc:stub-the-river-park');
+    const job = jobWith({
+      stub_sublocation_id: 'subloc:stub-the-river-park',
+      anchor: { x: 0.42, y: 0.55 },
+    });
+    await ctx.handler(job);
+    await ctx.handler(job); // the post-kill lease retry converges
+
+    expect(llmCalls).toBe(0);
+    const materialized = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'sublocation.materialized');
+    expect(materialized).toHaveLength(1);
+    const first = materialized[0];
+    if (first?.type === 'sublocation.materialized') {
+      // The stub KEEPS its identity — the materialization carries its id,
+      // name and description; only placement is new (code-owned).
+      expect(first.payload.sublocation_id).toBe('subloc:stub-the-river-park');
+      expect(first.payload.name).toBe('The River Park');
+      // The solved square is free and touches the explored area (the
+      // fixture trio at (3,4)/(3,5)/(4,2)).
+      const sq = first.payload.square;
+      const explored = [
+        { col: 3, row: 4 },
+        { col: 3, row: 5 },
+        { col: 4, row: 2 },
+      ];
+      expect(
+        explored.some(
+          (e) => Math.abs(e.col - sq.col) <= 1 && Math.abs(e.row - sq.row) <= 1,
+        ),
+      ).toBe(true);
+      expect(explored.some((e) => e.col === sq.col && e.row === sq.row)).toBe(
+        false,
+      );
+    }
+    // The square paint enqueued once, deduped across the retry.
+    const paint = ctx.storage.ledger.claimNext('test-worker');
+    expect(paint?.type).toBe('painter');
+    expect(ctx.storage.ledger.claimNext('test-worker')).toBeNull();
+  });
+
+  it('a stub job for a stub that never committed is corrupt state (torn log)', async () => {
+    const ctx = setup();
+    await expect(
+      ctx.handler(
+        jobWith({
+          stub_sublocation_id: 'subloc:stub-ghost',
+          anchor: { x: 0.5, y: 0.5 },
+        }),
+      ),
+    ).rejects.toMatchObject({ kind: 'corrupt_state' });
+  });
+
   it('LLM failure surfaces as operational — nothing durable (B6)', async () => {
     const failing: LlmClient = {
       streamCall: async () =>
