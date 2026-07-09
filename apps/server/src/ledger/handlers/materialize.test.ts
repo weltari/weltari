@@ -324,7 +324,7 @@ describe('materialize job handler (B6 double gate)', () => {
       llm: createFakeLlmClient(),
       narrator: NARRATOR,
       logger,
-      faultPoint: (point) =>
+      faultPoint: (point): Promise<void> | undefined =>
         point === 'mid_materialize'
           ? new Promise<void>((r) => release.push(r))
           : undefined,

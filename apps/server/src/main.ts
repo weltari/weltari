@@ -368,7 +368,9 @@ const updatePubkey = env.updatePubkey ?? readBakedPubkey();
 // downloads); applying needs the key AND a native install — Docker images
 // run notify-and-let-host-pull (WELTARI_UPDATE_NOTIFY_ONLY=1).
 const updateNotifyEnabled = updatePubkey !== undefined || env.updateNotifyOnly;
-const updateApplyEnabled = updatePubkey !== undefined && !env.updateNotifyOnly;
+/** The key auto-apply verifies with; undefined = apply disabled. */
+const updateApplyKey = env.updateNotifyOnly ? undefined : updatePubkey;
+const updateApplyEnabled = updateApplyKey !== undefined;
 cleanStaleStaging(env.versionsDir, logger);
 const updateFetch: FetchLike = async (url) =>
   fetch(url, {
@@ -456,7 +458,7 @@ const runner = createRunner({
           }),
         }
       : {}),
-    ...(updateApplyEnabled && updatePubkey !== undefined
+    ...(updateApplyKey !== undefined
       ? {
           update_apply: createUpdateApplyHandler({
             storage,
@@ -466,7 +468,7 @@ const runner = createRunner({
             releasesUrl: env.updateReleasesUrl,
             fetchFn: updateFetch,
             versionsDir: env.versionsDir,
-            publicKeyBase64: updatePubkey,
+            publicKeyBase64: updateApplyKey,
             maxArtifactBytes: env.updateMaxBytes,
             ...(faultPoint === undefined ? {} : { faultPoint }),
           }),
