@@ -1,6 +1,146 @@
 import { describe, expect, it } from 'vitest';
 import { WeltariEventSchema } from './events.js';
 
+const envelope = {
+  id: 9,
+  world_id: 'w1',
+  actor_id: 'user:owner',
+  ts: '2026-07-09T12:00:00.000Z',
+};
+
+describe('chat event family (0.11.0, Rev 4 §8/§11)', () => {
+  it('accepts a chat.message_committed from each sender', () => {
+    for (const sender of ['user', 'character']) {
+      const message: unknown = {
+        ...envelope,
+        type: 'chat.message_committed',
+        payload: {
+          conversation_id: 'chat:user:owner:char:elias',
+          character_id: 'char:elias',
+          sender,
+          text: 'Evening. The roads are mud again.',
+          message_id: 'm-1',
+        },
+      };
+      expect(WeltariEventSchema.safeParse(message).success).toBe(true);
+    }
+  });
+
+  it('rejects a chat message with empty text, oversized text, or an extra key (B5/B7)', () => {
+    const base = {
+      conversation_id: 'c1',
+      character_id: 'char:elias',
+      sender: 'user',
+      message_id: 'm-1',
+    };
+    for (const payload of [
+      { ...base, text: '' },
+      { ...base, text: 'x'.repeat(8193) },
+      { ...base, text: 'hi', admin: true },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'chat.message_committed',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts chat.ended for each reason and rejects an unknown reason', () => {
+    for (const reason of ['exit', 'idle', 'startscene']) {
+      const ended: unknown = {
+        ...envelope,
+        type: 'chat.ended',
+        payload: {
+          conversation_id: 'c1',
+          character_id: 'char:elias',
+          reason,
+          range_end_id: 41,
+        },
+      };
+      expect(WeltariEventSchema.safeParse(ended).success).toBe(true);
+    }
+    const bad: unknown = {
+      ...envelope,
+      type: 'chat.ended',
+      payload: {
+        conversation_id: 'c1',
+        character_id: 'char:elias',
+        reason: 'rage_quit',
+        range_end_id: 41,
+      },
+    };
+    expect(WeltariEventSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('accepts reflect_chat.committed and requires a positive range_end_id', () => {
+    const reflected: unknown = {
+      ...envelope,
+      type: 'reflect_chat.committed',
+      payload: {
+        conversation_id: 'c1',
+        character_id: 'char:elias',
+        range_end_id: 41,
+        summary: 'The traveler asked about the storm.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(reflected).success).toBe(true);
+    const zero: unknown = {
+      ...envelope,
+      type: 'reflect_chat.committed',
+      payload: {
+        conversation_id: 'c1',
+        character_id: 'char:elias',
+        range_end_id: 0,
+        summary: 's',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(zero).success).toBe(false);
+  });
+
+  it('accepts cache.appended for both origins and caps the one-liner', () => {
+    for (const origin of ['scene', 'chat']) {
+      const entry: unknown = {
+        ...envelope,
+        type: 'cache.appended',
+        payload: {
+          character_id: 'char:elias',
+          origin,
+          context_id: origin === 'scene' ? 's1' : 'c1',
+          line: 'Talked with the traveler about the storm.',
+        },
+      };
+      expect(WeltariEventSchema.safeParse(entry).success).toBe(true);
+    }
+    const oversized: unknown = {
+      ...envelope,
+      type: 'cache.appended',
+      payload: {
+        character_id: 'char:elias',
+        origin: 'chat',
+        context_id: 'c1',
+        line: 'x'.repeat(301),
+      },
+    };
+    expect(WeltariEventSchema.safeParse(oversized).success).toBe(false);
+  });
+
+  it('scene.started accepts the 0.11.0 premise + place_request handoff fields', () => {
+    const started: unknown = {
+      ...envelope,
+      type: 'scene.started',
+      payload: {
+        scene_id: 's2',
+        title: 'Morning at the park',
+        premise: 'Elias suggested meeting outside for once.',
+        place_request: 'the park',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(started).success).toBe(true);
+  });
+});
+
 const validCommitted: unknown = {
   id: 42,
   world_id: 'w1',

@@ -33,6 +33,19 @@ export const SceneStartedEventSchema = z.strictObject({
   payload: z.strictObject({
     scene_id: z.string().min(1),
     title: z.string(),
+    /**
+     * Optional premise line the scene opens on (0.11.0) — from a
+     * continuation's next_scene.premise_seed or a chat startscene() handoff.
+     * The Narrator's first turn folds it into its dynamic tail.
+     */
+    premise: z.string().min(1).max(500).optional(),
+    /**
+     * Free-text place request from a chat startscene() handoff (Rev 4 §8)
+     * that matched no known sublocation (0.11.0). The Narrator resolves it
+     * on its first turn via the standard workflow: query_sublocations, then
+     * change_sublocation or create_sublocation (query-first rule included).
+     */
+    place_request: z.string().min(1).max(200).optional(),
   }),
 });
 
@@ -158,6 +171,97 @@ export const WorldAgentCommittedEventSchema = z.strictObject({
   payload: z.strictObject({
     scene_id: z.string().min(1),
     note: z.string().min(1),
+  }),
+});
+
+/**
+ * One durable Weltari Chat message (M6 part 2, Rev 4 §8) — a DM line from the
+ * user or the character's reply, on the ONE event stream like everything else
+ * (owner decision 2026-07-09): the transcript is a projection, replay after a
+ * restart rebuilds it exactly. Chat never changes the world — a chat message
+ * is durable *conversation* history, never world truth. Emitted by: the chat
+ * engine (user lines at the command seam; character lines after the reply
+ * commits — streamed text is never durable, Guide B6). Consumed by: clients
+ * (the Chat page transcript), reflect_chat (the reflection range).
+ */
+export const ChatMessageCommittedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('chat.message_committed'),
+  payload: z.strictObject({
+    /** Stable per user+character pair (Rev 4 §8: `chat:<actor_id>:<character_id>`). */
+    conversation_id: z.string().min(1),
+    /** The DM partner (also the actor on character-sent lines). */
+    character_id: z.string().min(1),
+    sender: z.enum(['user', 'character']),
+    text: z.string().min(1).max(8192),
+    /** Idempotency token: the command's request_id for user lines, an
+     * engine id for character replies — duplicate sends can never twin. */
+    message_id: z.string().min(1).max(100),
+  }),
+});
+
+/**
+ * A chat conversation range closed (M6 part 2, Rev 4 §8): explicit user
+ * exit(), the idle timeout, or a startscene() handoff. Appended atomically
+ * with the ONE reflect_chat ledger job for the range (Brief §2.4). The
+ * conversation_id stays stable — a later DM simply starts the next range.
+ * Emitted by: the chat engine. Consumed by: clients (thread state),
+ * reflect_chat (natural key).
+ */
+export const ChatEndedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('chat.ended'),
+  payload: z.strictObject({
+    conversation_id: z.string().min(1),
+    character_id: z.string().min(1),
+    reason: z.enum(['exit', 'idle', 'startscene']),
+    /** Event id of the last chat.message_committed in the reflected range —
+     * the range boundary and the reflect_chat job's natural-key component. */
+    range_end_id: z.int().positive(),
+  }),
+});
+
+/**
+ * A character's chat reflection became durable — the chat analogue of
+ * reflection.committed (Rev 4 §8: `reflect_chat`; no scene-style summary is
+ * produced, the character updates only its own memory). Idempotent per
+ * (conversation, range_end_id). Emitted by: the reflect_chat job handler.
+ * Consumed by: clients, future memory projections.
+ */
+export const ReflectChatCommittedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('reflect_chat.committed'),
+  payload: z.strictObject({
+    conversation_id: z.string().min(1),
+    character_id: z.string().min(1),
+    /** The chat.ended range this reflection covered. */
+    range_end_id: z.int().positive(),
+    summary: z.string().min(1),
+  }),
+});
+
+/**
+ * One CACHE entry became durable (M6 part 2, Rev 4 §11 first slice): the
+ * character's mandatory 1–2 line recap of what just happened to it. The CACHE
+ * store is a PROJECTION of these events (latest-per-origin is a view, never a
+ * slot); all structured fields are engine-written — the character authors
+ * only the one-liner. Emitted by: the chat engine (origin `chat`, every
+ * reply) and the reflection handler (origin `scene`, this slice's stand-in
+ * until the C-Module writes in-scene). Consumed by: chat context assembly
+ * (latest-per-origin catch-up), dev mode.
+ */
+export const CacheAppendedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('cache.appended'),
+  payload: z.strictObject({
+    character_id: z.string().min(1),
+    origin: z.enum(['scene', 'chat']),
+    /** The scene id or conversation id the entry points back into. */
+    context_id: z.string().min(1),
+    /** Where it happened, when known (scene-origin entries). */
+    sublocation_id: z.string().min(1).optional(),
+    /** The character-authored one-liner (engine-capped). */
+    line: z.string().min(1).max(300),
   }),
 });
 
@@ -551,6 +655,10 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   CharacterJoinedEventSchema,
   TurnStartedEventSchema,
   TurnCommittedEventSchema,
+  ChatMessageCommittedEventSchema,
+  ChatEndedEventSchema,
+  ReflectChatCommittedEventSchema,
+  CacheAppendedEventSchema,
   SublocationChangedEventSchema,
   SublocationMaterializedEventSchema,
   SublocationCreatedEventSchema,

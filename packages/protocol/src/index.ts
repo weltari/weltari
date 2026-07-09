@@ -30,12 +30,22 @@
  * identity stubs, hot path; backdrops + materialization fire from it);
  * scene.ended optional next_scene (the "Jump to the next scene"
  * registration).
+ * 0.11.0 (M6 part 2, Rev 4 §8/§11): Weltari Chat part one —
+ * chat.message_committed + chat.ended + reflect_chat.committed +
+ * cache.appended events (DMs on the ONE event stream; the CACHE store is a
+ * projection); send-chat-message / exit-chat / start-scene-from-chat
+ * commands (the startscene() bridge); scene.started optional premise +
+ * place_request (the chat→scene handoff surface).
  */
-export const PROTOCOL_VERSION = '0.10.0';
+export const PROTOCOL_VERSION = '0.11.0';
 
 export {
   ArtSwitchedEventSchema,
+  CacheAppendedEventSchema,
   CharacterJoinedEventSchema,
+  ChatEndedEventSchema,
+  ChatMessageCommittedEventSchema,
+  ReflectChatCommittedEventSchema,
   ImageRegionSchema,
   MAP_FOG_GRID,
   MapPositionSchema,
@@ -102,6 +112,8 @@ export {
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
+  ExitChatAcceptedSchema,
+  ExitChatCommandSchema,
   ExploreAcceptedSchema,
   ExploreCommandSchema,
   InterruptTurnAcceptedSchema,
@@ -114,6 +126,10 @@ export {
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
   PaintRegionCommandSchema,
+  SendChatMessageAcceptedSchema,
+  SendChatMessageCommandSchema,
+  StartSceneFromChatAcceptedSchema,
+  StartSceneFromChatCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
   type AdvanceTimeAccepted,
@@ -123,6 +139,8 @@ export {
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,
+  type ExitChatAccepted,
+  type ExitChatCommand,
   type ExploreAccepted,
   type ExploreCommand,
   type InterruptTurnAccepted,
@@ -135,6 +153,10 @@ export {
   type OpenSceneCommand,
   type PaintRegionAccepted,
   type PaintRegionCommand,
+  type SendChatMessageAccepted,
+  type SendChatMessageCommand,
+  type StartSceneFromChatAccepted,
+  type StartSceneFromChatCommand,
   type StartTurnAccepted,
   type StartTurnCommand,
 } from './commands.js';

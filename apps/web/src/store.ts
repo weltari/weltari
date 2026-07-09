@@ -77,6 +77,28 @@ export interface HistoryScene {
   divider_text: string | null;
 }
 
+export interface ChatMessage {
+  message_id: string;
+  sender: 'user' | 'character';
+  text: string;
+  /** Wall-clock append time from the event envelope (ISO). */
+  ts: string;
+}
+
+/**
+ * One DM thread with a character (UI Spec §2.4) — a pure projection of
+ * chat.message_committed / chat.ended events; a restart rebuilds it exactly
+ * (the transcript survives because the events do, 0.11.0).
+ */
+export interface ChatThread {
+  conversation_id: string;
+  character_id: string;
+  messages: ChatMessage[];
+  /** How the latest range closed, if it did after the newest message —
+   * absent while the conversation is running. */
+  lastEnded: { reason: 'exit' | 'idle' | 'startscene' } | null;
+}
+
 export interface SceneStore {
   connected: boolean;
   protocolVersion: string | null;
@@ -138,6 +160,8 @@ export interface SceneStore {
   updateJobError: UpdateJobError | null;
   /** Plugins refused at load (B10) — Config shows them calmly, never hides them. */
   pluginRejections: PluginRejection[];
+  /** character_id → DM thread (Weltari Chat, 0.11.0) — replay-rebuilt. */
+  chatThreads: Record<string, ChatThread>;
 
   // ---- reducer actions: called ONLY from stream.ts ----
   setConnected(connected: boolean): void;
@@ -426,12 +450,60 @@ function applyOne(
       // Stubs are enterable through scenes only (Rev 4 §14) — no client
       // projection: the map ignores them and Hang around never lands on one.
       return;
+    case 'chat.message_committed':
+      set((state) => {
+        const characterId = event.payload.character_id;
+        const existing = state.chatThreads[characterId];
+        if (
+          existing?.messages.some(
+            (m) => m.message_id === event.payload.message_id,
+          ) === true
+        ) {
+          return {};
+        }
+        const message: ChatMessage = {
+          message_id: event.payload.message_id,
+          sender: event.payload.sender,
+          text: event.payload.text,
+          ts: event.ts,
+        };
+        const thread: ChatThread = {
+          conversation_id: event.payload.conversation_id,
+          character_id: characterId,
+          messages: [...(existing?.messages ?? []), message],
+          // A new message reopens the thread (the conversation_id is stable;
+          // an ended range just means the NEXT message starts a new one).
+          lastEnded: null,
+        };
+        return {
+          chatThreads: { ...state.chatThreads, [characterId]: thread },
+        };
+      });
+      return;
+    case 'chat.ended':
+      set((state) => {
+        const existing = state.chatThreads[event.payload.character_id];
+        if (existing === undefined) return {};
+        return {
+          chatThreads: {
+            ...state.chatThreads,
+            [event.payload.character_id]: {
+              ...existing,
+              lastEnded: { reason: event.payload.reason },
+            },
+          },
+        };
+      });
+      return;
     // No projection (yet): these surfaces arrive in later milestones
     // (map refresh, feed, job status UI). map_edit.requested is the map
-    // plugin's lock overlay — it reads the stream directly.
+    // plugin's lock overlay — it reads the stream directly. reflect_chat
+    // and CACHE entries are log-only trail surfaces (dev mode, §2.8).
     case 'reflection.committed':
     case 'world_agent.committed':
     case 'map_edit.requested':
+    case 'reflect_chat.committed':
+    case 'cache.appended':
       return;
   }
 }
@@ -467,6 +539,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
   updateStaged: null,
   updateJobError: null,
   pluginRejections: [],
+  chatThreads: {},
 
   setConnected(connected: boolean): void {
     set({ connected });
