@@ -166,14 +166,20 @@ export function backdropPromptFor(
   worldId: string,
   imageId: string,
 ): string {
+  // Style bible v2 (week-9 visual QA, docs/week9-results.md): v1's "calm,
+  // uncluttered lower third" came back as a literally EMPTY band of raw
+  // canvas, and the parent's description leaked its furniture into the
+  // child's room — every line below exists because of a looked-at defect.
   const style =
     'A visual-novel background illustration seen from eye level, as if ' +
     'standing inside the scene: hand-painted, soft ambient light, muted ' +
     'earthy palette of moss green, ochre, slate grey and warm lamplight — ' +
-    'the same rainy storybook world as its map. An EMPTY stage awaiting its ' +
+    'the same rainy storybook world as its map. An empty stage awaiting its ' +
     'actors: no people, no characters, no animals, no text, no labels, no ' +
-    'UI, no frame, no border. The scene fills the canvas edge-to-edge with ' +
-    'a calm, uncluttered lower third where dialogue panels will sit.';
+    'UI. Paint EVERY pixel of the square canvas edge-to-edge — no frame, no ' +
+    'border, no margin, no blank band, no transparency checkerboard. The ' +
+    'lower third of the scene stays visually simple (open floor, ground or ' +
+    'water, fully painted) so dialogue panels can sit over it.';
   const sublocationId = imageId.slice('backdrop:'.length);
   const known = knownSublocations(storage, worldId);
   const here = known.find((s) => s.sublocation_id === sublocationId);
@@ -184,10 +190,12 @@ export function backdropPromptFor(
     here.parent_id === undefined
       ? undefined
       : known.find((s) => s.sublocation_id === here.parent_id);
+  // Name the parent for world coherence but WITHOUT its description — v1
+  // pulled the parent's furniture into the child's room.
   const parentLine =
     parent === undefined
       ? ''
-      : ` It lies inside ${parent.name} — ${parent.description}`;
+      : ` It belongs to ${parent.name}, but paint ONLY the inside of ${here.name} itself.`;
   return `${style} The place: ${here.name} — ${here.description}${parentLine}`;
 }
 
