@@ -116,6 +116,10 @@ describe('GET /* (the SPA wildcard route)', () => {
         }),
       applyUpdate: () =>
         err(new OperationalError('updates_disabled', 'test stub')),
+      sendChatMessage: () =>
+        err(new OperationalError('unknown_character', 'test stub')),
+      exitChat: () =>
+        err(new OperationalError('unknown_character', 'test stub')),
       ...(resolveStatic === undefined ? {} : { resolveStatic }),
     });
     return app;

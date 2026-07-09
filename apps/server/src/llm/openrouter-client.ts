@@ -8,7 +8,9 @@ import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
 import type { ModelRegistry } from './model-registry.js';
 import {
+  CacheToolSchema,
   ChangeSublocationToolSchema,
+  CHAT_TOOL_DESCRIPTIONS,
   CreateSublocationToolSchema,
   EndSceneToolSchema,
   NARRATOR_TOOL_DESCRIPTIONS,
@@ -37,6 +39,15 @@ const NARRATOR_TOOLS: ToolSet = {
   create_sublocation: tool({
     description: NARRATOR_TOOL_DESCRIPTIONS.create_sublocation,
     inputSchema: CreateSublocationToolSchema,
+  }),
+};
+
+/** The chat toolset (M6 part 2, Rev 4 §8): data-only like every mutating
+ * tool — the chat engine gates and appends, the SDK never executes. */
+const CHAT_TOOLS: ToolSet = {
+  cache: tool({
+    description: CHAT_TOOL_DESCRIPTIONS.cache,
+    inputSchema: CacheToolSchema,
   }),
 };
 
@@ -195,7 +206,9 @@ export function createOpenRouterClient(
                       ),
                     }),
               }
-            : {}),
+            : call.toolset === 'chat'
+              ? { tools: CHAT_TOOLS, toolChoice: 'auto' as const }
+              : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable
           // prefix, never user input, so the injection warning does not apply.

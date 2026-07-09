@@ -15,6 +15,8 @@ import {
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
+  ExitChatAcceptedSchema,
+  ExitChatCommandSchema,
   ExploreAcceptedSchema,
   ExploreCommandSchema,
   InterruptTurnAcceptedSchema,
@@ -29,6 +31,8 @@ import {
   PaintRegionCommandSchema,
   PluginListSchema,
   PROTOCOL_VERSION,
+  SendChatMessageAcceptedSchema,
+  SendChatMessageCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
   type AdvanceTimeAccepted,
@@ -38,6 +42,8 @@ import {
   type CommandRejected,
   type EndSceneAccepted,
   type EndSceneCommand,
+  type ExitChatAccepted,
+  type ExitChatCommand,
   type ExploreAccepted,
   type ExploreCommand,
   type InterruptTurnAccepted,
@@ -52,6 +58,8 @@ import {
   type PaintRegionCommand,
   type PluginInfo,
   type PluginList,
+  type SendChatMessageAccepted,
+  type SendChatMessageCommand,
   type StartTurnCommand,
 } from '@weltari/protocol';
 import { createReadStream } from 'node:fs';
@@ -108,6 +116,18 @@ export interface HttpDeps {
   /** Updater seam (FINAL item 12): enqueue the update_apply job — 409 when
    * updates are disabled (no verification key / Docker notify-only mode). */
   applyUpdate: (command: ApplyUpdateCommand) => Result<{ jobKey: string }>;
+  /** Weltari Chat seams (M6 part 2, Rev 4 §8): the user line commits at the
+   * seam; the reply generates detached and arrives as an event. exit-chat
+   * closes the range + enqueues its ONE reflect_chat job atomically. */
+  sendChatMessage: (command: SendChatMessageCommand) => Result<{
+    conversationId: string;
+    messageId: string;
+    replying: boolean;
+    presence: 'available' | 'in_scene';
+  }>;
+  exitChat: (
+    command: ExitChatCommand,
+  ) => Result<{ conversationId: string; ended: boolean; jobKey?: string }>;
   /**
    * Read-only painter-output serving (GET /v1/images/*): resolves a path
    * RELATIVE to the images dir, contained to it; null = 404. The event
@@ -521,6 +541,78 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
               click_id: result.value.clickId,
               job_key: result.value.jobKey,
             };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/send-chat-message',
+    {
+      schema: {
+        body: SendChatMessageCommandSchema,
+        response: {
+          202: SendChatMessageAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.sendChatMessage(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'send-chat-message rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: SendChatMessageAccepted = {
+        accepted: true,
+        conversation_id: result.value.conversationId,
+        message_id: result.value.messageId,
+        replying: result.value.replying,
+        presence: result.value.presence,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/exit-chat',
+    {
+      schema: {
+        body: ExitChatCommandSchema,
+        response: {
+          202: ExitChatAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.exitChat(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'exit-chat rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: ExitChatAccepted = {
+        accepted: true,
+        conversation_id: result.value.conversationId,
+        ended: result.value.ended,
+        ...(result.value.jobKey === undefined
+          ? {}
+          : { job_key: result.value.jobKey }),
+      };
       return accepted;
     },
   );

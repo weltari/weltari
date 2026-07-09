@@ -22,6 +22,7 @@ import {
   FIXTURE_WORLD_CRON,
   FIXTURE_WORLD_ID,
 } from './engine/fixture/rainy-inn.js';
+import { createChatEngine } from './engine/chat.js';
 import { createExploreCommand } from './engine/explore.js';
 import { createMapClickCommand } from './engine/map-click.js';
 import { createMapEditCommand } from './engine/map-edit.js';
@@ -235,6 +236,22 @@ const lifecycle = createSceneLifecycle({
   eventBus,
   logger,
   knownCharacters,
+});
+
+// Weltari Chat (M6 part 2, Rev 4 §8): DMs outside any scene. The idle sweep
+// runs on its own timer (below); the engine itself never reads the clock.
+const chatEngine = createChatEngine({
+  storage,
+  sink,
+  eventBus,
+  llm,
+  logger,
+  profiles: [elias],
+  idleCutoffIso: (): string =>
+    new Date(Date.now() - env.chatIdleMinutes * 60_000).toISOString(),
+  kickRunner: (): void => {
+    catchAndLog(drainLedger(), logger, 'ledger.drain');
+  },
 });
 
 async function startTurn(
@@ -513,6 +530,12 @@ const runnerInterval = setInterval(() => {
   catchAndLog(runner.tick(), logger, 'runner.tick');
 }, 1000);
 
+// The chat idle sweep (Rev 4 §8): every 15 s is plenty for a minutes-scale
+// timeout; demo/harness runs shrink WELTARI_CHAT_IDLE_MINUTES instead.
+const chatSweepInterval = setInterval(() => {
+  chatEngine.sweepIdle();
+}, 15_000);
+
 /** Drain every due job now — time skips use this so code-class occurrences
  * run instantly instead of waiting out the 1 s poll (Brief §4). */
 async function drainLedger(): Promise<void> {
@@ -603,6 +626,15 @@ const app = createHttpServer({
     },
   }),
   applyUpdate,
+  sendChatMessage: (command) => {
+    const result = chatEngine.sendMessage(command);
+    if (result.ok) {
+      // The reply generates detached — a failure logs, never crashes (A8).
+      catchAndLog(result.value.completion, logger, 'chat-reply');
+    }
+    return result;
+  },
+  exitChat: (command) => chatEngine.exitChat(command),
   plugins: plugins.map((plugin) => plugin.info),
   resolvePluginAsset: createPluginAssetResolver(plugins),
   resolveImage: createImageResolver(env.imagesDir),
@@ -619,6 +651,7 @@ function drain(signal: string): void {
     'draining (optimization only — kill -9 is always safe)',
   );
   clearInterval(runnerInterval);
+  clearInterval(chatSweepInterval);
   stopGauges();
   catchAndLog(gatewayHost.stop(), logger, 'gateway.stop');
   catchAndLog(app.close(), logger, 'app.close');
