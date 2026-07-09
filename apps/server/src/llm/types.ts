@@ -29,9 +29,21 @@ export interface LlmCall {
   onTextDelta: (delta: string) => void;
   /**
    * Offer a toolset to the model ('narrator' = end_scene / change_sublocation
-   * / switch_art). Returned calls are RAW — the caller must run both B6 gates.
+   * / switch_art / create_sublocation / query_sublocations). Returned calls
+   * are RAW — the caller must run both B6 gates.
    */
   toolset?: 'narrator';
+  /**
+   * Engine-owned read-only query executors offered alongside the toolset
+   * (M6 part 1, Rev 4 §6). The client runs these DURING the call and feeds
+   * the result string back to the model (multi-step): queries route context,
+   * they never mutate — mutating tools always come back as data for the B6
+   * gates. Input arrives unvalidated (provider JSON); the executor safeParses
+   * and answers malformed input with an error string the model can react to.
+   */
+  queries?: {
+    query_sublocations: (input: unknown) => string;
+  };
 }
 
 export interface LlmUsage {

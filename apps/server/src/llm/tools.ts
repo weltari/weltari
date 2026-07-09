@@ -18,8 +18,59 @@ export const EndSceneToolSchema = z.strictObject({
   type: z.enum(['rest', 'continuation', 'travel']),
   /** Soft-close divider line, e.g. "— evening falls —". */
   divider_text: z.string().min(1).max(200).optional(),
+  /**
+   * The next-scene registration (Rev 4 §6, M6 part 1) — REQUIRED when type
+   * is `continuation` (the engine-state gate refuses one without it): where
+   * "Jump to the next scene" opens. May name a stub created this very turn.
+   */
+  next_scene: z
+    .strictObject({
+      sublocation_id: z.string().min(1),
+      /** Optional premise line the follow-up scene opens on. */
+      premise_seed: z.string().min(1).max(500).optional(),
+    })
+    .optional(),
 });
 export type EndSceneToolInput = z.infer<typeof EndSceneToolSchema>;
+
+/**
+ * create_sublocation — the in-scene creation loop's hot path (Rev 4 §6): the
+ * engine commits an identity stub atomically with the turn; the backdrop job
+ * fires immediately; a parentless stub also enqueues materialization. The
+ * engine-state gate enforces the parentless query-first rule and the
+ * did-you-mean near-duplicate rejection.
+ */
+export const CreateSublocationToolSchema = z.strictObject({
+  name: z.string().min(1).max(120),
+  /** The Narrator's one-line brief — becomes the stub's description. */
+  brief: z.string().min(1).max(2000),
+  /** The exterior-atomic parent for an interior (always flat, Rev 4 §6).
+   * Absent = parentless: a genuinely new exterior-atomic place. */
+  parent_id: z.string().min(1).optional(),
+  /** Prose placement hint for parentless creates ("near the riverside") —
+   * recorded; placement itself is code-owned (Rev 4 §14). */
+  narrative_anchor: z.string().min(1).max(200).optional(),
+});
+export type CreateSublocationToolInput = z.infer<
+  typeof CreateSublocationToolSchema
+>;
+
+/**
+ * query_sublocations — hard-coded read-only lookup (Rev 4 §6), executed by
+ * the ENGINE during the call (queries route context, they never mutate — the
+ * B6 double gate applies to mutations). Mode `parentless` is the strict
+ * prerequisite for any parentless create.
+ */
+export const QuerySublocationsToolSchema = z.strictObject({
+  mode: z.enum(['parentless', 'children', 'search']),
+  /** mode `children`: the parentless parent whose interiors to list. */
+  parent_id: z.string().min(1).optional(),
+  /** mode `search`: keyword matched against names and descriptions. */
+  keyword: z.string().min(1).max(120).optional(),
+});
+export type QuerySublocationsToolInput = z.infer<
+  typeof QuerySublocationsToolSchema
+>;
 
 /** change_sublocation — moves the scene backdrop (UI Spec §1.6). */
 export const ChangeSublocationToolSchema = z.strictObject({
@@ -40,17 +91,23 @@ export const NARRATOR_TOOL_NAMES = [
   'end_scene',
   'change_sublocation',
   'switch_art',
+  'create_sublocation',
+  'query_sublocations',
 ] as const;
 export type NarratorToolName = (typeof NARRATOR_TOOL_NAMES)[number];
 
 /** Static descriptions the real client hands the SDK (stable strings — never scene state). */
 export const NARRATOR_TOOL_DESCRIPTIONS: Record<NarratorToolName, string> = {
   end_scene:
-    'Softly close the current scene. type: rest (a natural pause), continuation (a next scene follows), travel (the party moves elsewhere). Optionally give a short divider line like "— evening falls —".',
+    'Softly close the current scene. type: rest (a natural pause), continuation (a next scene follows), travel (the party moves elsewhere). Optionally give a short divider line like "— evening falls —". A continuation MUST include next_scene: the sublocation_id the follow-up scene opens at (it may be a stub you created this turn) and optionally a premise_seed.',
   change_sublocation:
-    'Move the scene to another sublocation of this location. Use a sublocation_id offered in the scene context.',
+    'Move the scene to another sublocation of this location. Use a sublocation_id offered in the scene context (a sublocation you created this turn works too).',
   switch_art:
     'Switch a present character to another named art pose from their art set listed in the scene context.',
+  create_sublocation:
+    'Create a new place mid-scene when the story commits to it (the scene moves there, or the next scene opens there) — mentioning a place in prose costs nothing and needs no tool call. One sublocation = one backdrop image: if a single background image can stage it, it is one sublocation (a park, a market square, a bridge); if only an aerial view could, name the stage inside it instead. An interior of the current location gets parent_id = the current exterior-atomic sublocation (always flat, never nested). A genuinely new parentless place requires calling query_sublocations with mode "parentless" first, in this same reply: if an existing sublocation plausibly fits, use change_sublocation instead of creating.',
+  query_sublocations:
+    'Look up existing sublocations before creating or moving. mode "parentless" lists every exterior-atomic place (REQUIRED before any parentless create_sublocation); mode "children" lists the interiors under parent_id; mode "search" matches keyword against names and descriptions. The result returns to you immediately.',
 };
 
 /** A tool call as the provider (or the fake) returned it — unvalidated. */
@@ -63,7 +120,8 @@ export interface RawToolCall {
 export type ValidatedToolCall =
   | { tool: 'end_scene'; input: EndSceneToolInput }
   | { tool: 'change_sublocation'; input: ChangeSublocationToolInput }
-  | { tool: 'switch_art'; input: SwitchArtToolInput };
+  | { tool: 'switch_art'; input: SwitchArtToolInput }
+  | { tool: 'create_sublocation'; input: CreateSublocationToolInput };
 
 /**
  * Gate 1: shape-validate one raw tool call. Unknown names and malformed
@@ -114,6 +172,31 @@ export function parseToolCall(
         ? { ok: true, value: { tool: 'switch_art', input: input.value } }
         : input;
     }
+    case 'create_sublocation': {
+      const input = validateAt(
+        'llm',
+        'tool:create_sublocation',
+        CreateSublocationToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? {
+            ok: true,
+            value: { tool: 'create_sublocation', input: input.value },
+          }
+        : input;
+    }
+    case 'query_sublocations':
+      // Queries execute DURING the call (LlmCall.queries) and are filtered
+      // out of the returned tool calls; one arriving here means the client
+      // mis-routed it. Reject as a value — nothing durable happens (I8).
+      return err(
+        new OperationalError(
+          'query_not_stageable',
+          'query_sublocations executes during the call and is never staged',
+        ),
+      );
     default:
       return err(
         new OperationalError(

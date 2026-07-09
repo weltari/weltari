@@ -66,4 +66,73 @@ describe('parseToolCall (B6 gate 1)', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('unknown_tool');
   });
+
+  it('accepts create_sublocation for interiors and parentless places (M6 part 1)', () => {
+    expect(
+      parseToolCall(
+        raw('create_sublocation', {
+          name: 'The Inn Kitchen',
+          brief: 'Steam and copper pots behind the common room.',
+          parent_id: 'subloc:common_room',
+        }),
+        logger,
+      ).ok,
+    ).toBe(true);
+    expect(
+      parseToolCall(
+        raw('create_sublocation', {
+          name: 'The River Park',
+          brief: 'Willows over slow water.',
+          narrative_anchor: 'near the riverside',
+        }),
+        logger,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('rejects create_sublocation with a missing brief or extra key (B5)', () => {
+    expect(
+      parseToolCall(raw('create_sublocation', { name: 'X' }), logger).ok,
+    ).toBe(false);
+    expect(
+      parseToolCall(
+        raw('create_sublocation', {
+          name: 'X',
+          brief: 'y',
+          map_position: { x: 0.5, y: 0.5 },
+        }),
+        logger,
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('accepts end_scene with a next_scene registration; rejects a malformed one', () => {
+    expect(
+      parseToolCall(
+        raw('end_scene', {
+          type: 'continuation',
+          next_scene: { sublocation_id: 'subloc:stub-the-river-park' },
+        }),
+        logger,
+      ).ok,
+    ).toBe(true);
+    expect(
+      parseToolCall(
+        raw('end_scene', {
+          type: 'continuation',
+          next_scene: { sublocation_id: '' },
+        }),
+        logger,
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('rejects a query_sublocations arriving as a staged call (it executes mid-call)', () => {
+    const result = parseToolCall(
+      raw('query_sublocations', { mode: 'parentless' }),
+      logger,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('query_not_stageable');
+  });
 });

@@ -40,18 +40,43 @@ const SCRIPT: Record<string, string> = {
  * whole B6 tool pipeline drivable through the PUBLIC API — tests, the kill
  * harness and a browser all script tool calls by typing:
  *   !end [rest|continuation|travel]      → end_scene
+ *   !endnext <sublocation_id>            → end_scene continuation + next_scene (M6 part 1)
  *   !move <sublocation_id>               → change_sublocation
  *   !art <character_id> <art_id>         → switch_art
+ *   !create <name-slug> <parent_id>      → create_sublocation (interior; hyphens become spaces)
+ *   !createwild <name-slug>              → PARENTLESS create_sublocation (gate-2 subject
+ *                                          without !query — the query-first rule)
+ *   !query                               → run the engine's query_sublocations
+ *                                          executor (mode parentless) mid-call
  *   !badshape                            → switch_art with a malformed input (gate-1 subject)
  *   !ghosttool                           → an unknown tool name (gate-1 subject)
  */
 function scriptedToolCalls(prompt: string): RawToolCall[] {
   const calls: RawToolCall[] = [];
-  const end = /!end(?:\s+(rest|continuation|travel))?/.exec(prompt);
-  if (end !== null) {
+  // Creates come first — a scripted move/continuation may reference a stub
+  // created in this same reply (the creation loop's natural call order).
+  // \b keeps "!createwild" from also matching as "!create".
+  const create = /!create\b\s+(\S+)\s+(\S+)/.exec(prompt);
+  if (create !== null) {
     calls.push({
-      tool: 'end_scene',
-      input: { type: end[1] ?? 'rest', divider_text: '— the rain eases —' },
+      tool: 'create_sublocation',
+      input: {
+        name: (create[1] ?? '').replaceAll('-', ' '),
+        brief:
+          'A place the story just invented; the lamplight has not reached its corners yet.',
+        parent_id: create[2] ?? '',
+      },
+    });
+  }
+  const wild = /!createwild\s+(\S+)/.exec(prompt);
+  if (wild !== null) {
+    calls.push({
+      tool: 'create_sublocation',
+      input: {
+        name: (wild[1] ?? '').replaceAll('-', ' '),
+        brief: 'A genuinely new place beyond the inn; rain hides its far side.',
+        narrative_anchor: 'near the sublocation the scene is in',
+      },
     });
   }
   const move = /!move\s+(\S+)/.exec(prompt);
@@ -66,6 +91,28 @@ function scriptedToolCalls(prompt: string): RawToolCall[] {
     calls.push({
       tool: 'switch_art',
       input: { character_id: art[1] ?? '', art_id: art[2] ?? '' },
+    });
+  }
+  const endNext = /!endnext\s+(\S+)/.exec(prompt);
+  if (endNext !== null) {
+    calls.push({
+      tool: 'end_scene',
+      input: {
+        type: 'continuation',
+        divider_text: '— the rain eases —',
+        next_scene: {
+          sublocation_id: endNext[1] ?? '',
+          premise_seed: 'The story picks up where the lamplight leads.',
+        },
+      },
+    });
+  }
+  // \b keeps "!endnext" from also matching as a bare "!end".
+  const end = /!end\b(?:\s+(rest|continuation|travel))?/.exec(prompt);
+  if (end !== null && endNext === null) {
+    calls.push({
+      tool: 'end_scene',
+      input: { type: end[1] ?? 'rest', divider_text: '— the rain eases —' },
     });
   }
   if (prompt.includes('!badshape')) {
@@ -108,6 +155,17 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
   return {
     async streamCall(call: LlmCall): Promise<Result<LlmCallResult>> {
       const text = SCRIPT[call.kind] ?? 'The rain continues.';
+      // The scripted mid-call query (M6 part 1): a real model would receive
+      // the executor's result and keep generating — the fake just runs the
+      // executor so the engine's query-first flag and dev trail behave
+      // exactly as with a real backend.
+      if (
+        call.toolset === 'narrator' &&
+        call.queries !== undefined &&
+        call.prompt.includes('!query')
+      ) {
+        call.queries.query_sublocations({ mode: 'parentless' });
+      }
       if (firstTokenDelayMs > 0) {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, firstTokenDelayMs);
