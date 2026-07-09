@@ -120,6 +120,8 @@ describe('GET /* (the SPA wildcard route)', () => {
         err(new OperationalError('unknown_character', 'test stub')),
       exitChat: () =>
         err(new OperationalError('unknown_character', 'test stub')),
+      startSceneFromChat: () =>
+        err(new OperationalError('unknown_character', 'test stub')),
       ...(resolveStatic === undefined ? {} : { resolveStatic }),
     });
     return app;

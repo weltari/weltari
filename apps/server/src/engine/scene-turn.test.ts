@@ -604,6 +604,38 @@ describe('narrator tool pipeline (B6 two gates)', () => {
     ctx.storage.close();
   });
 
+  it('a chat handoff rides the FIRST turn: premise + place request in the player block (M6 part 2)', async () => {
+    const ctx = setup();
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'scene.started',
+      payload: {
+        scene_id: 's1',
+        title: 'Meeting outside',
+        premise: 'They meet under dripping willows.',
+        place_request: 'the park',
+      },
+    });
+    await runTurn(ctx, 'here we are');
+    const first = ctx.llmCalls.find((c) => c.kind === 'narrator');
+    expect(first?.prompt).toContain(
+      'Meeting place requested from chat: "the park"',
+    );
+    expect(first?.prompt).toContain(
+      'Scene premise: They meet under dripping willows.',
+    );
+    expect(first?.prompt).toContain('resolve it THIS turn');
+
+    // Turn 2: the premise is spent (a turn committed); the place request
+    // stands until the scene actually moves somewhere.
+    await runTurn(ctx, 'and now?');
+    const second = ctx.llmCalls.filter((c) => c.kind === 'narrator')[1];
+    expect(second?.prompt).not.toContain('Scene premise:');
+    expect(second?.prompt).toContain('Meeting place requested from chat');
+    ctx.storage.close();
+  });
+
   it('mid-call gate feedback: a refused parentless create self-corrects in ONE turn (M6 part 2)', async () => {
     // Mimics the real client with a gate executor: step 1 tries the create
     // unqueried (must read back the fixed Rev 4 refusal as a tool ERROR),

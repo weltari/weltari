@@ -15,6 +15,7 @@ import {
   EndSceneToolSchema,
   NARRATOR_TOOL_DESCRIPTIONS,
   QuerySublocationsToolSchema,
+  StartSceneToolSchema,
   SwitchArtToolSchema,
   type RawToolCall,
 } from './tools.js';
@@ -48,6 +49,10 @@ const CHAT_TOOLS: ToolSet = {
   cache: tool({
     description: CHAT_TOOL_DESCRIPTIONS.cache,
     inputSchema: CacheToolSchema,
+  }),
+  startscene: tool({
+    description: CHAT_TOOL_DESCRIPTIONS.startscene,
+    inputSchema: StartSceneToolSchema,
   }),
 };
 

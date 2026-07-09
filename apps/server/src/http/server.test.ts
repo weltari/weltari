@@ -232,6 +232,16 @@ describe('HTTP layer (SSE + commands)', () => {
               ended: true,
               jobKey: 'reflect_chat:c1:9',
             }),
+      // place 'the park' exercises the unresolved free-text answer shape.
+      startSceneFromChat: (command) =>
+        command.character_id === 'char:ghost'
+          ? err(new OperationalError('unknown_character', 'no such character'))
+          : ok({
+              sceneId: command.scene_id,
+              ...(command.place === 'the park'
+                ? {}
+                : { sublocationId: 'subloc:common_room' }),
+            }),
       heartbeatMs: 60000,
     });
     // Windows: listen({port: 0}) draws from the ephemeral range (49152+),
@@ -402,6 +412,52 @@ describe('HTTP layer (SSE + commands)', () => {
       conversation_id: 'chat:user:owner:char:elias',
       ended: true,
       job_key: 'reflect_chat:c1:9',
+    });
+  });
+
+  it('start-scene-from-chat -> 202 with scene id (+ sublocation when resolved)', async () => {
+    const ctx = await setup();
+    const resolved = await fetchRetry(
+      `${ctx.baseUrl}/v1/commands/start-scene-from-chat`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          character_id: 'char:elias',
+          scene_id: 's-chat-1',
+          title: 'Meeting at the inn',
+          place: 'The Common Room',
+        }),
+      },
+    );
+    expect(resolved.status).toBe(202);
+    expect(await resolved.json()).toEqual({
+      accepted: true,
+      scene_id: 's-chat-1',
+      sublocation_id: 'subloc:common_room',
+    });
+
+    const freeText = await fetchRetry(
+      `${ctx.baseUrl}/v1/commands/start-scene-from-chat`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          character_id: 'char:elias',
+          scene_id: 's-chat-2',
+          title: 'Meeting outside',
+          place: 'the park',
+        }),
+      },
+    );
+    expect(freeText.status).toBe(202);
+    expect(await freeText.json()).toEqual({
+      accepted: true,
+      scene_id: 's-chat-2',
     });
   });
 
