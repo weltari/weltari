@@ -274,6 +274,98 @@ export const ApplyUpdateAcceptedSchema = z.strictObject({
 });
 export type ApplyUpdateAccepted = z.infer<typeof ApplyUpdateAcceptedSchema>;
 
+/**
+ * POST /v1/commands/send-chat-message — DM a character in Weltari Chat (M6
+ * part 2, Rev 4 §8). The user line commits durably at the seam; the reply
+ * generates detached and arrives as its own chat.message_committed event.
+ * Idempotent per request_id (a duplicate send is a silent 202 no-op). The
+ * presence rule answers here: a character `in_scene` stores the message but
+ * generates NO reply (they read it when the scene ends — chat shows offline).
+ */
+export const SendChatMessageCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  character_id: z.string().min(1),
+  text: z.string().min(1).max(8192),
+  /** Client-chosen idempotency token; becomes the message_id. */
+  request_id: z.string().min(1).max(100),
+});
+export type SendChatMessageCommand = z.infer<
+  typeof SendChatMessageCommandSchema
+>;
+
+/** 202 response: the user line is durable. `replying` = a character reply is
+ * generating now (false while the character is `in_scene` — offline). */
+export const SendChatMessageAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  conversation_id: z.string().min(1),
+  message_id: z.string().min(1),
+  replying: z.boolean(),
+  /** The character's presence at send time (UI Spec §2.4: offline while in_scene). */
+  presence: z.enum(['available', 'in_scene']),
+});
+export type SendChatMessageAccepted = z.infer<
+  typeof SendChatMessageAcceptedSchema
+>;
+
+/**
+ * POST /v1/commands/exit-chat — the explicit user exit() (Rev 4 §8): closes
+ * the conversation's open range with chat.ended(reason exit) and enqueues its
+ * ONE reflect_chat job atomically. A conversation with no unreflected
+ * messages is a silent 202 no-op (nothing to reflect).
+ */
+export const ExitChatCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  character_id: z.string().min(1),
+});
+export type ExitChatCommand = z.infer<typeof ExitChatCommandSchema>;
+
+/** 202 response. `ended` = a chat.ended committed (false: nothing to close). */
+export const ExitChatAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  conversation_id: z.string().min(1),
+  ended: z.boolean(),
+  /** The reflect_chat ledger key, when a range closed. */
+  job_key: z.string().min(1).optional(),
+});
+export type ExitChatAccepted = z.infer<typeof ExitChatAcceptedSchema>;
+
+/**
+ * POST /v1/commands/start-scene-from-chat — the startscene() bridge (M6 part
+ * 2, Rev 4 §8): ends the chat (reason startscene) and opens a real scene with
+ * the character. `place` is an existing sublocation id, an existing name, or
+ * a free-text place string — resolved server-side; an unresolved place rides
+ * scene.started as place_request for the Narrator's standard create workflow
+ * (query-first rule included). 409 while scene-open blocking jobs run.
+ */
+export const StartSceneFromChatCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  character_id: z.string().min(1),
+  scene_id: z.string().min(1),
+  title: z.string().min(1).max(200),
+  /** Existing sublocation id/name, or a free-text place ("the park"). */
+  place: z.string().min(1).max(200),
+  /** Optional premise line the scene opens on. */
+  premise: z.string().min(1).max(500).optional(),
+});
+export type StartSceneFromChatCommand = z.infer<
+  typeof StartSceneFromChatCommandSchema
+>;
+
+/** 202 response: the chat range closed and the scene opened. */
+export const StartSceneFromChatAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  scene_id: z.string().min(1),
+  /** Present when `place` resolved to a known sublocation — the scene opened
+   * there. Absent = the Narrator received it as place_request instead. */
+  sublocation_id: z.string().min(1).optional(),
+});
+export type StartSceneFromChatAccepted = z.infer<
+  typeof StartSceneFromChatAcceptedSchema
+>;
+
 /** 4xx response for a schema-valid command the engine refused (e.g. busy scene). */
 export const CommandRejectedSchema = z.strictObject({
   accepted: z.literal(false),

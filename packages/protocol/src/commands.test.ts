@@ -4,6 +4,10 @@ import {
   ApplyUpdateAcceptedSchema,
   ApplyUpdateCommandSchema,
   EndSceneCommandSchema,
+  ExitChatCommandSchema,
+  SendChatMessageAcceptedSchema,
+  SendChatMessageCommandSchema,
+  StartSceneFromChatCommandSchema,
   ExploreAcceptedSchema,
   ExploreCommandSchema,
   InterruptTurnCommandSchema,
@@ -52,6 +56,115 @@ describe('StartTurnCommandSchema', () => {
       text: 'x'.repeat(8193),
     };
     expect(StartTurnCommandSchema.safeParse(oversized).success).toBe(false);
+  });
+});
+
+describe('chat commands (0.11.0, Rev 4 §8)', () => {
+  it('send-chat-message accepts a valid DM and enforces the B7 text cap', () => {
+    const valid: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      text: 'Evening, Elias.',
+      request_id: 'r-1',
+    };
+    expect(SendChatMessageCommandSchema.safeParse(valid).success).toBe(true);
+    const oversized: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      text: 'x'.repeat(8193),
+      request_id: 'r-1',
+    };
+    expect(SendChatMessageCommandSchema.safeParse(oversized).success).toBe(
+      false,
+    );
+  });
+
+  it('send-chat-message rejects empty text and an extra key (B5)', () => {
+    const empty: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      text: '',
+      request_id: 'r-1',
+    };
+    expect(SendChatMessageCommandSchema.safeParse(empty).success).toBe(false);
+    const extra: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      text: 'hi',
+      request_id: 'r-1',
+      admin: true,
+    };
+    expect(SendChatMessageCommandSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('send-chat-message 202 carries the presence answer (UI Spec §2.4)', () => {
+    const accepted: unknown = {
+      accepted: true,
+      conversation_id: 'chat:user:owner:char:elias',
+      message_id: 'r-1',
+      replying: false,
+      presence: 'in_scene',
+    };
+    expect(SendChatMessageAcceptedSchema.safeParse(accepted).success).toBe(
+      true,
+    );
+    const badPresence: unknown = {
+      accepted: true,
+      conversation_id: 'c1',
+      message_id: 'r-1',
+      replying: true,
+      presence: 'asleep',
+    };
+    expect(SendChatMessageAcceptedSchema.safeParse(badPresence).success).toBe(
+      false,
+    );
+  });
+
+  it('exit-chat accepts a valid exit and rejects an extra key (B5)', () => {
+    const valid: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+    };
+    expect(ExitChatCommandSchema.safeParse(valid).success).toBe(true);
+    const extra: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      force: true,
+    };
+    expect(ExitChatCommandSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('start-scene-from-chat accepts an id, a name, or free text as place', () => {
+    for (const place of ['subloc:common_room', 'The Common Room', 'the park']) {
+      const valid: unknown = {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:elias',
+        scene_id: 's2',
+        title: 'A walk outside',
+        place,
+      };
+      expect(StartSceneFromChatCommandSchema.safeParse(valid).success).toBe(
+        true,
+      );
+    }
+    const emptyPlace: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      scene_id: 's2',
+      title: 'A walk outside',
+      place: '',
+    };
+    expect(StartSceneFromChatCommandSchema.safeParse(emptyPlace).success).toBe(
+      false,
+    );
   });
 });
 

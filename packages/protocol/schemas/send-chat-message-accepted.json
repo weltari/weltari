@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "accepted": {
+      "type": "boolean",
+      "const": true
+    },
+    "conversation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "message_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "replying": {
+      "type": "boolean"
+    },
+    "presence": {
+      "type": "string",
+      "enum": [
+        "available",
+        "in_scene"
+      ]
+    }
+  },
+  "required": [
+    "accepted",
+    "conversation_id",
+    "message_id",
+    "replying",
+    "presence"
+  ],
+  "additionalProperties": false
+}
