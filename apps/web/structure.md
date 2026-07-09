@@ -43,6 +43,11 @@ game logic, bookkeeping, or state the stream didn't push, the edit is wrong.
 - **Colors/fonts/backdrops/motion:** edit tokens in `src/theme.css`. Backdrop
   per sublocation: `--wl-backdrop-<id>`; art accent per pose: `--wl-art-<id>`.
   Gradients can become `url(...)` images without any component change.
+  Painter-GENERATED backdrops (0.10.0, `painter.completed` for
+  `backdrop:<sublocation_id>` images) override the token layer at runtime:
+  the store's `backdropBySublocation` feeds `SceneStage`, which cover-crops
+  the real image and replays the §1.6 slide the moment one lands live; ids
+  without a generated backdrop keep the themed placeholder.
 - **Layout/composition:** `src/App.tsx` composes the surfaces; each component
   in `src/components/` owns one surface and reads the store directly.
 - **New event types:** extend the reducer switch in `src/store.ts` (it is

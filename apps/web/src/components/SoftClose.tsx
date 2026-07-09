@@ -2,6 +2,7 @@
 // The button set derives from scene.ended's end_type: rest → Stay/Map,
 // continuation → Stay/Jump/Map, travel → Map. Opening goes through the
 // App-owned masked transition (§1.14) — the cover animates the wait.
+import type { OpenSceneOptions } from '../commands.js';
 import { useSceneStore } from '../store.js';
 
 export function SoftClose(props: {
@@ -9,16 +10,18 @@ export function SoftClose(props: {
   mapReady: boolean;
   /** True while the §1.14 cover masks an in-flight scene open. */
   covering: boolean;
-  onOpenScene: (title: string) => void;
+  onOpenScene: (title: string, options?: OpenSceneOptions) => void;
   onOpenMap: () => void;
 }): React.JSX.Element | null {
   const sceneEnd = useSceneStore((s) => s.sceneEnd);
   const sceneTitle = useSceneStore((s) => s.sceneTitle);
+  const sublocationId = useSceneStore((s) => s.sublocationId);
 
   if (sceneEnd === null) return null;
 
   const busy = props.covering;
   const open = props.onOpenScene;
+  const nextScene = sceneEnd.next_scene;
 
   return (
     <div className="wl-soft-close">
@@ -29,7 +32,9 @@ export function SoftClose(props: {
             className="wl-button wl-button-accent"
             disabled={busy}
             onClick={() => {
-              open(sceneTitle);
+              // Stay longer = the resume path (Rev 4 §6): the new scene
+              // loads with the SAME sublocation, re-grounded.
+              open(sceneTitle, sublocationId === '' ? {} : { sublocationId });
             }}
           >
             Stay longer
@@ -40,7 +45,15 @@ export function SoftClose(props: {
             className="wl-button"
             disabled={busy}
             onClick={() => {
-              open('The next scene');
+              // The registered continuation (M6 part 1): the follow-up scene
+              // opens AT the next_scene sublocation — a stub created
+              // mid-scene included (its backdrop is what makes this fluid).
+              open(
+                'The next scene',
+                nextScene === undefined
+                  ? {}
+                  : { sublocationId: nextScene.sublocation_id },
+              );
             }}
           >
             Jump to the next scene
