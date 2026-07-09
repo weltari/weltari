@@ -33,6 +33,8 @@ import {
   PROTOCOL_VERSION,
   SendChatMessageAcceptedSchema,
   SendChatMessageCommandSchema,
+  StartSceneFromChatAcceptedSchema,
+  StartSceneFromChatCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
   type AdvanceTimeAccepted,
@@ -60,6 +62,8 @@ import {
   type PluginList,
   type SendChatMessageAccepted,
   type SendChatMessageCommand,
+  type StartSceneFromChatAccepted,
+  type StartSceneFromChatCommand,
   type StartTurnCommand,
 } from '@weltari/protocol';
 import { createReadStream } from 'node:fs';
@@ -128,6 +132,11 @@ export interface HttpDeps {
   exitChat: (
     command: ExitChatCommand,
   ) => Result<{ conversationId: string; ended: boolean; jobKey?: string }>;
+  /** The startscene() bridge (Rev 4 §8): ends the chat range, opens a real
+   * scene with the character; unresolved places ride scene.started. */
+  startSceneFromChat: (
+    command: StartSceneFromChatCommand,
+  ) => Result<{ sceneId: string; sublocationId?: string }>;
   /**
    * Read-only painter-output serving (GET /v1/images/*): resolves a path
    * RELATIVE to the images dir, contained to it; null = 404. The event
@@ -612,6 +621,43 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         ...(result.value.jobKey === undefined
           ? {}
           : { job_key: result.value.jobKey }),
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/start-scene-from-chat',
+    {
+      schema: {
+        body: StartSceneFromChatCommandSchema,
+        response: {
+          202: StartSceneFromChatAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.startSceneFromChat(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'start-scene-from-chat rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: StartSceneFromChatAccepted = {
+        accepted: true,
+        scene_id: result.value.sceneId,
+        ...(result.value.sublocationId === undefined
+          ? {}
+          : { sublocation_id: result.value.sublocationId }),
       };
       return accepted;
     },

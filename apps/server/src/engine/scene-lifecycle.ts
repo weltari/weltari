@@ -30,9 +30,21 @@ export interface SceneLifecycleOptions {
   knownCharacters: readonly KnownCharacter[];
 }
 
+/**
+ * open-scene plus the chat→scene handoff surface (M6 part 2, Rev 4 §8):
+ * `premise` and `place_request` ride scene.started — the Narrator's first
+ * turn folds them in and resolves an unresolved place via the standard
+ * create workflow. The HTTP open-scene command never sets them; the
+ * startscene() bridge does.
+ */
+export interface OpenSceneRequest extends OpenSceneCommand {
+  premise?: string;
+  place_request?: string;
+}
+
 export interface SceneLifecycle {
   endScene(command: EndSceneCommand): Result<{ jobsEnqueued: number }>;
-  openScene(command: OpenSceneCommand): Result<{ opened: true }>;
+  openScene(command: OpenSceneRequest): Result<{ opened: true }>;
 }
 
 const reflectionPayloadSchema = z.strictObject({
@@ -167,7 +179,7 @@ export function createSceneLifecycle(
       return ok({ jobsEnqueued });
     },
 
-    openScene(command: OpenSceneCommand): Result<{ opened: true }> {
+    openScene(command: OpenSceneRequest): Result<{ opened: true }> {
       const events = sceneEvents(storage, command.scene_id);
       if (events.some((e) => e.type === 'scene.started')) {
         return err(
@@ -234,7 +246,16 @@ export function createSceneLifecycle(
             world_id: command.world_id,
             actor_id: command.actor_id,
             type: 'scene.started',
-            payload: { scene_id: command.scene_id, title: command.title },
+            payload: {
+              scene_id: command.scene_id,
+              title: command.title,
+              ...(command.premise === undefined
+                ? {}
+                : { premise: command.premise }),
+              ...(command.place_request === undefined
+                ? {}
+                : { place_request: command.place_request }),
+            },
           }),
         ];
         for (const characterId of command.participants) {

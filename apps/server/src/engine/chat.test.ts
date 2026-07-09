@@ -13,6 +13,7 @@ import { createRootLogger } from '../observability/logger.js';
 import { openStorage, type Storage } from '../storage/db.js';
 import { buildEliasProfile } from './fixture/rainy-inn.js';
 import { createEventSink } from './event-sink.js';
+import { createSceneLifecycle } from './scene-lifecycle.js';
 import { createChatEngine, presenceOf } from './chat.js';
 
 function quietLogger(): ReturnType<typeof createRootLogger> {
@@ -47,6 +48,14 @@ function setup(
       return base.streamCall(call);
     },
   };
+  // The REAL scene lifecycle — bridge tests prove the whole handoff
+  // (scene.started + character.joined + the presence flip), not a stub.
+  const lifecycle = createSceneLifecycle({
+    storage,
+    eventBus,
+    logger,
+    knownCharacters: [{ character_id: ELIAS.character_id, name: ELIAS.name }],
+  });
   const engine = createChatEngine({
     storage,
     sink: createEventSink(storage, eventBus),
@@ -57,6 +66,7 @@ function setup(
     // Default: an ancient cutoff — nothing ever counts as idle.
     idleCutoffIso:
       options.idleCutoffIso ?? ((): string => '2000-01-01T00:00:00.000Z'),
+    openScene: (request) => lifecycle.openScene(request),
   });
   return { storage, engine, llmCalls };
 }
@@ -315,6 +325,109 @@ describe('conversation end (criterion c: exit + idle → ONE reflect_chat job)',
     ).toBe(1);
 
     expect(ctx.engine.sweepIdle()).toBe(0); // already closed — nothing left
+    ctx.storage.close();
+  });
+
+  it('startscene() at an existing place opens the scene AT it and closes the chat (criterion d)', async () => {
+    const ctx = setup();
+    await sendAndAwait(ctx, SEND);
+
+    const bridged = ctx.engine.startSceneFromChat({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      scene_id: 's-chat-1',
+      title: 'Meeting at the inn',
+      place: 'The Common Room', // resolves by NAME to subloc:common_room
+    });
+    expect(bridged.ok).toBe(true);
+    if (bridged.ok) {
+      expect(bridged.value.sublocationId).toBe('subloc:common_room');
+    }
+
+    const types = ctx.storage.eventLog.readSince(0).map((e) => e.type);
+    // Scene open (started + joined + moved AT the resolved place), then the
+    // chat range closes with reason startscene.
+    expect(types).toContain('scene.started');
+    expect(types).toContain('character.joined');
+    expect(types).toContain('sublocation.changed');
+    const ended = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'chat.ended');
+    expect(ended).toBeDefined();
+    if (ended?.type === 'chat.ended') {
+      expect(ended.payload.reason).toBe('startscene');
+    }
+    // The reservation (Rev 4 §7): the character is now in_scene — offline in chat.
+    expect(presenceOf(ctx.storage, ELIAS.character_id).state).toBe('in_scene');
+    // …and its reflect_chat job rode the same close.
+    expect(
+      ctx.storage.ledger.countByKey(
+        `reflect_chat:chat:user:owner:char:elias:${String(ended?.type === 'chat.ended' ? ended.payload.range_end_id : 0)}`,
+      ),
+    ).toBe(1);
+    ctx.storage.close();
+  });
+
+  it('startscene() at a free-text place rides scene.started as place_request (criterion d)', async () => {
+    const ctx = setup();
+    await sendAndAwait(ctx, SEND);
+
+    const bridged = ctx.engine.startSceneFromChat({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      scene_id: 's-chat-2',
+      title: 'Meeting outside',
+      place: 'the park',
+      premise: 'They meet under dripping willows.',
+    });
+    expect(bridged.ok).toBe(true);
+    if (bridged.ok) expect(bridged.value.sublocationId).toBeUndefined();
+
+    const started = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'scene.started');
+    expect(started).toBeDefined();
+    if (started?.type === 'scene.started') {
+      expect(started.payload.place_request).toBe('the park');
+      expect(started.payload.premise).toBe('They meet under dripping willows.');
+    }
+    // Unresolved: the scene opens at the default start — no move committed;
+    // the Narrator's first turn resolves via the standard create workflow.
+    expect(
+      ctx.storage.eventLog
+        .readSince(0)
+        .some((e) => e.type === 'sublocation.changed'),
+    ).toBe(false);
+    ctx.storage.close();
+  });
+
+  it('a character-initiated startscene (the fake’s !startscene) bridges after its reply commits', async () => {
+    const ctx = setup();
+    await sendAndAwait(ctx, {
+      ...SEND,
+      text: 'Enough texting. !startscene the-ferry-landing',
+    });
+
+    const types = ctx.storage.eventLog.readSince(0).map((e) => e.type);
+    // Reply + CACHE committed first, then the bridge: scene open + chat end.
+    expect(types).toContain('chat.message_committed');
+    expect(types).toContain('cache.appended');
+    expect(types).toContain('scene.started');
+    const started = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'scene.started');
+    if (started?.type === 'scene.started') {
+      expect(started.payload.place_request).toBe('the ferry landing');
+    }
+    const ended = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'chat.ended');
+    expect(ended).toBeDefined();
+    if (ended?.type === 'chat.ended') {
+      expect(ended.payload.reason).toBe('startscene');
+    }
     ctx.storage.close();
   });
 

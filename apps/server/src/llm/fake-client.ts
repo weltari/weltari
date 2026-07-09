@@ -202,6 +202,9 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
             : call.toolset === 'chat'
               ? // The mandatory CACHE line rides every scripted chat reply
                 // (Rev 4 §11) — tests and the harness get real entries at $0.
+                // `!startscene <place-slug>` scripts the bridge (Rev 4 §8):
+                // hyphens become spaces, so `!startscene the-park` proposes
+                // meeting at "the park".
                 [
                   {
                     tool: 'cache',
@@ -209,6 +212,21 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                       line: 'Texted with the traveler; quiet stormy night at the inn.',
                     },
                   },
+                  ...((): RawToolCall[] => {
+                    const meet = /!startscene\s+(\S+)/.exec(call.prompt);
+                    return meet === null
+                      ? []
+                      : [
+                          {
+                            tool: 'startscene',
+                            input: {
+                              place: (meet[1] ?? '').replaceAll('-', ' '),
+                              premise:
+                                'They meet as planned, the rain easing off.',
+                            },
+                          },
+                        ];
+                  })(),
                 ]
               : [],
       });

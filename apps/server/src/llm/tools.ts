@@ -118,13 +118,30 @@ export const CacheToolSchema = z.strictObject({
 });
 export type CacheToolInput = z.infer<typeof CacheToolSchema>;
 
-export const CHAT_TOOL_NAMES = ['cache'] as const;
+/**
+ * startscene — the chat-side bridge (Rev 4 §8: THE way back into scenes).
+ * The character proposes ending the chat into a live scene; the engine ends
+ * the conversation range and opens the scene. `place` is required (Rev 4 §7):
+ * an existing sublocation or a free-text place string — the Narrator resolves
+ * it at scene open via the standard workflow. Characters can never create
+ * sublocations themselves.
+ */
+export const StartSceneToolSchema = z.strictObject({
+  place: z.string().min(1).max(200),
+  /** Optional one-line premise the scene opens on. */
+  premise: z.string().min(1).max(500).optional(),
+});
+export type StartSceneToolInput = z.infer<typeof StartSceneToolSchema>;
+
+export const CHAT_TOOL_NAMES = ['cache', 'startscene'] as const;
 export type ChatToolName = (typeof CHAT_TOOL_NAMES)[number];
 
 /** Static descriptions for the chat toolset (stable strings — never state). */
 export const CHAT_TOOL_DESCRIPTIONS: Record<ChatToolName, string> = {
   cache:
     'REQUIRED after every reply: record a private 1-2 line recap of what just happened in this conversation, in your own words ("line"). This is your own short-term memory pointer — nobody else reads it.',
+  startscene:
+    'Propose meeting in person: ends this chat and opens a live scene with you and the User. place (required): where to meet — a sublocation you know, or a short place description like "the park". premise (optional): one line on how the meeting starts. Use it when the User wants to DO something together rather than keep texting — you cannot change the world from chat, but you can meet.',
 };
 
 /** A tool call as the provider (or the fake) returned it — unvalidated. */
@@ -225,12 +242,9 @@ export function parseToolCall(
 }
 
 /** A chat tool call that passed gate 1 (shape). Gate 2 (state) still applies. */
-export interface ValidatedCacheToolCall {
-  tool: 'cache';
-  input: CacheToolInput;
-}
-/** Grows into a union as the chat toolset does (startscene arrives with the bridge). */
-export type ValidatedChatToolCall = ValidatedCacheToolCall;
+export type ValidatedChatToolCall =
+  | { tool: 'cache'; input: CacheToolInput }
+  | { tool: 'startscene'; input: StartSceneToolInput };
 
 /**
  * Gate 1 for the chat toolset (M6 part 2): shape-validate one raw call from a
@@ -251,6 +265,18 @@ export function parseChatToolCall(
       );
       return input.ok
         ? { ok: true, value: { tool: 'cache', input: input.value } }
+        : input;
+    }
+    case 'startscene': {
+      const input = validateAt(
+        'llm',
+        'tool:startscene',
+        StartSceneToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'startscene', input: input.value } }
         : input;
     }
     default:

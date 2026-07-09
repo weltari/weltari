@@ -12,12 +12,13 @@ import { randomUUID } from 'node:crypto';
 import type {
   ExitChatCommand,
   SendChatMessageCommand,
+  StartSceneFromChatCommand,
   WeltariEvent,
 } from '@weltari/protocol';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
 import type { EventBus } from '../http/bus.js';
-import { parseChatToolCall } from '../llm/tools.js';
+import { parseChatToolCall, type StartSceneToolInput } from '../llm/tools.js';
 import type { LlmClient } from '../llm/types.js';
 import type { Storage } from '../storage/db.js';
 import { cacheRecapText, capCacheLine, latestPerOrigin } from './cache.js';
@@ -27,6 +28,9 @@ import {
   type TurnLine,
 } from './context-assembler.js';
 import type { EventSink } from './event-sink.js';
+import type { OpenSceneRequest } from './scene-lifecycle.js';
+import { slugifyName } from './scene-tools.js';
+import { knownSublocations } from './sublocations.js';
 
 /** How many recent transcript lines a chat reply sees (short context — chat
  * turns are the cheapest call class; deep recall arrives with the query
@@ -127,6 +131,10 @@ export interface ChatEngineOptions {
    * exact. Owner default: 30 min via WELTARI_CHAT_IDLE_MINUTES.
    */
   idleCutoffIso: () => string;
+  /** The scene-lifecycle seam the startscene() bridge opens through (Rev 4
+   * §8: THE way back into scenes) — 409s (blocked_on_pending_jobs) surface
+   * to the caller; a character's proposal logs and the chat continues. */
+  openScene: (request: OpenSceneRequest) => Result<{ opened: true }>;
   /** Drain the ledger now — an enqueued reflect_chat starts on the spot. */
   kickRunner?: () => void;
 }
@@ -145,6 +153,10 @@ export interface ChatEngine {
   exitChat(
     command: ExitChatCommand,
   ): Result<{ conversationId: string; ended: boolean; jobKey?: string }>;
+  /** The user-button side of the startscene() bridge (Rev 4 §8). */
+  startSceneFromChat(
+    command: StartSceneFromChatCommand,
+  ): Result<{ sceneId: string; sublocationId?: string }>;
   /** End every conversation idle past the timeout (reason `idle`) — called
    * on a timer from main; tests call it directly with a fake clock. */
   sweepIdle(): number;
@@ -200,6 +212,59 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
     if (ended !== undefined) eventBus.publish(ended);
     options.kickRunner?.();
     return { jobKey };
+  }
+
+  /**
+   * The startscene() bridge core (Rev 4 §8): resolve the place against the
+   * known-sublocations registry (id or name match → open AT it; no match →
+   * the free text rides scene.started as place_request for the Narrator's
+   * standard create workflow), open the scene WITH the character (presence
+   * flips to in_scene via character.joined — the reservation), then close
+   * the chat range (reason startscene). Scene open and chat close are two
+   * transactions ON PURPOSE: a kill between them leaves the conversation
+   * open and the idle sweep heals it — never a closed chat with no scene.
+   */
+  function runStartSceneBridge(
+    worldId: string,
+    actorId: string,
+    profile: CharacterProfile,
+    sceneId: string,
+    title: string,
+    place: string,
+    premise: string | undefined,
+  ): Result<{ sceneId: string; sublocationId?: string }> {
+    const slug = slugifyName(place);
+    const match = knownSublocations(storage, worldId).find(
+      (s) => s.sublocation_id === place || slugifyName(s.name) === slug,
+    );
+    const opened = options.openScene({
+      world_id: worldId,
+      actor_id: actorId,
+      scene_id: sceneId,
+      title,
+      participants: [profile.character_id],
+      ...(match === undefined
+        ? { place_request: place }
+        : { sublocation_id: match.sublocation_id }),
+      ...(premise === undefined ? {} : { premise }),
+    });
+    if (!opened.ok) return opened;
+    const conversationId = conversationIdFor(actorId, profile.character_id);
+    const state = conversationState(storage, conversationId);
+    if (state.openMessages.length > 0) {
+      endRange(
+        worldId,
+        actorId,
+        conversationId,
+        profile.character_id,
+        'startscene',
+        state.lastMessageId,
+      );
+    }
+    return ok({
+      sceneId,
+      ...(match === undefined ? {} : { sublocationId: match.sublocation_id }),
+    });
   }
 
   /** The detached reply generation — one LLM call with chat-shaped context,
@@ -267,6 +332,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         // Gate 1 over the chat tool calls; the character's CACHE line rides
         // the reply's transaction (mandatory per trigger, Rev 4 §11).
         let cacheLine: string | undefined;
+        let startScene: StartSceneToolInput | undefined;
         for (const raw of result.value.toolCalls) {
           const parsed = parseChatToolCall(raw, logger);
           if (!parsed.ok) {
@@ -276,7 +342,11 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
             );
             continue;
           }
-          cacheLine = capCacheLine(parsed.value.input.line);
+          if (parsed.value.tool === 'cache') {
+            cacheLine = capCacheLine(parsed.value.input.line);
+          } else {
+            startScene = parsed.value.input;
+          }
         }
         if (cacheLine === undefined) {
           logger.warn(
@@ -313,6 +383,27 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
                 },
               ]),
         ]);
+        // The character proposed meeting in person (Rev 4 §8): run the
+        // bridge AFTER the reply committed — the proposal line is durable
+        // either way. A blocked scene open logs and the chat continues (the
+        // user can retry via the button); on success the conversation ended,
+        // so the nudge loop stops here.
+        if (startScene !== undefined) {
+          const bridged = runStartSceneBridge(
+            command.world_id,
+            command.actor_id,
+            profile,
+            `s-chat-${randomUUID().slice(0, 8)}`,
+            `Meeting: ${startScene.place}`.slice(0, 200),
+            startScene.place,
+            startScene.premise,
+          );
+          if (bridged.ok) return;
+          logger.warn(
+            { conversation_id: conversationId, code: bridged.error.code },
+            'character startscene() could not open a scene — chat continues',
+          );
+        }
       } while (nudged.has(conversationId));
     } finally {
       inFlight.delete(conversationId);
@@ -432,6 +523,29 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         state.lastMessageId,
       );
       return ok({ conversationId, ended: true, jobKey });
+    },
+
+    startSceneFromChat(
+      command: StartSceneFromChatCommand,
+    ): Result<{ sceneId: string; sublocationId?: string }> {
+      const profile = profileFor(command.character_id);
+      if (profile === undefined) {
+        return err(
+          new OperationalError(
+            'unknown_character',
+            `no character ${command.character_id} in this world`,
+          ),
+        );
+      }
+      return runStartSceneBridge(
+        command.world_id,
+        command.actor_id,
+        profile,
+        command.scene_id,
+        command.title,
+        command.place,
+        command.premise,
+      );
     },
 
     sweepIdle(): number {

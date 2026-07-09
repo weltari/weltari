@@ -205,6 +205,38 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     ].join(' ');
   }
 
+  /**
+   * The chat→scene handoff (M6 part 2, Rev 4 §8): scene.started may carry a
+   * premise and/or an unresolved free-text place. The premise matters only
+   * before the first committed turn; the place request stands until the scene
+   * moved somewhere (a sublocation.changed exists) — then it is resolved.
+   */
+  function sceneHandoff(sceneId: string): {
+    premise?: string;
+    placeRequest?: string;
+  } {
+    let premise: string | undefined;
+    let placeRequest: string | undefined;
+    let hasTurns = false;
+    let hasMoved = false;
+    for (const event of storage.eventLog.readSince(0, 100000)) {
+      if (!('scene_id' in event.payload) || event.payload.scene_id !== sceneId)
+        continue;
+      if (event.type === 'scene.started') {
+        premise = event.payload.premise;
+        placeRequest = event.payload.place_request;
+      } else if (event.type === 'turn.committed') {
+        hasTurns = true;
+      } else if (event.type === 'sublocation.changed') {
+        hasMoved = true;
+      }
+    }
+    return {
+      ...(premise === undefined || hasTurns ? {} : { premise }),
+      ...(placeRequest === undefined || hasMoved ? {} : { placeRequest }),
+    };
+  }
+
   function recentTurns(sceneId: string, limit = 4): TurnLine[] {
     const lines: TurnLine[] = [];
     for (const event of storage.eventLog.readSince(0, 10000)) {
@@ -415,11 +447,19 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       });
 
       const sublocations = worldSublocations(command.world_id);
+      // The chat→scene handoff (Rev 4 §8): an unresolved place request makes
+      // the Narrator resolve it THIS turn via the standard workflow — the
+      // free text itself rides the player-wrapped tail below (B14).
+      const handoff = sceneHandoff(command.scene_id);
+      const resolveInstruction =
+        handoff.placeRequest === undefined
+          ? ''
+          : ' The player context names a meeting place that is not yet a sublocation of this world: resolve it THIS turn — call query_sublocations first (mode parentless and/or search); if an existing sublocation plausibly fits, change_sublocation to it; otherwise create_sublocation (the query-first rule applies) and change_sublocation to the new place.';
       const plans: CallPlan[] = [
         {
           kind: 'narrator',
           profile: narrator,
-          instruction: `Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias. You may call your scene tools when the fiction calls for it. ${narratorToolContext(command.scene_id, sublocations)}`,
+          instruction: `Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias. You may call your scene tools when the fiction calls for it.${resolveInstruction} ${narratorToolContext(command.scene_id, sublocations)}`,
           toolset: 'narrator',
         },
         {
@@ -456,6 +496,21 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       };
       running.set(turnId, turn);
 
+      // The handoff text is data from chat (user free text / a character
+      // line) — it enters the prompt only inside the player-wrapped external
+      // block, never an instruction slot (B14).
+      const handoffNotes = [
+        ...(handoff.premise === undefined
+          ? []
+          : [`(Scene premise: ${handoff.premise})`]),
+        ...(handoff.placeRequest === undefined
+          ? []
+          : [`(Meeting place requested from chat: "${handoff.placeRequest}")`]),
+      ];
+      const firstTurnText = [command.text ?? '', ...handoffNotes]
+        .filter((line) => line !== '')
+        .join('\n');
+
       const completion = (async (): Promise<void> => {
         const steps: TurnStep[] = [];
         for (const [index, plan] of plans.entries()) {
@@ -465,7 +520,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
             turnId,
             command.scene_id,
             steps,
-            index === 0 ? command.text : undefined,
+            index === 0 && firstTurnText !== '' ? firstTurnText : undefined,
           );
           // The interrupt already closed the envelope — everything from here
           // on (text and tool calls alike) finishes into the void (B6).
