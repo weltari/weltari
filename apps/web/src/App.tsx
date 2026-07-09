@@ -15,6 +15,7 @@ import { DevOverlay } from './components/DevOverlay.js';
 import { MapModal } from './components/MapModal.js';
 import { NavRail } from './components/NavRail.js';
 import { type CoverState } from './components/SceneCover.js';
+import { ChatPage } from './pages/ChatPage.js';
 import { ConfigPage } from './pages/ConfigPage.js';
 import { GamedayPage } from './pages/GamedayPage.js';
 import { MapPage } from './pages/MapPage.js';
@@ -161,6 +162,14 @@ export function App(): React.JSX.Element {
           <MapPage mapReady={mapReady} />
         ) : route === '/gameday' ? (
           <GamedayPage />
+        ) : route === '/chats' ? (
+          <ChatPage
+            onSceneOpened={() => {
+              // The startscene() handoff (Rev 4 §8): the scene events arrive
+              // over the stream; the Scene route renders them as they land.
+              navigate('/');
+            }}
+          />
         ) : route === '/config' ? (
           <ConfigPage plugins={plugins} />
         ) : (

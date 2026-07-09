@@ -4,7 +4,7 @@
 // SSE projections, so navigation can never lose scene state.
 import { useSyncExternalStore } from 'react';
 
-export type Route = '/' | '/map' | '/gameday' | '/config';
+export type Route = '/' | '/map' | '/gameday' | '/chats' | '/config';
 
 const listeners = new Set<() => void>();
 
@@ -12,6 +12,7 @@ const listeners = new Set<() => void>();
 function normalize(pathname: string): Route {
   return pathname === '/map' ||
     pathname === '/gameday' ||
+    pathname === '/chats' ||
     pathname === '/config'
     ? pathname
     : '/';

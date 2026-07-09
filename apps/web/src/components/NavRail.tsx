@@ -113,9 +113,9 @@ const DESTINATIONS: readonly Destination[] = [
     icon: <IconCamera />,
   },
   {
-    route: null,
+    route: '/chats',
     label: 'Chats',
-    disabledReason: 'Chats arrive with Milestone 5 (messaging system).',
+    disabledReason: null,
     icon: <IconChat />,
   },
   {
