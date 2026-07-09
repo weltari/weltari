@@ -25,8 +25,13 @@
  * enter bypass, VLM classify → story LLM → persist-or-discard); optional
  * job_key on job.failed/job.parked (clients tie failures back to their
  * command).
+ * 0.10.0 (M6 part 1, Rev 4 §6): the in-scene creation loop —
+ * sublocation.stub_created event (the Narrator's create_sublocation tool:
+ * identity stubs, hot path; backdrops + materialization fire from it);
+ * scene.ended optional next_scene (the "Jump to the next scene"
+ * registration).
  */
-export const PROTOCOL_VERSION = '0.9.0';
+export const PROTOCOL_VERSION = '0.10.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -50,6 +55,7 @@ export {
   SublocationChangedEventSchema,
   SublocationCreatedEventSchema,
   SublocationMaterializedEventSchema,
+  SublocationStubCreatedEventSchema,
   TurnCommittedEventSchema,
   TurnStartedEventSchema,
   TurnStepSchema,
