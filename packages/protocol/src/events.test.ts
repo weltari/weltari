@@ -35,6 +35,120 @@ describe('WeltariEventSchema', () => {
     expect(WeltariEventSchema.safeParse(ended).success).toBe(true);
   });
 
+  it('accepts a scene.ended with a next_scene registration (0.10.0)', () => {
+    const ended: unknown = {
+      id: 7,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-09T12:00:00.000Z',
+      type: 'scene.ended',
+      payload: {
+        scene_id: 's1',
+        participants: ['char:elias'],
+        end_type: 'continuation',
+        divider_text: '— evening falls —',
+        next_scene: {
+          sublocation_id: 'subloc:stub-the-old-cellar',
+          premise_seed: 'The lamplighter waits below.',
+        },
+      },
+    };
+    expect(WeltariEventSchema.safeParse(ended).success).toBe(true);
+  });
+
+  it('rejects a next_scene with an empty sublocation_id or extra key (B5)', () => {
+    const base = {
+      id: 7,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-09T12:00:00.000Z',
+      type: 'scene.ended',
+    };
+    const empty: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        participants: [],
+        end_type: 'continuation',
+        next_scene: { sublocation_id: '' },
+      },
+    };
+    const extra: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        participants: [],
+        end_type: 'continuation',
+        next_scene: { sublocation_id: 'subloc:cellar', smuggled: true },
+      },
+    };
+    expect(WeltariEventSchema.safeParse(empty).success).toBe(false);
+    expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('accepts a sublocation.stub_created for a child and a parentless stub (0.10.0)', () => {
+    const base = {
+      id: 11,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-09T12:00:00.000Z',
+      type: 'sublocation.stub_created',
+    };
+    const child: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-the-inn-kitchen',
+        name: 'The Inn Kitchen',
+        description: 'Steam and copper pots behind the common room.',
+        parent_id: 'subloc:common_room',
+      },
+    };
+    const parentless: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-the-river-park',
+        name: 'The River Park',
+        description: 'Willows lean over slow water at the edge of town.',
+        narrative_anchor: 'near the riverside, downstream of the mill',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(child).success).toBe(true);
+    expect(WeltariEventSchema.safeParse(parentless).success).toBe(true);
+  });
+
+  it('rejects a sublocation.stub_created with an empty name or extra key (B5)', () => {
+    const base = {
+      id: 11,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-09T12:00:00.000Z',
+      type: 'sublocation.stub_created',
+    };
+    const emptyName: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-x',
+        name: '',
+        description: 'd',
+      },
+    };
+    const extraKey: unknown = {
+      ...base,
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-x',
+        name: 'X',
+        description: 'd',
+        map_position: { x: 0.5, y: 0.5 },
+      },
+    };
+    expect(WeltariEventSchema.safeParse(emptyName).success).toBe(false);
+    expect(WeltariEventSchema.safeParse(extraKey).success).toBe(false);
+  });
+
   it('accepts a valid character.joined event (roster projection)', () => {
     const joined: unknown = {
       id: 6,

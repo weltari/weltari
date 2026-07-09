@@ -115,6 +115,20 @@ export const SceneEndedEventSchema = z.strictObject({
     end_type: z.enum(['rest', 'continuation', 'travel']).optional(),
     /** Soft-close divider line, e.g. "— evening falls —" (UI Spec §1.7). */
     divider_text: z.string().min(1).max(200).optional(),
+    /**
+     * The Narrator's next-scene registration (Rev 4 §6, 0.10.0): where the
+     * "Jump to the next scene" button opens the follow-up scene. Present
+     * exactly when end_type is `continuation` (the engine-state gate refuses
+     * a continuation without it). May name a stub created this very turn —
+     * that is the in-scene creation loop's payoff.
+     */
+    next_scene: z
+      .strictObject({
+        sublocation_id: z.string().min(1),
+        /** Optional premise line the follow-up scene opens on. */
+        premise_seed: z.string().min(1).max(500).optional(),
+      })
+      .optional(),
   }),
 });
 
@@ -297,6 +311,38 @@ export const SublocationCreatedEventSchema = z.strictObject({
     footprint: z.array(MapPositionSchema).min(3).max(128),
     /** The originating edit (map_edit.requested payload's edit_id). */
     edit_id: z.string().min(1).max(100),
+  }),
+});
+
+/**
+ * The Narrator invented a place mid-scene (Rev 4 §6, 0.10.0): the
+ * create_sublocation tool passed both B6 gates and committed this identity
+ * stub atomically with its turn. Creation is hot, map presence is cold
+ * (Rev 4 §14): a stub with a `parent_id` is an interior of that
+ * exterior-atomic parent — it NEVER touches the map; its only asset is the
+ * backdrop image (`backdrop:<sublocation_id>`), whose painter job fires in
+ * the same transaction. A parentless stub additionally gets an eager
+ * materialize job (code-owned frontier placement) — its map presence arrives
+ * as a later sublocation.materialized carrying THIS sublocation_id.
+ * Emitted by: the scene turn engine (actor = the Narrator). Consumed by:
+ * the known-sublocations projection (stubs are enterable immediately),
+ * the materialize handler (stub lookup), the backdrop prompt derivation.
+ */
+export const SublocationStubCreatedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('sublocation.stub_created'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    sublocation_id: z.string().min(1),
+    name: z.string().min(1).max(120),
+    /** The Narrator's brief (tool input, gate-1 length-capped). */
+    description: z.string().min(1).max(2000),
+    /** The exterior-atomic parent (always flat, Rev 4 §6). Absent =
+     * parentless: an exterior-atomic place awaiting materialization. */
+    parent_id: z.string().min(1).optional(),
+    /** Prose placement hint, recorded for the audit trail — placement
+     * itself is code-owned (Rev 4 §14: no LLM ever picks a coordinate). */
+    narrative_anchor: z.string().min(1).max(200).optional(),
   }),
 });
 
@@ -508,6 +554,7 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   SublocationChangedEventSchema,
   SublocationMaterializedEventSchema,
   SublocationCreatedEventSchema,
+  SublocationStubCreatedEventSchema,
   MapEditRequestedEventSchema,
   MapClickResolvedEventSchema,
   ArtSwitchedEventSchema,
