@@ -241,17 +241,47 @@ describe('the presence rule (criterion b: in_scene = offline in chat)', () => {
 
   it('presenceOf projects in_scene from joined/ended events', () => {
     const ctx = setup();
-    expect(presenceOf(ctx.storage, ELIAS.character_id)).toEqual({
+    expect(presenceOf(ctx.storage, 'w1', ELIAS.character_id)).toEqual({
       state: 'available',
     });
     joinScene(ctx, 's1');
-    expect(presenceOf(ctx.storage, ELIAS.character_id)).toEqual({
+    expect(presenceOf(ctx.storage, 'w1', ELIAS.character_id)).toEqual({
       state: 'in_scene',
       scene_id: 's1',
     });
     endScene(ctx, 's1');
-    expect(presenceOf(ctx.storage, ELIAS.character_id)).toEqual({
+    expect(presenceOf(ctx.storage, 'w1', ELIAS.character_id)).toEqual({
       state: 'available',
+    });
+    ctx.storage.close();
+  });
+
+  it('presence is WORLD-scoped: a scene left open in another world never freezes this one (M6 part 3 fix)', () => {
+    const ctx = setup();
+    // The reproducer: the kill harness's cross-world probe leaves a w2 scene
+    // open with the same character id, forever.
+    ctx.storage.eventLog.append({
+      world_id: 'w2',
+      actor_id: 'system:engine',
+      type: 'scene.started',
+      payload: { scene_id: 'w2-probe-s1', title: 'Cross-world probe' },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w2',
+      actor_id: 'system:engine',
+      type: 'character.joined',
+      payload: {
+        scene_id: 'w2-probe-s1',
+        character_id: ELIAS.character_id,
+        name: ELIAS.name,
+      },
+    });
+    expect(presenceOf(ctx.storage, 'w1', ELIAS.character_id)).toEqual({
+      state: 'available',
+    });
+    expect(presenceOf(ctx.storage, 'w2', ELIAS.character_id)).toEqual({
+      state: 'in_scene',
+      scene_id: 'w2-probe-s1',
     });
     ctx.storage.close();
   });
@@ -390,7 +420,9 @@ describe('conversation end (criterion c: exit + idle → ONE reflect_chat job)',
       expect(ended.payload.reason).toBe('startscene');
     }
     // The reservation (Rev 4 §7): the character is now in_scene — offline in chat.
-    expect(presenceOf(ctx.storage, ELIAS.character_id).state).toBe('in_scene');
+    expect(presenceOf(ctx.storage, 'w1', ELIAS.character_id).state).toBe(
+      'in_scene',
+    );
     // …and its reflect_chat job rode the same close.
     expect(
       ctx.storage.ledger.countByKey(
