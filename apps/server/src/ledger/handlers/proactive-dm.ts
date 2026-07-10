@@ -1,13 +1,16 @@
-// The proactive_dm job handler (M6 part 3, Rev 4 §8): a scheduler fire picks
-// one eligible character and EAGERLY generates its DM — the push IS the
-// message; content is durable at fire time and arrives over the stream like
-// any chat line. Owner rulings 2026-07-10: pure real-time trigger in V1 (the
-// character LLM never plans future sends — no scheduling tool exists); every
-// outreach stamped with BOTH clocks (occurrence_iso drives V1, game_time is
-// the V2 future-event-list bridge); growing backoff (base ×2 ×4) then the
-// 3-unanswered freeze as a durable event (the part-4 gateway push hook).
-// Idempotent per (world, occurrence_iso) with the fused lease-overlap
-// re-check — the standing pattern (mid_reflect_chat is the sibling).
+// The proactive_dm job handler (M6 parts 3–4, Rev 4 §8): a fire picks one
+// eligible character and EAGERLY generates its DM — the push IS the message;
+// content is durable at fire time and arrives over the stream like any chat
+// line. Owner ruling 2026-07-10/11 (the part-4 retarget): occurrences are
+// GAME-time boundaries, enqueued only when the world clock advances — a
+// paused world sends nothing, and a character only ever "spends time" inside
+// time that actually passed. occurrence_iso therefore carries the fictional
+// boundary; game_time stamps the clock at fire (>= the boundary). The
+// character LLM never plans future sends (no scheduling tool exists) and may
+// DECLINE a fire via the explicit stay_silent tool. Growing backoff
+// (base ×2 ×4, on the game axis) then the 3-unanswered freeze as a durable
+// event (the gateway push hook). Idempotent per (world, occurrence_iso) with
+// the fused lease-overlap re-check — the standing pattern.
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { CorruptStateError } from '../../errors.js';
@@ -43,6 +46,11 @@ const payloadSchema = z.strictObject({
   occurrence_iso: z.string().min(1),
   cadence_minutes: z.number().positive(),
 });
+
+/** The pick-retry ceiling (owner ruling 2026-07-11): 5 salted hash picks,
+ * then the occurrence stays quiet — never force the few available
+ * characters to carry every fire. */
+const PICK_ATTEMPTS = 5;
 
 export interface ProactiveDmHandlerOptions {
   storage: Storage;
@@ -112,31 +120,45 @@ export function createProactiveDmHandler(
       return;
     }
 
-    // Deterministic eligibility from the log alone: a kill-retry re-derives
-    // the SAME candidate set and the SAME pick (the natural key holds).
-    const candidates = profiles.filter((profile) => {
+    // Deterministic pick with the 5-attempt retry (owner ruling 2026-07-11):
+    // the hash picks over ALL characters — never a pre-filtered pool, so the
+    // few available ones are not forced to carry every fire — and an
+    // ineligible pick (in a scene, frozen, backoff not due) re-rolls with
+    // the attempt salted into the seed, up to 5 total. All 5 busy → the
+    // occurrence stays quiet. A kill-retry re-derives the SAME picks from
+    // the log alone (the natural key holds).
+    const eligible = (candidate: CharacterProfile): boolean => {
       if (
-        presenceOf(storage, job.world_id, profile.character_id).state !==
+        presenceOf(storage, job.world_id, candidate.character_id).state !==
         'available'
       ) {
         return false; // in a scene = busy (the presence rule, Rev 4 §8)
       }
-      const conversationId = conversationIdFor(actorId, profile.character_id);
+      const conversationId = conversationIdFor(actorId, candidate.character_id);
       return outreachEligible(
         outreachState(storage, conversationId),
         occurrence_iso,
         cadence_minutes,
       );
-    });
-    if (candidates.length === 0) {
+    };
+    let profile: CharacterProfile | undefined;
+    for (let attempt = 0; attempt < PICK_ATTEMPTS; attempt++) {
+      const candidate =
+        profiles[
+          pickIndex(`${occurrence_iso}:${String(attempt)}`, profiles.length)
+        ];
+      if (candidate !== undefined && eligible(candidate)) {
+        profile = candidate;
+        break;
+      }
+    }
+    if (profile === undefined) {
       logger.debug(
         { job_id: job.id, occurrence_iso },
-        'proactive_dm fire found no eligible character — quiet no-op',
+        'proactive_dm fire found no eligible character in 5 picks — quiet no-op',
       );
       return;
     }
-    const profile = candidates[pickIndex(occurrence_iso, candidates.length)];
-    if (profile === undefined) return; // unreachable: pickIndex < length
     const conversationId = conversationIdFor(actorId, profile.character_id);
     const state = outreachState(storage, conversationId);
     const unansweredCount = state.unanswered + 1;
@@ -160,31 +182,29 @@ export function createProactiveDmHandler(
     );
     const reAsk =
       state.unanswered === 0
-        ? 'You feel like reaching out to the User.'
-        : `You wrote ${String(state.unanswered)} message(s) since their last reply and heard nothing back — follow up the way a real person would after being left on read (curious, wry, or worried — your call; never robotic).`;
+        ? 'You may reach out to the User now, if you feel like it.'
+        : `You wrote ${String(state.unanswered)} message(s) since their last reply and heard nothing back — you may follow up the way a real person would after being left on read (curious, wry, or worried — your call; never robotic).`;
     const result = await llm.streamCall({
       kind: 'chat',
       characterId: profile.character_id,
       system: context.stablePrefix,
-      prompt: `${context.dynamicTail}\n\n## Instruction\n${reAsk} Write ${profile.name}'s short text message to the User (1-3 sentences, first person, no narration) — something grounded in your own recent experience or goals, not small talk for its own sake. Do NOT call startscene here: you are texting into silence, not arranging a meeting. After writing it, call the cache tool with a private 1-2 line recap.`,
+      prompt: `${context.dynamicTail}\n\n## Instruction\n${reAsk} Write ${profile.name}'s short text message to the User (1-3 sentences, first person, no narration) — something grounded in your own recent experience or goals, not small talk for its own sake. If you have nothing you genuinely want to say right now, call the stay_silent tool instead of forcing a message — entirely your choice. Do NOT call startscene here: you are texting into silence, not arranging a meeting. After writing a message, call the cache tool with a private 1-2 line recap.`,
       onTextDelta: (): void => undefined, // proactive DMs do not stream
       toolset: 'chat',
     });
     if (!result.ok) throw result.error; // operational -> runner retries (C7)
-    const text = result.value.text.trim();
-    if (text === '') {
-      logger.warn(
-        { job_id: job.id, occurrence_iso },
-        'proactive DM came back empty — this fire stays quiet',
-      );
-      return;
-    }
     let cacheLine: string | undefined;
+    let declined = false;
     for (const raw of result.value.toolCalls) {
       const parsed = parseChatToolCall(raw, logger);
       if (!parsed.ok) continue;
       if (parsed.value.tool === 'cache') {
         cacheLine = capCacheLine(parsed.value.input.line);
+      } else if (parsed.value.tool === 'stay_silent') {
+        // The character's own decline (owner ruling 2026-07-11): an explicit
+        // tool call, never a silent empty reply. Nothing durable happens —
+        // the fire stays quiet and the backoff counter is untouched.
+        declined = true;
       } else {
         // startscene from a CRON fire stays un-honored in V1 (a character
         // cannot open a scene into the user's absence; invitations with TTL
@@ -194,6 +214,21 @@ export function createProactiveDmHandler(
           'proactive DM tried startscene — ignored (V1: CRON never opens scenes)',
         );
       }
+    }
+    if (declined) {
+      logger.info(
+        { job_id: job.id, occurrence_iso, character_id: profile.character_id },
+        'proactive DM declined via stay_silent — this fire stays quiet',
+      );
+      return;
+    }
+    const text = result.value.text.trim();
+    if (text === '') {
+      logger.warn(
+        { job_id: job.id, occurrence_iso },
+        'proactive DM came back empty — this fire stays quiet',
+      );
+      return;
     }
 
     const messageId = `outreach-${randomUUID().slice(0, 12)}`;

@@ -295,13 +295,13 @@ export const ReflectChatCommittedEventSchema = z.strictObject({
  * generation — the push IS the message; the content committed at fire time.
  * Appended atomically WITH the delivered chat.message_committed + its
  * cache.appended (and, on the third unanswered, chat.thread_frozen). Natural
- * key: (world, occurrence_iso) — one scheduler fire commits at most one
- * outreach ever, kill-retry safe. Stamped with BOTH clocks (owner ruling
- * 2026-07-10): occurrence_iso is the real-time fire that drives V1;
- * game_time records the fictional clock so V2's future-event list can switch
- * trigger bases with nothing to migrate. Emitted by: the proactive_dm job
- * handler. Consumed by: the freeze projection, verify-consistency, the
- * M6-part-4 gateway.
+ * key: (world, occurrence_iso) — one fire commits at most one outreach ever,
+ * kill-retry safe. Stamped with BOTH clocks. Since 0.13.0 (owner ruling
+ * 2026-07-10/11) occurrence_iso is a GAME-time cadence boundary — fires are
+ * enqueued only when the world clock advances, never on wall time; game_time
+ * records the clock at fire (>= the boundary). Emitted by: the proactive_dm
+ * job handler. Consumed by: the freeze projection, verify-consistency, the
+ * gateway push.
  */
 export const ChatOutreachRecordedEventSchema = z.strictObject({
   ...eventEnvelope,
@@ -309,10 +309,10 @@ export const ChatOutreachRecordedEventSchema = z.strictObject({
   payload: z.strictObject({
     conversation_id: z.string().min(1),
     character_id: z.string().min(1),
-    /** The real-time scheduler occurrence that fired this outreach (the
-     * natural-key component alongside world_id). */
+    /** The occurrence that fired this outreach (the natural-key component
+     * alongside world_id) — a GAME-time cadence boundary since 0.13.0. */
     occurrence_iso: z.string().min(1),
-    /** The fictional world clock at fire time (V2 bridge; unused in V1). */
+    /** The fictional world clock at fire time (>= occurrence_iso). */
     game_time: z.string().min(1),
     /** The chat.message_committed this outreach delivered. */
     message_id: z.string().min(1).max(100),

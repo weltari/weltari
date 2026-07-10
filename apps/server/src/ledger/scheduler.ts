@@ -30,18 +30,38 @@ export function addMinutesIso(iso: string, minutes: number): string {
 }
 
 /**
- * The NEXT interval-cadence boundary after `nowMs` (M6 part 3, proactive
- * DMs): cadence windows are aligned to the epoch, so every process — and
- * every restart — derives the same boundary and the idempotency key dedupes
- * (croner cannot express sub-hour-clean or fractional-minute cadences, which
- * the demo and the kill harness need). Pure math, caller supplies the clock.
+ * Every epoch-aligned interval boundary in (fromIso, toIso] (M6 part 4,
+ * proactive DMs — owner ruling 2026-07-10/11: CRON fires only when the
+ * WORLD clock advances, never on wall time). Boundaries are aligned to the
+ * unix epoch, so every process — and every kill-retry replay of the same
+ * advance — derives the same occurrence set and the idempotency keys
+ * dedupe. Pure math over FICTIONAL datetimes; croner cannot express
+ * fractional-minute cadences, which demos and the harness need.
  */
-export function nextIntervalOccurrenceIso(
-  nowMs: number,
+export function intervalOccurrencesBetween(
+  fromIso: string,
+  toIso: string,
   cadenceMinutes: number,
-): string {
+  cap = 10000,
+): string[] {
   const ms = cadenceMinutes * 60_000;
-  return new Date((Math.floor(nowMs / ms) + 1) * ms).toISOString();
+  const from = new Date(fromIso).getTime();
+  const to = new Date(toIso).getTime();
+  const occurrences: string[] = [];
+  for (
+    let t = (Math.floor(from / ms) + 1) * ms;
+    t <= to && occurrences.length <= cap;
+    t += ms
+  ) {
+    occurrences.push(new Date(t).toISOString());
+  }
+  if (occurrences.length > cap) {
+    throw new BugError(
+      'cadence_flood',
+      `over ${String(cap)} interval occurrences between ${fromIso} and ${toIso}`,
+    );
+  }
+  return occurrences;
 }
 
 /**

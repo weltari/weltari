@@ -504,9 +504,12 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
             }
             if (parsed.value.tool === 'cache') {
               cacheLine = capCacheLine(parsed.value.input.line);
-            } else {
+            } else if (parsed.value.tool === 'startscene') {
               startScene = parsed.value.input;
             }
+            // stay_silent in a REPLY is a no-op: the user just texted — the
+            // decline tool belongs to proactive fires (owner ruling
+            // 2026-07-11); an empty reply already skips commit.
           }
           if (!startSceneRejected) break;
           correction = `\n\n## Correction\nYour startscene call was rejected: every field must match the tool schema, and wait_hours is REQUIRED — how many in-world hours you will wait at the place before giving up (a plain number, e.g. 6; your own choice). Rewrite your reply with a corrected startscene call, or reply without one if you no longer want to open the meeting.`;

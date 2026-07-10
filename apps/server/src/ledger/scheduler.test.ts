@@ -3,28 +3,53 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openStorage } from '../storage/db.js';
-import { createScheduler, nextIntervalOccurrenceIso } from './scheduler.js';
+import { createScheduler, intervalOccurrencesBetween } from './scheduler.js';
 
 const NOW = '2026-07-06T12:00:30.000Z';
 
-describe('nextIntervalOccurrenceIso (M6 part 3: the proactive-DM cadence)', () => {
-  it('epoch-aligned boundaries: every caller derives the same next fire', () => {
-    // 12:00:30 with a 5-minute cadence → the 12:05 boundary.
-    const nowMs = new Date('2026-07-06T12:00:30.000Z').getTime();
-    expect(nextIntervalOccurrenceIso(nowMs, 5)).toBe(
-      '2026-07-06T12:05:00.000Z',
-    );
-    // Exactly ON a boundary → the NEXT one (never re-fires the current).
+describe('intervalOccurrencesBetween (M6 part 4: game-time proactive cadence)', () => {
+  it('epoch-aligned boundaries in (from, to]: every replay derives the same set', () => {
+    // 12:00:30 → 12:11 with a 5-minute cadence: the 12:05 and 12:10 boundaries.
     expect(
-      nextIntervalOccurrenceIso(
-        new Date('2026-07-06T12:05:00.000Z').getTime(),
+      intervalOccurrencesBetween(
+        '2026-07-06T12:00:30.000Z',
+        '2026-07-06T12:11:00.000Z',
         5,
       ),
-    ).toBe('2026-07-06T12:10:00.000Z');
+    ).toEqual(['2026-07-06T12:05:00.000Z', '2026-07-06T12:10:00.000Z']);
+    // Exactly ON a boundary: from is exclusive, to is inclusive.
+    expect(
+      intervalOccurrencesBetween(
+        '2026-07-06T12:05:00.000Z',
+        '2026-07-06T12:10:00.000Z',
+        5,
+      ),
+    ).toEqual(['2026-07-06T12:10:00.000Z']);
+    // A skip crossing no boundary enqueues nothing (a paused world
+    // that never advances can never fire — owner ruling 2026-07-10).
+    expect(
+      intervalOccurrencesBetween(
+        '2000-01-01T06:00:00.000Z',
+        '2000-01-01T18:00:00.000Z',
+        1440,
+      ),
+    ).toEqual([]);
+    // A daily cadence across one fictional day fires once, at the boundary.
+    expect(
+      intervalOccurrencesBetween(
+        '2000-01-01T06:00:00.000Z',
+        '2000-01-02T06:00:00.000Z',
+        1440,
+      ),
+    ).toEqual(['2000-01-02T00:00:00.000Z']);
     // Fractional minutes work (the harness cadence): 0.02 = 1.2 s windows.
-    const fracMs = new Date(nextIntervalOccurrenceIso(nowMs, 0.02)).getTime();
-    expect(fracMs - nowMs).toBeGreaterThan(0);
-    expect(fracMs - nowMs).toBeLessThanOrEqual(1200);
+    expect(
+      intervalOccurrencesBetween(
+        '2026-07-06T12:00:00.000Z',
+        '2026-07-06T12:00:02.400Z',
+        0.02,
+      ),
+    ).toHaveLength(2);
   });
 });
 

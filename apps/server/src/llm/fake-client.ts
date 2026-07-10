@@ -236,6 +236,12 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                       line: 'Texted with the traveler; quiet stormy night at the inn.',
                     },
                   },
+                  // `!staysilent` scripts the explicit decline (M6 part 4):
+                  // the character chooses to send nothing — the proactive
+                  // handler must leave the fire quiet at $0.
+                  ...(call.prompt.includes('!staysilent')
+                    ? [{ tool: 'stay_silent', input: {} }]
+                    : []),
                   ...((): RawToolCall[] => {
                     const corrected = call.prompt.includes('## Correction');
                     const scripted =

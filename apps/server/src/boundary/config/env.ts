@@ -40,12 +40,13 @@ const envSchema = z.object({
    * an untouched conversation range closes and its reflect_chat enqueues.
    * Demos/harness set fractions (0.05 = 3 s) — the sweep works in ms. */
   WELTARI_CHAT_IDLE_MINUTES: z.coerce.number().positive().default(30),
-  /** Proactive CRON DM cadence in minutes (M6 part 3, Rev 4 §8; owner ruling
-   * 2026-07-10: real-time in V1, game-day stamps recorded for V2). 0 =
-   * disabled (the default — enabling proactive sends is a deliberate choice;
-   * each fire is one chat-class LLM call when the backend is real). Demos use
-   * minutes; the harness sets fractions (0.02 = 1.2 s). */
-  WELTARI_CRON_DM_MINUTES: z.coerce.number().nonnegative().default(0),
+  /** Proactive CRON DM cadence in GAME minutes (M6 part 4, Rev 4 §8; owner
+   * ruling 2026-07-10/11: CRON fires only when the world clock advances —
+   * never on wall time; a paused world sends nothing). Default 1440 = once
+   * per fictional day (DMs are ON by default — owner ruling 2026-07-11);
+   * 0 = disabled. Each fire is one chat-class LLM call on a real backend;
+   * fires per advance are additionally capped at the freeze cap. */
+  WELTARI_CRON_DM_GAME_MINUTES: z.coerce.number().nonnegative().default(1440),
   /** Image pixels live as files here; rows/events hold path + hash (Brief §1). */
   WELTARI_IMAGES_DIR: z.string().min(1).default('data/images'),
   /** Painter tile source. 'stub' (default) = deterministic, free, offline —
@@ -116,7 +117,7 @@ export interface Env {
   faultPauseMs: number;
   leaseSeconds: number;
   chatIdleMinutes: number;
-  cronDmMinutes: number;
+  cronDmGameMinutes: number;
   imagesDir: string;
   imageBackend: 'stub' | 'openrouter';
   imageModel: string;
@@ -174,7 +175,7 @@ export function readEnv(
       faultPauseMs: parsed.data.WELTARI_FAULT_PAUSE_MS,
       leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
       chatIdleMinutes: parsed.data.WELTARI_CHAT_IDLE_MINUTES,
-      cronDmMinutes: parsed.data.WELTARI_CRON_DM_MINUTES,
+      cronDmGameMinutes: parsed.data.WELTARI_CRON_DM_GAME_MINUTES,
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
       imageBackend: parsed.data.WELTARI_IMAGE_BACKEND,
       imageModel: parsed.data.WELTARI_IMAGE_MODEL,

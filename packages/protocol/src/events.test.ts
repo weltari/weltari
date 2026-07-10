@@ -1000,9 +1000,25 @@ describe('invitation expiry family (0.13.0, Rev 4 §7)', () => {
     };
     expect(WeltariEventSchema.safeParse(withInvitation).success).toBe(true);
     for (const bad of [
-      { character_id: 'char:elias', place: 'the shrine', wait_hours: 0, expires_at_game: 'x' },
-      { character_id: 'char:elias', place: '', wait_hours: 6, expires_at_game: 'x' },
-      { character_id: 'char:elias', place: 'p', wait_hours: 6, expires_at_game: 'x', extra: 1 },
+      {
+        character_id: 'char:elias',
+        place: 'the shrine',
+        wait_hours: 0,
+        expires_at_game: 'x',
+      },
+      {
+        character_id: 'char:elias',
+        place: '',
+        wait_hours: 6,
+        expires_at_game: 'x',
+      },
+      {
+        character_id: 'char:elias',
+        place: 'p',
+        wait_hours: 6,
+        expires_at_game: 'x',
+        extra: 1,
+      },
     ]) {
       const event: unknown = {
         ...envelope,

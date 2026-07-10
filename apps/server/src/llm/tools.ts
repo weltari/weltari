@@ -141,7 +141,19 @@ export const StartSceneToolSchema = z.strictObject({
 });
 export type StartSceneToolInput = z.infer<typeof StartSceneToolSchema>;
 
-export const CHAT_TOOL_NAMES = ['cache', 'startscene'] as const;
+/**
+ * stay_silent — the character's explicit decline of a proactive fire (M6
+ * part 4, owner ruling 2026-07-11: never an empty reply or a silent skip —
+ * the decision is a tool call). Data-only; the proactive handler treats it
+ * as "this fire stays quiet" and nothing durable happens.
+ */
+export const StaySilentToolSchema = z.strictObject({
+  /** Optional one-line private reason (log-only). */
+  reason: z.string().min(1).max(200).optional(),
+});
+export type StaySilentToolInput = z.infer<typeof StaySilentToolSchema>;
+
+export const CHAT_TOOL_NAMES = ['cache', 'startscene', 'stay_silent'] as const;
 export type ChatToolName = (typeof CHAT_TOOL_NAMES)[number];
 
 /**
@@ -174,6 +186,8 @@ export const CHAT_TOOL_DESCRIPTIONS: Record<ChatToolName, string> = {
     'REQUIRED after every reply: record a private 1-2 line recap of what just happened in this conversation, in your own words ("line"). This is your own short-term memory pointer — nobody else reads it.',
   startscene:
     'Open the meeting you and the User agreed on: ends this chat and opens a live scene with you and the User. place (required): where to meet — a sublocation you know, or a short place description like "the park". wait_hours (required): how many in-world hours you will wait at the place before giving up — your own choice, whatever fits your character and the plan (someone eager may wait long; a busy person may not). premise (optional): one line on how the meeting starts. Fire it YOURSELF, in the same reply where the meeting is settled — the User cannot open it. Do not fire it before a place is agreed; ask for the missing piece first.',
+  stay_silent:
+    'Choose to send nothing right now. Use it when you were free to reach out but have nothing you genuinely want to say — entirely your choice. reason (optional): one short private line on why.',
 };
 
 /** A tool call as the provider (or the fake) returned it — unvalidated. */
@@ -276,7 +290,8 @@ export function parseToolCall(
 /** A chat tool call that passed gate 1 (shape). Gate 2 (state) still applies. */
 export type ValidatedChatToolCall =
   | { tool: 'cache'; input: CacheToolInput }
-  | { tool: 'startscene'; input: StartSceneToolInput };
+  | { tool: 'startscene'; input: StartSceneToolInput }
+  | { tool: 'stay_silent'; input: StaySilentToolInput };
 
 /**
  * Gate 1 for the chat toolset (M6 part 2): shape-validate one raw call from a
@@ -309,6 +324,18 @@ export function parseChatToolCall(
       );
       return input.ok
         ? { ok: true, value: { tool: 'startscene', input: input.value } }
+        : input;
+    }
+    case 'stay_silent': {
+      const input = validateAt(
+        'llm',
+        'tool:stay_silent',
+        StaySilentToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'stay_silent', input: input.value } }
         : input;
     }
     case 'wikiquery':

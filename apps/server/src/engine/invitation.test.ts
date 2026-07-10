@@ -111,9 +111,7 @@ describe('invitation expiry (criterion a: the stood-up meeting)', () => {
     if (expired?.type === 'scene.expired') {
       expect(expired.payload.scene_id).toBe('s-invite-1');
       expect(expired.payload.character_id).toBe(ELIAS.character_id);
-      expect(expired.payload.expires_at_game).toBe(
-        '2000-01-01T12:00:00.000Z',
-      );
+      expect(expired.payload.expires_at_game).toBe('2000-01-01T12:00:00.000Z');
       expect(expired.payload.game_time).toBe('2000-01-02T06:00:00.000Z');
     }
     // The release half: presence is available again — DMs unfreeze.
