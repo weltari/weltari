@@ -224,7 +224,11 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                 // (Rev 4 §11) — tests and the harness get real entries at $0.
                 // `!startscene <place-slug>` scripts the bridge (Rev 4 §8):
                 // hyphens become spaces, so `!startscene the-park` proposes
-                // meeting at "the park".
+                // meeting at "the park" (wait_hours 6 — the 0.13.0 window).
+                // `!startscene-nowindow <place>` omits wait_hours until the
+                // correction round arrives (scripts retry-then-succeed);
+                // `!startscene-stubborn <place>` omits it every round
+                // (scripts ceiling exhaustion → the chat.notice rollback).
                 [
                   {
                     tool: 'cache',
@@ -233,19 +237,27 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                     },
                   },
                   ...((): RawToolCall[] => {
-                    const meet = /!startscene\s+(\S+)/.exec(call.prompt);
-                    return meet === null
-                      ? []
-                      : [
-                          {
-                            tool: 'startscene',
-                            input: {
-                              place: (meet[1] ?? '').replaceAll('-', ' '),
-                              premise:
-                                'They meet as planned, the rain easing off.',
-                            },
-                          },
-                        ];
+                    const corrected = call.prompt.includes('## Correction');
+                    const scripted =
+                      /!(startscene(?:-nowindow|-stubborn)?)\s+(\S+)/.exec(
+                        call.prompt,
+                      );
+                    if (scripted === null) return [];
+                    const variant = scripted[1] ?? 'startscene';
+                    const place = (scripted[2] ?? '').replaceAll('-', ' ');
+                    const withWindow =
+                      variant === 'startscene' ||
+                      (variant === 'startscene-nowindow' && corrected);
+                    return [
+                      {
+                        tool: 'startscene',
+                        input: {
+                          place,
+                          premise: 'They meet as planned, the rain easing off.',
+                          ...(withWindow ? { wait_hours: 6 } : {}),
+                        },
+                      },
+                    ];
                   })(),
                 ]
               : [],

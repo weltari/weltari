@@ -50,7 +50,7 @@ const CHAT_TRANSCRIPT_LINES = 24;
  * self-knowledge; §8 no inter-agent comms in V1).
  */
 export const CHAT_CONDUCT_SKILL =
-  'Texting: you are texting the User from inside your own life. You cannot change the world from chat — when the User wants to DO something together, or you want to show or give them something, propose meeting in person. Before proposing, make sure a PLACE is agreed: a place you know, or a short description the User gives (like "the park"). If the place or purpose is missing, ask for what is missing naturally, one question at a time; if the User already said it, do not re-ask. Once you both agree on where to meet, call the startscene tool yourself in that same reply — the User has no way to open the meeting; only you do. You cannot text or meet other characters without the User present, cannot message anyone on the User’s behalf, and cannot leave this chat yourself — decline such requests in character, with a plausible reason.';
+  'Texting: you are texting the User from inside your own life. You cannot change the world from chat — when the User wants to DO something together, or you want to show or give them something, propose meeting in person. Before proposing, make sure a PLACE is agreed: a place you know, or a short description the User gives (like "the park"). If the place or purpose is missing, ask for what is missing naturally, one question at a time; if the User already said it, do not re-ask. Once you both agree on where to meet, call the startscene tool yourself in that same reply — the User has no way to open the meeting; only you do. Include wait_hours: how many in-world hours you would realistically wait at the place before giving up — your own choice, fitting your character and the plan. You cannot text or meet other characters without the User present, cannot message anyone on the User’s behalf, and cannot leave this chat yourself — decline such requests in character, with a plausible reason.';
 
 export type Presence =
   { state: 'available' } | { state: 'in_scene'; scene_id: string };
@@ -76,7 +76,7 @@ export function presenceOf(
       event.payload.character_id === characterId
     ) {
       openScenes.add(event.payload.scene_id);
-    } else if (event.type === 'scene.ended') {
+    } else if (event.type === 'scene.ended' || event.type === 'scene.expired') {
       openScenes.delete(event.payload.scene_id);
     }
   }
@@ -177,6 +177,13 @@ export interface ChatEngineOptions {
  * mirrors the web funnel's bound (commands.ts OPEN_RETRY_ATTEMPTS). */
 const BRIDGE_RETRY_ATTEMPTS = 20;
 
+/** The critical-tool retry ceiling (owner ruling 2026-07-11): a malformed
+ * startscene call gets a hardcoded correction and the reply regenerates —
+ * up to this many total attempts, then the whole tool fire rolls back (the
+ * chat continues as if it never happened) and a chat.notice red line tells
+ * the user why. */
+const STARTSCENE_RETRY_ATTEMPTS = 10;
+
 /** Scenes started and never ended in this world — the bridge's transition
  * targets. A pure fold like every other projection here. */
 function openSceneIds(storage: Storage, worldId: string): string[] {
@@ -184,7 +191,8 @@ function openSceneIds(storage: Storage, worldId: string): string[] {
   for (const event of storage.eventLog.readSince(0, 100000)) {
     if (event.world_id !== worldId) continue;
     if (event.type === 'scene.started') open.add(event.payload.scene_id);
-    else if (event.type === 'scene.ended') open.delete(event.payload.scene_id);
+    else if (event.type === 'scene.ended' || event.type === 'scene.expired')
+      open.delete(event.payload.scene_id);
   }
   return [...open];
 }
@@ -291,6 +299,10 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
     title: string,
     place: string,
     premise: string | undefined,
+    /** Present only on the CHARACTER-fired path (0.13.0, Rev 4 §7): the
+     * character's own game-time window. The dev-mode button never sets it —
+     * a user firing the scene IS showing up, so nothing can expire. */
+    waitHours?: number,
   ): Promise<Result<{ sceneId: string; sublocationId?: string }>> {
     const slug = slugifyName(place);
     const match = knownSublocations(storage, worldId).find(
@@ -316,6 +328,15 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         ? { place_request: place }
         : { sublocation_id: match.sublocation_id }),
       ...(premise === undefined ? {} : { premise }),
+      ...(waitHours === undefined
+        ? {}
+        : {
+            invitation: {
+              character_id: profile.character_id,
+              place,
+              wait_hours: waitHours,
+            },
+          }),
     };
     const delayMs = options.bridgeRetryDelayMs ?? 500;
     let opened = options.openScene(request);
@@ -413,61 +434,82 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
             return run(input);
           };
         };
-        const result = await llm.streamCall({
-          kind: 'chat',
-          characterId: profile.character_id,
-          system: context.stablePrefix,
-          prompt: `${context.dynamicTail}\n\n## Instruction\nReply as ${profile.name} to the last User message: a short, in-character text message (1-3 sentences, first person, no narration). This is a private chat outside any scene — you cannot change the world from here. Follow your Texting skill: if meeting in person is on the table, gather what is missing (the place above all), and once the place is agreed call the startscene tool yourself in this reply. When the User asks about a place or something specific that happened, use wikiquery/sessionquery to check before answering. After writing your reply, call the cache tool with a private 1-2 line recap of this exchange.`,
-          onTextDelta: (): void => undefined, // chat replies do not stream (V1)
-          toolset: 'chat',
-          queries: {
-            wikiquery: queryOf('wikiquery', (input) =>
-              runWikiquery(storage, command.world_id, logger, input),
-            ),
-            sessionquery: queryOf('sessionquery', (input) =>
-              runSessionquery(
-                storage,
-                command.world_id,
-                profile.character_id,
-                logger,
-                input,
-              ),
-            ),
-          },
-        });
-        if (!result.ok) {
-          logger.error(
-            { conversation_id: conversationId, code: result.error.code },
-            'chat reply failed — nothing durable, the user can resend',
-          );
-          return;
-        }
-        const text = result.value.text.trim();
-        if (text === '') {
-          logger.warn(
-            { conversation_id: conversationId },
-            'chat reply came back empty — skipped',
-          );
-          return;
-        }
-        // Gate 1 over the chat tool calls; the character's CACHE line rides
-        // the reply's transaction (mandatory per trigger, Rev 4 §11).
+        const basePrompt = `${context.dynamicTail}\n\n## Instruction\nReply as ${profile.name} to the last User message: a short, in-character text message (1-3 sentences, first person, no narration). This is a private chat outside any scene — you cannot change the world from here. Follow your Texting skill: if meeting in person is on the table, gather what is missing (the place above all), and once the place is agreed call the startscene tool yourself in this reply. When the User asks about a place or something specific that happened, use wikiquery/sessionquery to check before answering. After writing your reply, call the cache tool with a private 1-2 line recap of this exchange.`;
+        // The critical-tool correction loop (owner ruling 2026-07-11): a
+        // malformed startscene gets a hardcoded correction appended and the
+        // WHOLE reply regenerates — nothing was committed yet, so a retry
+        // replaces, never duplicates. After the ceiling the fire rolls back:
+        // the last reply commits WITHOUT the tool + a chat.notice red line.
+        let text = '';
         let cacheLine: string | undefined;
         let startScene: StartSceneToolInput | undefined;
-        for (const raw of result.value.toolCalls) {
-          const parsed = parseChatToolCall(raw, logger);
-          if (!parsed.ok) {
-            logger.warn(
-              { conversation_id: conversationId, tool: raw.tool },
-              'chat tool call rejected at gate 1',
+        let startSceneRejected = false;
+        let correction = '';
+        for (let attempt = 1; attempt <= STARTSCENE_RETRY_ATTEMPTS; attempt++) {
+          const result = await llm.streamCall({
+            kind: 'chat',
+            characterId: profile.character_id,
+            system: context.stablePrefix,
+            prompt: `${basePrompt}${correction}`,
+            onTextDelta: (): void => undefined, // chat replies do not stream (V1)
+            toolset: 'chat',
+            queries: {
+              wikiquery: queryOf('wikiquery', (input) =>
+                runWikiquery(storage, command.world_id, logger, input),
+              ),
+              sessionquery: queryOf('sessionquery', (input) =>
+                runSessionquery(
+                  storage,
+                  command.world_id,
+                  profile.character_id,
+                  logger,
+                  input,
+                ),
+              ),
+            },
+          });
+          if (!result.ok) {
+            logger.error(
+              { conversation_id: conversationId, code: result.error.code },
+              'chat reply failed — nothing durable, the user can resend',
             );
-            continue;
+            return;
           }
-          if (parsed.value.tool === 'cache') {
-            cacheLine = capCacheLine(parsed.value.input.line);
-          } else {
-            startScene = parsed.value.input;
+          text = result.value.text.trim();
+          if (text === '') {
+            logger.warn(
+              { conversation_id: conversationId },
+              'chat reply came back empty — skipped',
+            );
+            return;
           }
+          // Gate 1 over the chat tool calls; the character's CACHE line
+          // rides the reply's transaction (mandatory per trigger, Rev 4 §11).
+          cacheLine = undefined;
+          startScene = undefined;
+          startSceneRejected = false;
+          for (const raw of result.value.toolCalls) {
+            const parsed = parseChatToolCall(raw, logger);
+            if (!parsed.ok) {
+              if (raw.tool === 'startscene') startSceneRejected = true;
+              logger.warn(
+                {
+                  conversation_id: conversationId,
+                  tool: raw.tool,
+                  attempt,
+                },
+                'chat tool call rejected at gate 1',
+              );
+              continue;
+            }
+            if (parsed.value.tool === 'cache') {
+              cacheLine = capCacheLine(parsed.value.input.line);
+            } else {
+              startScene = parsed.value.input;
+            }
+          }
+          if (!startSceneRejected) break;
+          correction = `\n\n## Correction\nYour startscene call was rejected: every field must match the tool schema, and wait_hours is REQUIRED — how many in-world hours you will wait at the place before giving up (a plain number, e.g. 6; your own choice). Rewrite your reply with a corrected startscene call, or reply without one if you no longer want to open the meeting.`;
         }
         if (cacheLine === undefined) {
           logger.warn(
@@ -503,6 +545,24 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
                   },
                 },
               ]),
+          // The rollback red line (owner ruling 2026-07-11): the ceiling is
+          // exhausted, the tool fire never happened — hardcoded text, durable
+          // like any transcript line, rendered red by the client.
+          ...(startSceneRejected
+            ? [
+                {
+                  world_id: command.world_id,
+                  actor_id: profile.character_id,
+                  type: 'chat.notice' as const,
+                  payload: {
+                    conversation_id: conversationId,
+                    character_id: profile.character_id,
+                    code: 'startscene_rejected',
+                    text: `${profile.name} tried to open the meeting, but the invitation was rejected ${String(STARTSCENE_RETRY_ATTEMPTS)} times (missing or invalid meeting details) — no scene was opened. The chat continues.`,
+                  },
+                },
+              ]
+            : []),
         ]);
         // The character proposed meeting in person (Rev 4 §8): run the
         // bridge AFTER the reply committed — the proposal line is durable
@@ -518,6 +578,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
             `Meeting: ${startScene.place}`.slice(0, 200),
             startScene.place,
             startScene.premise,
+            startScene.wait_hours,
           );
           if (bridged.ok) return;
           logger.warn(

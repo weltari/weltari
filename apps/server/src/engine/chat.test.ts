@@ -539,6 +539,86 @@ describe('conversation end (criterion c: exit + idle → ONE reflect_chat job)',
     ctx.storage.close();
   });
 
+  it('a character-fired startscene stamps its game-time invitation on scene.started (0.13.0, Rev 4 §7)', async () => {
+    const ctx = setup();
+    await sendAndAwait(ctx, {
+      ...SEND,
+      text: 'See you there. !startscene the-shrine',
+    });
+
+    const started = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'scene.started');
+    expect(started).toBeDefined();
+    if (started?.type === 'scene.started') {
+      expect(started.payload.invitation).toBeDefined();
+      expect(started.payload.invitation?.character_id).toBe('char:elias');
+      expect(started.payload.invitation?.place).toBe('the shrine');
+      expect(started.payload.invitation?.wait_hours).toBe(6);
+      // World epoch 06:00 + 6 fictional hours: the ENGINE stamped the
+      // deadline against the world clock — the model chose only the hours.
+      expect(started.payload.invitation?.expires_at_game).toBe(
+        '2000-01-01T12:00:00.000Z',
+      );
+    }
+    ctx.storage.close();
+  });
+
+  it('a malformed startscene regenerates with the hardcoded correction, then bridges (retry ceiling)', async () => {
+    const ctx = setup();
+    await sendAndAwait(ctx, {
+      ...SEND,
+      text: 'Meet me. !startscene-nowindow the-shrine',
+    });
+
+    const events = ctx.storage.eventLog.readSince(0);
+    // Attempt 1 lacked wait_hours → the correction round supplied it:
+    // exactly ONE committed reply and ONE scene; no red line.
+    expect(events.filter((e) => e.type === 'scene.started')).toHaveLength(1);
+    expect(events.some((e) => e.type === 'chat.notice')).toBe(false);
+    expect(
+      events.filter(
+        (e) =>
+          e.type === 'chat.message_committed' &&
+          e.payload.sender === 'character',
+      ),
+    ).toHaveLength(1);
+    const started = events.find((e) => e.type === 'scene.started');
+    if (started?.type === 'scene.started') {
+      expect(started.payload.invitation?.wait_hours).toBe(6);
+    }
+    ctx.storage.close();
+  });
+
+  it('a stubborn malformed startscene exhausts the ceiling: rollback + the red-line notice, chat continues', async () => {
+    const ctx = setup();
+    await sendAndAwait(ctx, {
+      ...SEND,
+      text: 'Meet me. !startscene-stubborn the-shrine',
+    });
+
+    const events = ctx.storage.eventLog.readSince(0);
+    // Rollback (owner ruling 2026-07-11): the tool fire never happened — no
+    // scene, chat still open — while the reply itself stays durable and the
+    // hardcoded chat.notice names the failure.
+    expect(events.some((e) => e.type === 'scene.started')).toBe(false);
+    expect(events.some((e) => e.type === 'chat.ended')).toBe(false);
+    const notice = events.find((e) => e.type === 'chat.notice');
+    expect(notice).toBeDefined();
+    if (notice?.type === 'chat.notice') {
+      expect(notice.payload.code).toBe('startscene_rejected');
+      expect(notice.payload.character_id).toBe('char:elias');
+    }
+    expect(
+      events.filter(
+        (e) =>
+          e.type === 'chat.message_committed' &&
+          e.payload.sender === 'character',
+      ),
+    ).toHaveLength(1);
+    ctx.storage.close();
+  });
+
   it('the bridge ends a still-open scene before opening the meeting (one active scene, M6 part 3)', async () => {
     const ctx = setup({ drainOnKick: true });
     await sendAndAwait(ctx, SEND);

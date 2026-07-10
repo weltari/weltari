@@ -130,6 +130,14 @@ export const StartSceneToolSchema = z.strictObject({
   place: z.string().min(1).max(200),
   /** Optional one-line premise the scene opens on. */
   premise: z.string().min(1).max(500).optional(),
+  /**
+   * REQUIRED (0.13.0, Rev 4 §7, owner ruling 2026-07-10/11): how many
+   * in-world hours the character will wait at the place before giving up —
+   * the character's own model decision, never an env default. The engine
+   * stamps the resulting game-clock expiry at scene open; a call without it
+   * is rejected with a hardcoded correction and the character resubmits.
+   */
+  wait_hours: z.number().positive().max(720),
 });
 export type StartSceneToolInput = z.infer<typeof StartSceneToolSchema>;
 
@@ -165,7 +173,7 @@ export const CHAT_TOOL_DESCRIPTIONS: Record<ChatToolName, string> = {
   cache:
     'REQUIRED after every reply: record a private 1-2 line recap of what just happened in this conversation, in your own words ("line"). This is your own short-term memory pointer — nobody else reads it.',
   startscene:
-    'Open the meeting you and the User agreed on: ends this chat and opens a live scene with you and the User. place (required): where to meet — a sublocation you know, or a short place description like "the park". premise (optional): one line on how the meeting starts. Fire it YOURSELF, in the same reply where the meeting is settled — the User cannot open it. Do not fire it before a place is agreed; ask for the missing piece first.',
+    'Open the meeting you and the User agreed on: ends this chat and opens a live scene with you and the User. place (required): where to meet — a sublocation you know, or a short place description like "the park". wait_hours (required): how many in-world hours you will wait at the place before giving up — your own choice, whatever fits your character and the plan (someone eager may wait long; a busy person may not). premise (optional): one line on how the meeting starts. Fire it YOURSELF, in the same reply where the meeting is settled — the User cannot open it. Do not fire it before a place is agreed; ask for the missing piece first.',
 };
 
 /** A tool call as the provider (or the fake) returned it — unvalidated. */
