@@ -2,6 +2,13 @@
 
 One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, Stack Session, Brief, UI Spec, Rev 3/4) are owner documents — agents read, never modify.
 
+## Orientation & handover
+
+- [handover.md](handover.md) — for the next AI agent: state at handover, the working contract, how to continue from the Week 11 kickoff.
+- [project-overview.md](project-overview.md) — for humans: what the app is, where it stands, what's left, how to run and test it.
+- [code-tour/](code-tour/README.md) — plain-language tour of every source module, with a suggested reading order.
+- [kickoffs/](kickoffs/) — the historical weekly kickoff prompts (weeks 1–10); the CURRENT week's prompt lives at the repo root.
+
 ## Module wiki (grows with the code, same-commit rule)
 
 - [repo.md](repo.md) — repo root: toolchain, workspaces, gate scripts, CI.
@@ -27,5 +34,8 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [week4-results.md](week4-results.md) — Milestone 3 part-2 results (mid-update kill safety, packaged boots, §1.14 masking, packaged RSS, real-provider tool spot check).
 - [week5-results.md](week5-results.md) — Milestone 4 part-1 results (shell + rail, display modes, Map/Gameday/Config routes, roster event, all criteria PASS).
 - [week6-results.md](week6-results.md) — Milestone 4 part-2 results (splash + History, fog/Explore/materialization, wl-map 0.3.0, mid_materialize kill safety, all criteria PASS).
+- [week7-results.md](week7-results.md) — Milestone 5 part-1 results (the painted map on real generation backends, two real-backend bugs fixed, all criteria PASS at $2.82).
+- [week8-results.md](week8-results.md) — Milestone 5 part-2 results (Flow A write into / Flow B read out of the map, sharp-feather + edit-model finds, all criteria PASS at $0.93).
+- [week9-results.md](week9-results.md) — Milestone 6 part-1 results (in-scene creation loop, mid-call query seam on real provider, all criteria PASS at $0.33).
 - [week10-results.md](week10-results.md) — Milestone 6 part-2 results (Weltari Chat part one: DM core, presence, reflect_chat, startscene bridge, subwiki pass — all criteria PASS at $0.19).
 - [dependencies.md](dependencies.md) — the dependency ledger (one `##` heading per package; CI keys on headings).

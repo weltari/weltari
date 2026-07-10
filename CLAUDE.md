@@ -31,4 +31,4 @@ Terms come from Rev 4 §3 — use them exactly: `mailbox`, `ledger_job`, `turn_e
 
 ## Deeper docs
 
-`docs/INDEX.md` → per-module wiki pages · `docs/dependencies.md` (dep ledger) · binding rulebook: `docs/Coding Guide/` (AI Coding Guide + Task Completion Checklist + Invariants & Test Templates) · requirements: `docs/Stack Requirements Brief.md`, `docs/UI Spec (skeleton).md` · stack: `docs/Stack Session/FINAL - Stack Decision.md` + Owner Decisions + Fact-check Addendum. Spec/session docs are read-only for agents.
+`docs/handover.md` (continuation guide for any agent) · `docs/code-tour/` (plain-language module tours) · `docs/INDEX.md` → per-module wiki pages · `docs/dependencies.md` (dep ledger) · binding rulebook: `docs/Coding Guide/` (AI Coding Guide + Task Completion Checklist + Invariants & Test Templates) · requirements: `docs/Stack Requirements Brief.md`, `docs/UI Spec (skeleton).md` · stack: `docs/Stack Session/FINAL - Stack Decision.md` + Owner Decisions + Fact-check Addendum. Spec/session docs are read-only for agents.

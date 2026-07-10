@@ -55,9 +55,12 @@ Weltari befindet sich in **aktiver Entwicklung**, im Hobby-Maßstab und selbstge
 | --- | --- | --- |
 | **M1 — Lauffähiges Skelett** | Durchgängiger KI-Zug, Streaming, absturzsicheres Event-Log mit Wiederaufnahme | ✅ Abgeschlossen |
 | **M2 — Dauerhaftigkeit & Tiefe** | Reflexions-Fan-out, Bildkomposition, Weltuhr / Zeitsprung, gehärtete Absturzsicherheit | ✅ Abgeschlossen |
-| **M3 — Spielerlebnis** | Echte Visual-Novel-Scene-Seite, Scene-Engine-Werkzeuge, Plugin-Loader, Standardkarte | 🚧 In Arbeit |
+| **M3 — Spielerlebnis** | Echte Visual-Novel-Scene-Seite, Scene-Engine-Werkzeuge, Plugin-Loader, Packaging + signiertes Self-Update | ✅ Abgeschlossen |
+| **M4 — Die UI-Hülle** | App-Shell, Karten-/Gameday-/Config-Seiten, Nebel & Erkunden, Szenen-Lebenszyklus | ✅ Abgeschlossen |
+| **M5 — Die gemalte Karte** | Echte Bild-Backends malen und erweitern die Karte; darauf zeichnen, hineinklicken | ✅ Abgeschlossen |
+| **M6 — Erschaffen & Chat** | Erschaffungsschleife in der Szene, DM-Chat mit Charakteren, die Chat→Szene-Brücke, proaktives Leben | 🚧 In Arbeit |
 
-Es gibt noch keinen spielbaren Ein-Befehl-Build — dieses README stellt das Projekt vor, es liefert keinen Installer aus.
+Es gibt noch keinen spielbaren Ein-Befehl-Build — dieses README stellt das Projekt vor, es liefert keinen Installer aus. Für einen ausführlichen Einblick in einfacher Sprache (auf Englisch): [docs/project-overview.md](docs/project-overview.md) und die Code-Tour in [docs/code-tour/](docs/code-tour/README.md).
 
 ## Technik-Stack
 

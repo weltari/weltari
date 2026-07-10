@@ -55,9 +55,12 @@ Weltari is in **active development**, hobby-scale and self-hosted. The foundatio
 | --- | --- | --- |
 | **M1 — Walking skeleton** | End-to-end AI turn, streaming, crash-safe event log with resume | ✅ Complete |
 | **M2 — Durability & richness** | Reflection fan-out, image compositing, world clock / time-skip, crash-safety hardening | ✅ Complete |
-| **M3 — Player experience** | Real visual-novel Scene page, scene-engine tools, plugin loader, default map | 🚧 In progress |
+| **M3 — Player experience** | Real visual-novel Scene page, scene-engine tools, plugin loader, packaging + signed self-update | ✅ Complete |
+| **M4 — The UI shell** | App shell, Map/Gameday/Config pages, fog & Explore, scene lifecycle UX | ✅ Complete |
+| **M5 — The painted map** | Real image backends paint and extend the map; draw on it, click into it | ✅ Complete |
+| **M6 — Creation & Chat** | In-scene creation loop, character DM chat, the chat→scene bridge, proactive life | 🚧 In progress |
 
-There is not yet a one-command playable build — this README introduces the project rather than shipping an installer.
+There is not yet a one-command playable build — this README introduces the project rather than shipping an installer. For a plain-language deep dive, see [docs/project-overview.md](docs/project-overview.md) (what the app is, where it stands, how to try it) and [docs/code-tour/](docs/code-tour/README.md) (every source module explained).
 
 ## Tech stack
 
