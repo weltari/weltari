@@ -83,7 +83,18 @@ export function App(): React.JSX.Element {
           dismissCover();
         }, 30000),
       ];
-      postOpenScene(title, options)
+      // One active scene: a still-open scene is ended as part of the jump —
+      // left open it would pin its characters `in_scene` (presence) forever.
+      const current = useSceneStore.getState();
+      const endSceneId =
+        current.sceneId !== null && current.sceneEnd === null
+          ? current.sceneId
+          : undefined;
+      postOpenScene(
+        title,
+        options,
+        endSceneId === undefined ? {} : { endSceneId },
+      )
         .then(async (sceneId) => {
           if (sceneId === null) return null;
           // The scene opens with narration (VN behavior): the generation this
