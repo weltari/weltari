@@ -13,7 +13,10 @@ import { createRootLogger } from '../observability/logger.js';
 import { openStorage, type Storage } from '../storage/db.js';
 import { buildEliasProfile } from './fixture/rainy-inn.js';
 import { createEventSink } from './event-sink.js';
-import { createSceneLifecycle } from './scene-lifecycle.js';
+import {
+  createSceneLifecycle,
+  type SceneLifecycle,
+} from './scene-lifecycle.js';
 import { createChatEngine, presenceOf } from './chat.js';
 
 function quietLogger(): ReturnType<typeof createRootLogger> {
@@ -30,11 +33,27 @@ const ELIAS = buildEliasProfile(100);
 interface Ctx {
   storage: Storage;
   engine: ReturnType<typeof createChatEngine>;
+  lifecycle: SceneLifecycle;
   llmCalls: LlmCall[];
 }
 
+/** Stand-in for the runner: claim and commit every active job — the shape
+ * the bridge's bounded wait needs (jobs drain, the blocked open unblocks). */
+function drainAll(storage: Storage): void {
+  for (;;) {
+    const job = storage.ledger.claimNext('test-drain', 60);
+    if (job === null) break;
+    storage.ledger.markCommitted(job.id);
+  }
+}
+
 function setup(
-  options: { llm?: LlmClient; idleCutoffIso?: () => string } = {},
+  options: {
+    llm?: LlmClient;
+    idleCutoffIso?: () => string;
+    /** Wire kickRunner to an instant drain (the bridge transition tests). */
+    drainOnKick?: boolean;
+  } = {},
 ): Ctx {
   const dir = mkdtempSync(join(tmpdir(), 'weltari-chat-'));
   const logger = quietLogger();
@@ -67,8 +86,17 @@ function setup(
     idleCutoffIso:
       options.idleCutoffIso ?? ((): string => '2000-01-01T00:00:00.000Z'),
     openScene: (request) => lifecycle.openScene(request),
+    endScene: (command) => lifecycle.endScene(command),
+    bridgeRetryDelayMs: 1,
+    ...(options.drainOnKick === true
+      ? {
+          kickRunner: (): void => {
+            drainAll(storage);
+          },
+        }
+      : {}),
   });
-  return { storage, engine, llmCalls };
+  return { storage, engine, lifecycle, llmCalls };
 }
 
 const SEND = {
@@ -148,6 +176,9 @@ describe('DM a character outside any scene (criterion a)', () => {
     expect(chatCalls[1]?.prompt).toContain('Last chat note:');
     // Same character, same stable prefix, byte-identical (cache contract).
     expect(chatCalls[1]?.system).toBe(chatCalls[0]?.system);
+    // The texting conduct skill rides the stable prefix (M6 part 3): the
+    // negotiation + the firing rule are taught, not hoped for.
+    expect(chatCalls[0]?.system).toContain('call the startscene tool yourself');
     ctx.storage.close();
   });
 
@@ -332,7 +363,7 @@ describe('conversation end (criterion c: exit + idle → ONE reflect_chat job)',
     const ctx = setup();
     await sendAndAwait(ctx, SEND);
 
-    const bridged = ctx.engine.startSceneFromChat({
+    const bridged = await ctx.engine.startSceneFromChat({
       world_id: 'w1',
       actor_id: 'user:owner',
       character_id: 'char:elias',
@@ -373,7 +404,7 @@ describe('conversation end (criterion c: exit + idle → ONE reflect_chat job)',
     const ctx = setup();
     await sendAndAwait(ctx, SEND);
 
-    const bridged = ctx.engine.startSceneFromChat({
+    const bridged = await ctx.engine.startSceneFromChat({
       world_id: 'w1',
       actor_id: 'user:owner',
       character_id: 'char:elias',
@@ -428,6 +459,89 @@ describe('conversation end (criterion c: exit + idle → ONE reflect_chat job)',
     if (ended?.type === 'chat.ended') {
       expect(ended.payload.reason).toBe('startscene');
     }
+    ctx.storage.close();
+  });
+
+  it('the bridge ends a still-open scene before opening the meeting (one active scene, M6 part 3)', async () => {
+    const ctx = setup({ drainOnKick: true });
+    await sendAndAwait(ctx, SEND);
+    // The user wandered into a scene and left it open (the debug-session
+    // bug shape: abandoning it would hold its cast in_scene forever).
+    const old = ctx.lifecycle.openScene({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's-old',
+      title: 'A scene left open',
+      participants: [],
+    });
+    expect(old.ok).toBe(true);
+
+    const bridged = await ctx.engine.startSceneFromChat({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      scene_id: 's-chat-3',
+      title: 'Meeting at the inn',
+      place: 'The Common Room',
+    });
+    expect(bridged.ok).toBe(true);
+
+    const events = ctx.storage.eventLog.readSince(0);
+    const oldEnded = events.find(
+      (e) => e.type === 'scene.ended' && e.payload.scene_id === 's-old',
+    );
+    expect(oldEnded).toBeDefined();
+    // The end came with its FULL fan-out (never a bare scene.ended).
+    expect(ctx.storage.ledger.countByKey('world_agent:s-old')).toBe(1);
+    // Exactly one scene remains open: the meeting.
+    const endedIds = new Set(
+      events
+        .filter((e) => e.type === 'scene.ended')
+        .map((e) => e.payload.scene_id),
+    );
+    const stillOpen = events
+      .filter((e) => e.type === 'scene.started')
+      .filter((e) => !endedIds.has(e.payload.scene_id));
+    expect(stillOpen).toHaveLength(1);
+    expect(stillOpen[0]?.payload.scene_id).toBe('s-chat-3');
+    ctx.storage.close();
+  });
+
+  it('the bridge gives up as a value when the end fan-out never drains — the chat stays open', async () => {
+    // No drainOnKick: the ended scene’s reflection/World-Agent jobs stay
+    // active, so the open keeps 409ing and the bounded wait must give up.
+    const ctx = setup();
+    await sendAndAwait(ctx, SEND);
+    const old = ctx.lifecycle.openScene({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's-old',
+      title: 'A scene left open',
+      participants: [],
+    });
+    expect(old.ok).toBe(true);
+
+    const bridged = await ctx.engine.startSceneFromChat({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      scene_id: 's-chat-4',
+      title: 'Meeting at the inn',
+      place: 'The Common Room',
+    });
+    expect(bridged.ok).toBe(false);
+    if (!bridged.ok) {
+      expect(bridged.error.code).toBe('blocked_on_pending_jobs');
+    }
+    // Nothing half-done: no meeting scene, and the chat range is still open
+    // (the idle sweep or a retry heals from here — Rev 4 §8).
+    const events = ctx.storage.eventLog.readSince(0);
+    expect(
+      events.some(
+        (e) => e.type === 'scene.started' && e.payload.scene_id === 's-chat-4',
+      ),
+    ).toBe(false);
+    expect(events.some((e) => e.type === 'chat.ended')).toBe(false);
     ctx.storage.close();
   });
 

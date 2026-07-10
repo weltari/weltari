@@ -133,10 +133,12 @@ export interface HttpDeps {
     command: ExitChatCommand,
   ) => Result<{ conversationId: string; ended: boolean; jobKey?: string }>;
   /** The startscene() bridge (Rev 4 §8): ends the chat range, opens a real
-   * scene with the character; unresolved places ride scene.started. */
+   * scene with the character; unresolved places ride scene.started. Async
+   * since M6 part 3 — the bridge ends a still-open scene first and may wait
+   * out its fan-out (the one-active-scene transition). */
   startSceneFromChat: (
     command: StartSceneFromChatCommand,
-  ) => Result<{ sceneId: string; sublocationId?: string }>;
+  ) => Promise<Result<{ sceneId: string; sublocationId?: string }>>;
   /**
    * Read-only painter-output serving (GET /v1/images/*): resolves a path
    * RELATIVE to the images dir, contained to it; null = 404. The event
@@ -637,8 +639,8 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         },
       },
     },
-    (request, reply) => {
-      const result = deps.startSceneFromChat(request.body);
+    async (request, reply) => {
+      const result = await deps.startSceneFromChat(request.body);
       if (!result.ok) {
         deps.logger.warn(
           { code: result.error.code },

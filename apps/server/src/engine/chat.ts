@@ -10,6 +10,7 @@
 // kill mid-generation loses one reply and nothing else.
 import { randomUUID } from 'node:crypto';
 import type {
+  EndSceneCommand,
   ExitChatCommand,
   SendChatMessageCommand,
   StartSceneFromChatCommand,
@@ -36,6 +37,19 @@ import { knownSublocations } from './sublocations.js';
  * turns are the cheapest call class; deep recall arrives with the query
  * tools in part 3). */
 const CHAT_TRANSCRIPT_LINES = 24;
+
+/**
+ * The texting conduct skill (M6 part 3, owner ruling 2026-07-09: startscene
+ * is conversational and character-led, never a button). Appended to every
+ * character's skills for CHAT calls only — a stable constant, so the chat
+ * stable prefix stays byte-identical across calls (I5). It teaches the
+ * negotiation (gather the place before firing), the firing rule (the
+ * character calls startscene ITSELF), and the V1 product limits the
+ * character must decline in-character (Rev 4 §7 skills carry product
+ * self-knowledge; §8 no inter-agent comms in V1).
+ */
+export const CHAT_CONDUCT_SKILL =
+  'Texting: you are texting the User from inside your own life. You cannot change the world from chat — when the User wants to DO something together, or you want to show or give them something, propose meeting in person. Before proposing, make sure a PLACE is agreed: a place you know, or a short description the User gives (like "the park"). If the place or purpose is missing, ask for what is missing naturally, one question at a time; if the User already said it, do not re-ask. Once you both agree on where to meet, call the startscene tool yourself in that same reply — the User has no way to open the meeting; only you do. You cannot text or meet other characters without the User present, cannot message anyone on the User’s behalf, and cannot leave this chat yourself — decline such requests in character, with a plausible reason.';
 
 export type Presence =
   { state: 'available' } | { state: 'in_scene'; scene_id: string };
@@ -135,8 +149,32 @@ export interface ChatEngineOptions {
    * §8: THE way back into scenes) — 409s (blocked_on_pending_jobs) surface
    * to the caller; a character's proposal logs and the chat continues. */
   openScene: (request: OpenSceneRequest) => Result<{ opened: true }>;
+  /** The one-active-scene transition seam (same rule the web's map jumps
+   * follow): a scene still open when the bridge fires is ENDED first —
+   * abandoning it open would hold its characters `in_scene` forever and the
+   * presence rule would silence their DMs for good. */
+  endScene: (command: EndSceneCommand) => Result<{ jobsEnqueued: number }>;
+  /** Pacing for the bridge's bounded wait while the ended scene's
+   * reflection/World-Agent fan-out blocks the open (test seam; default 500). */
+  bridgeRetryDelayMs?: number;
   /** Drain the ledger now — an enqueued reflect_chat starts on the spot. */
   kickRunner?: () => void;
+}
+
+/** How long the bridge may wait out the scene-end fan-out — attempts × delay
+ * mirrors the web funnel's bound (commands.ts OPEN_RETRY_ATTEMPTS). */
+const BRIDGE_RETRY_ATTEMPTS = 20;
+
+/** Scenes started and never ended in this world — the bridge's transition
+ * targets. A pure fold like every other projection here. */
+function openSceneIds(storage: Storage, worldId: string): string[] {
+  const open = new Set<string>();
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (event.world_id !== worldId) continue;
+    if (event.type === 'scene.started') open.add(event.payload.scene_id);
+    else if (event.type === 'scene.ended') open.delete(event.payload.scene_id);
+  }
+  return [...open];
 }
 
 export interface SendMessageResult {
@@ -153,10 +191,13 @@ export interface ChatEngine {
   exitChat(
     command: ExitChatCommand,
   ): Result<{ conversationId: string; ended: boolean; jobKey?: string }>;
-  /** The user-button side of the startscene() bridge (Rev 4 §8). */
+  /** The command side of the startscene() bridge (Rev 4 §8) — the dev-mode
+   * testing shortcut since M6 part 3 (the character-led path is the feature,
+   * owner ruling 2026-07-09). Async: the bridge may wait out the previous
+   * scene's end fan-out. */
   startSceneFromChat(
     command: StartSceneFromChatCommand,
-  ): Result<{ sceneId: string; sublocationId?: string }>;
+  ): Promise<Result<{ sceneId: string; sublocationId?: string }>>;
   /** End every conversation idle past the timeout (reason `idle`) — called
    * on a timer from main; tests call it directly with a fake clock. */
   sweepIdle(): number;
@@ -223,8 +264,14 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
    * the chat range (reason startscene). Scene open and chat close are two
    * transactions ON PURPOSE: a kill between them leaves the conversation
    * open and the idle sweep heals it — never a closed chat with no scene.
+   *
+   * One active scene (M6 part 3, the debug-session carry-over): a scene
+   * still open when the bridge fires is ended FIRST — full fan-out — then
+   * the open retries (bounded) while that fan-out blocks it. Both bridge
+   * callers (the dev-mode button command and the character's own startscene
+   * tool) get the transition from this one site.
    */
-  function runStartSceneBridge(
+  async function runStartSceneBridge(
     worldId: string,
     actorId: string,
     profile: CharacterProfile,
@@ -232,12 +279,22 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
     title: string,
     place: string,
     premise: string | undefined,
-  ): Result<{ sceneId: string; sublocationId?: string }> {
+  ): Promise<Result<{ sceneId: string; sublocationId?: string }>> {
     const slug = slugifyName(place);
     const match = knownSublocations(storage, worldId).find(
       (s) => s.sublocation_id === place || slugifyName(s.name) === slug,
     );
-    const opened = options.openScene({
+    for (const stillOpen of openSceneIds(storage, worldId)) {
+      // A refused end (already ended by a racing caller) changes nothing:
+      // the open below is the gate; the log is truth either way.
+      const endedScene = options.endScene({
+        world_id: worldId,
+        actor_id: actorId,
+        scene_id: stillOpen,
+      });
+      if (endedScene.ok) options.kickRunner?.();
+    }
+    const request: OpenSceneRequest = {
       world_id: worldId,
       actor_id: actorId,
       scene_id: sceneId,
@@ -247,7 +304,21 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         ? { place_request: place }
         : { sublocation_id: match.sublocation_id }),
       ...(premise === undefined ? {} : { premise }),
-    });
+    };
+    const delayMs = options.bridgeRetryDelayMs ?? 500;
+    let opened = options.openScene(request);
+    for (
+      let attempt = 1;
+      !opened.ok &&
+      opened.error.code === 'blocked_on_pending_jobs' &&
+      attempt < BRIDGE_RETRY_ATTEMPTS;
+      attempt++
+    ) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, delayMs);
+      });
+      opened = options.openScene(request);
+    }
     if (!opened.ok) return opened;
     const conversationId = conversationIdFor(actorId, profile.character_id);
     const state = conversationState(storage, conversationId);
@@ -298,19 +369,25 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         const recap = cacheRecapText(
           latestPerOrigin(storage, profile.character_id),
         );
-        const context = assembleContext(profile, {
-          scene_id: conversationId,
-          heading: 'Conversation',
-          world_clock_text: 'You are outside any scene, texting on your phone.',
-          latest_turns: transcript,
-          wiki: [],
-          ...(recap === '' ? {} : { cache_recap: recap }),
-        });
+        // The conduct skill rides the STABLE prefix (a constant appended to
+        // constant profile skills — byte-identical across calls, I5).
+        const context = assembleContext(
+          { ...profile, skills: [...profile.skills, CHAT_CONDUCT_SKILL] },
+          {
+            scene_id: conversationId,
+            heading: 'Conversation',
+            world_clock_text:
+              'You are outside any scene, texting on your phone.',
+            latest_turns: transcript,
+            wiki: [],
+            ...(recap === '' ? {} : { cache_recap: recap }),
+          },
+        );
         const result = await llm.streamCall({
           kind: 'chat',
           characterId: profile.character_id,
           system: context.stablePrefix,
-          prompt: `${context.dynamicTail}\n\n## Instruction\nReply as ${profile.name} to the last User message: a short, in-character text message (1-3 sentences, first person, no narration). This is a private chat outside any scene — you cannot change the world from here; if the User wants to DO something together, suggest meeting somewhere. After writing your reply, call the cache tool with a private 1-2 line recap of this exchange.`,
+          prompt: `${context.dynamicTail}\n\n## Instruction\nReply as ${profile.name} to the last User message: a short, in-character text message (1-3 sentences, first person, no narration). This is a private chat outside any scene — you cannot change the world from here. Follow your Texting skill: if meeting in person is on the table, gather what is missing (the place above all), and once the place is agreed call the startscene tool yourself in this reply. After writing your reply, call the cache tool with a private 1-2 line recap of this exchange.`,
           onTextDelta: (): void => undefined, // chat replies do not stream (V1)
           toolset: 'chat',
         });
@@ -389,7 +466,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         // user can retry via the button); on success the conversation ended,
         // so the nudge loop stops here.
         if (startScene !== undefined) {
-          const bridged = runStartSceneBridge(
+          const bridged = await runStartSceneBridge(
             command.world_id,
             command.actor_id,
             profile,
@@ -525,9 +602,9 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
       return ok({ conversationId, ended: true, jobKey });
     },
 
-    startSceneFromChat(
+    async startSceneFromChat(
       command: StartSceneFromChatCommand,
-    ): Result<{ sceneId: string; sublocationId?: string }> {
+    ): Promise<Result<{ sceneId: string; sublocationId?: string }>> {
       const profile = profileFor(command.character_id);
       if (profile === undefined) {
         return err(

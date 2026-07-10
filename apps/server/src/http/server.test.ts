@@ -233,15 +233,19 @@ describe('HTTP layer (SSE + commands)', () => {
               jobKey: 'reflect_chat:c1:9',
             }),
       // place 'the park' exercises the unresolved free-text answer shape.
-      startSceneFromChat: (command) =>
-        command.character_id === 'char:ghost'
-          ? err(new OperationalError('unknown_character', 'no such character'))
-          : ok({
-              sceneId: command.scene_id,
-              ...(command.place === 'the park'
-                ? {}
-                : { sublocationId: 'subloc:common_room' }),
-            }),
+      startSceneFromChat: async (command) =>
+        Promise.resolve(
+          command.character_id === 'char:ghost'
+            ? err(
+                new OperationalError('unknown_character', 'no such character'),
+              )
+            : ok({
+                sceneId: command.scene_id,
+                ...(command.place === 'the park'
+                  ? {}
+                  : { sublocationId: 'subloc:common_room' }),
+              }),
+        ),
       heartbeatMs: 60000,
     });
     // Windows: listen({port: 0}) draws from the ephemeral range (49152+),
