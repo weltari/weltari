@@ -5,6 +5,7 @@
 // surface. Recorded deviation: the sketches assume desktop landscape; on
 // mobile the rail becomes a bottom bar (docs/web.md).
 import { useSceneStore } from '../store.js';
+import { t } from '../i18n.js';
 import { navigate, useRoute, type Route } from '../router.js';
 
 function IconPlay(): React.JSX.Element {
@@ -103,30 +104,43 @@ interface Destination {
   icon: React.JSX.Element;
 }
 
+// "Play", not "Scene" (owner ruling 2026-07-11): the tab is the game, never
+// a session artifact — scenes must read seamless, and the map is a tool the
+// player uses, not the entrance. Labels come from the i18n catalog.
 const DESTINATIONS: readonly Destination[] = [
-  { route: '/', label: 'Scene', disabledReason: null, icon: <IconPlay /> },
-  { route: '/map', label: 'Map', disabledReason: null, icon: <IconGlobe /> },
+  {
+    route: '/',
+    label: t('nav.play'),
+    disabledReason: null,
+    icon: <IconPlay />,
+  },
+  {
+    route: '/map',
+    label: t('nav.map'),
+    disabledReason: null,
+    icon: <IconGlobe />,
+  },
   {
     route: null,
-    label: 'Feed',
-    disabledReason: 'Feed arrives with Milestone 5 (social systems).',
+    label: t('nav.feed'),
+    disabledReason: t('nav.feed.later'),
     icon: <IconCamera />,
   },
   {
     route: '/chats',
-    label: 'Chats',
+    label: t('nav.chats'),
     disabledReason: null,
     icon: <IconChat />,
   },
   {
     route: '/wiki',
-    label: 'Wiki',
+    label: t('nav.wiki'),
     disabledReason: null,
     icon: <IconBook />,
   },
   {
     route: '/config',
-    label: 'Config',
+    label: t('nav.config'),
     disabledReason: null,
     icon: <IconGear />,
   },

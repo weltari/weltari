@@ -1687,6 +1687,19 @@ body {
   padding: 0.4rem 0;
 }
 
+/* The hardcoded engine notice (chat.notice, 0.13.0): a small red system
+   line — never a character bubble (owner ruling 2026-07-11). */
+.wl-chat-bubble[data-sender='notice'] {
+  align-self: center;
+  max-width: 40rem;
+  background: none;
+  border: none;
+  padding: 0.2rem 0;
+  color: var(--wl-danger);
+  font-size: var(--wl-font-size-ui);
+  text-align: center;
+}
+
 .wl-chat-typing {
   display: flex;
   gap: 0.3rem;

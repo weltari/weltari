@@ -118,3 +118,53 @@ describe('art.switched projection is scene-scoped', () => {
     expect(useSceneStore.getState().artByCharacter).toEqual({});
   });
 });
+
+describe('invitation expiry + the red-line notice (0.13.0, M6 part 4)', () => {
+  it('scene.expired closes the History entry with the expiry divider and clears a viewed scene', () => {
+    apply(sceneStarted('s-invite-1'));
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:elias',
+      ts: TS,
+      type: 'scene.expired',
+      payload: {
+        scene_id: 's-invite-1',
+        character_id: 'char:elias',
+        place: 'the shrine',
+        expires_at_game: '2000-01-01T12:00:00.000Z',
+        game_time: '2000-01-02T06:00:00.000Z',
+      },
+    });
+    const state = useSceneStore.getState();
+    expect(state.sceneId).toBeNull(); // back to the splash, never a soft close
+    expect(state.sceneEnd).toBeNull();
+    const entry = state.history.find((h) => h.scene_id === 's-invite-1');
+    expect(entry?.ended).toBe(true);
+    expect(entry?.divider_text).toBe('— the meeting expired —');
+  });
+
+  it('chat.notice lands in the thread as a notice line, idempotent per event id', () => {
+    const notice: WeltariEvent = {
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:elias',
+      ts: TS,
+      type: 'chat.notice',
+      payload: {
+        conversation_id: 'chat:user:owner:char:elias',
+        character_id: 'char:elias',
+        code: 'startscene_rejected',
+        text: 'Elias tried to open the meeting, but the invitation was rejected — no scene was opened.',
+      },
+    };
+    apply(notice);
+    apply(notice); // a replayed event must not twin the line
+    const thread = useSceneStore.getState().chatThreads['char:elias'];
+    const notices = (thread?.messages ?? []).filter(
+      (m) => m.sender === 'notice',
+    );
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.text).toContain('no scene was opened');
+  });
+});
