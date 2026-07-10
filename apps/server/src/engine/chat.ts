@@ -58,10 +58,18 @@ export type Presence =
  * The presence projection (Rev 4 §4: presence is engine-owned, structured
  * state for code): a character is `in_scene` while a scene it joined is
  * still open. No table — derived from character.joined / scene.ended events.
+ * WORLD-SCOPED (M6 part 3 fix): the same character id in another world is
+ * that world's character — a scene left open elsewhere (the harness's
+ * cross-world probe was the reproducer) must never freeze this world's DMs.
  */
-export function presenceOf(storage: Storage, characterId: string): Presence {
+export function presenceOf(
+  storage: Storage,
+  worldId: string,
+  characterId: string,
+): Presence {
   const openScenes = new Set<string>();
   for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (event.world_id !== worldId) continue;
     if (
       event.type === 'character.joined' &&
       event.payload.character_id === characterId
@@ -503,7 +511,11 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         command.actor_id,
         command.character_id,
       );
-      const presence = presenceOf(storage, command.character_id);
+      const presence = presenceOf(
+        storage,
+        command.world_id,
+        command.character_id,
+      );
 
       // Idempotent per request_id: a duplicate send is a silent 202 no-op.
       const state = conversationState(storage, conversationId);
