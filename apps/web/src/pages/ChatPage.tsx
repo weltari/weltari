@@ -17,6 +17,10 @@ interface ChatPageProps {
   /** Hand a startscene() 202 to the shell: navigate to the Scene route (the
    * scene.started + first turn arrive over the stream like any open). */
   onSceneOpened: () => void;
+  /** Meeting is character-led since M6 part 3 (owner ruling 2026-07-09): the
+   * character negotiates in chat and fires startscene itself. The button
+   * survives only as a dev-mode testing shortcut (?dev=1). */
+  devMode: boolean;
 }
 
 /** in_scene = the character sits in the currently open scene's cast
@@ -50,7 +54,10 @@ function ThreadPreview({
   );
 }
 
-export function ChatPage({ onSceneOpened }: ChatPageProps): React.JSX.Element {
+export function ChatPage({
+  onSceneOpened,
+  devMode,
+}: ChatPageProps): React.JSX.Element {
   const threads = useSceneStore((s) => s.chatThreads);
   const [selectedId, setSelectedId] = useState(
     CHAT_CHARACTERS[0]?.character_id ?? '',
@@ -178,16 +185,18 @@ export function ChatPage({ onSceneOpened }: ChatPageProps): React.JSX.Element {
             </span>
           </div>
           <div className="wl-chat-head-actions">
-            <button
-              type="button"
-              className="wl-chat-action"
-              disabled={busy}
-              onClick={() => {
-                setMeetOpen((open) => !open);
-              }}
-            >
-              Meet in a scene
-            </button>
+            {devMode ? (
+              <button
+                type="button"
+                className="wl-chat-action"
+                disabled={busy}
+                onClick={() => {
+                  setMeetOpen((open) => !open);
+                }}
+              >
+                Meet in a scene (dev)
+              </button>
+            ) : null}
             <button
               type="button"
               className="wl-chat-action"

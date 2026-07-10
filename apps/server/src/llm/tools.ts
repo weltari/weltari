@@ -141,7 +141,7 @@ export const CHAT_TOOL_DESCRIPTIONS: Record<ChatToolName, string> = {
   cache:
     'REQUIRED after every reply: record a private 1-2 line recap of what just happened in this conversation, in your own words ("line"). This is your own short-term memory pointer — nobody else reads it.',
   startscene:
-    'Propose meeting in person: ends this chat and opens a live scene with you and the User. place (required): where to meet — a sublocation you know, or a short place description like "the park". premise (optional): one line on how the meeting starts. Use it when the User wants to DO something together rather than keep texting — you cannot change the world from chat, but you can meet.',
+    'Open the meeting you and the User agreed on: ends this chat and opens a live scene with you and the User. place (required): where to meet — a sublocation you know, or a short place description like "the park". premise (optional): one line on how the meeting starts. Fire it YOURSELF, in the same reply where the meeting is settled — the User cannot open it. Do not fire it before a place is agreed; ask for the missing piece first.',
 };
 
 /** A tool call as the provider (or the fake) returned it — unvalidated. */

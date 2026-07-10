@@ -175,6 +175,7 @@ export function App(): React.JSX.Element {
           <GamedayPage />
         ) : route === '/chats' ? (
           <ChatPage
+            devMode={DEV_MODE}
             onSceneOpened={() => {
               // The startscene() handoff (Rev 4 §8): the scene events arrive
               // over the stream; the Scene route renders them as they land.

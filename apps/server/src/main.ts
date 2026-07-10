@@ -251,6 +251,7 @@ const chatEngine = createChatEngine({
   idleCutoffIso: (): string =>
     new Date(Date.now() - env.chatIdleMinutes * 60_000).toISOString(),
   openScene: (request) => lifecycle.openScene(request),
+  endScene: (command) => lifecycle.endScene(command),
   kickRunner: (): void => {
     catchAndLog(drainLedger(), logger, 'ledger.drain');
   },
@@ -645,7 +646,7 @@ const app = createHttpServer({
     return result;
   },
   exitChat: (command) => chatEngine.exitChat(command),
-  startSceneFromChat: (command) => chatEngine.startSceneFromChat(command),
+  startSceneFromChat: async (command) => chatEngine.startSceneFromChat(command),
   plugins: plugins.map((plugin) => plugin.info),
   resolvePluginAsset: createPluginAssetResolver(plugins),
   resolveImage: createImageResolver(env.imagesDir),
