@@ -26,7 +26,11 @@ export type FaultPoint =
   | 'mid_reflect_chat'
   /** M6 part 3: inside the proactive_dm job — the DM generated, the
    * message + outreach (+ freeze) transaction not yet appended. */
-  | 'mid_proactive_dm';
+  | 'mid_proactive_dm'
+  /** M6 part 4: inside the invitation expiry sweep — the invitation is due,
+   * the scene.expired + cache.appended pair not yet appended (a kill heals
+   * at the boot sweep; the fused re-check keeps the pair single). */
+  | 'mid_invitation_expiry';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;
