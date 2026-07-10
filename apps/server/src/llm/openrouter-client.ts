@@ -14,10 +14,14 @@ import {
   CHAT_TOOL_DESCRIPTIONS,
   CreateSublocationToolSchema,
   EndSceneToolSchema,
+  EndSubsessionToolSchema,
+  GROUP_ROUTER_TOOL_DESCRIPTIONS,
   NARRATOR_TOOL_DESCRIPTIONS,
   QuerySublocationsToolSchema,
+  RouteToolSchema,
   SessionqueryToolSchema,
   StartSceneToolSchema,
+  StaySilentToolSchema,
   SwitchArtToolSchema,
   WikiqueryToolSchema,
   type RawToolCall,
@@ -56,6 +60,10 @@ const CHAT_TOOLS: ToolSet = {
   startscene: tool({
     description: CHAT_TOOL_DESCRIPTIONS.startscene,
     inputSchema: StartSceneToolSchema,
+  }),
+  stay_silent: tool({
+    description: CHAT_TOOL_DESCRIPTIONS.stay_silent,
+    inputSchema: StaySilentToolSchema,
   }),
 };
 
@@ -254,7 +262,25 @@ export function createOpenRouterClient(
                     ? {}
                     : { stopWhen: stepCountIs(QUERY_STEP_LIMIT) }),
                 }
-              : {}),
+              : call.toolset === 'group_router'
+                ? {
+                    // M6 part 4: the Group-chat Narrator's routing decision —
+                    // data-only tools (route / endsubsession); the engine
+                    // validates and executes, and drops any narration text.
+                    tools: {
+                      route: tool({
+                        description: GROUP_ROUTER_TOOL_DESCRIPTIONS.route,
+                        inputSchema: RouteToolSchema,
+                      }),
+                      endsubsession: tool({
+                        description:
+                          GROUP_ROUTER_TOOL_DESCRIPTIONS.endsubsession,
+                        inputSchema: EndSubsessionToolSchema,
+                      }),
+                    },
+                    toolChoice: 'auto' as const,
+                  }
+                : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable
           // prefix, never user input, so the injection warning does not apply.

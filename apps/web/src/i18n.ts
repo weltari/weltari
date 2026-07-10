@@ -20,6 +20,10 @@ const EN = {
     'No known sublocations yet — explore the map first.',
   'splash.hangAround.hint': 'Open a scene at a random known place',
   'chat.notice.meetingExpired': 'the meeting expired',
+  'chat.groups': 'Groups',
+  'chat.newGroup': '+ New group',
+  'chat.endGroup': 'End group chat',
+  'chat.groupPlaceholder': 'Message the group…',
 } as const;
 
 export type MessageKey = keyof typeof EN;

@@ -246,6 +246,24 @@ describe('HTTP layer (SSE + commands)', () => {
                   : { sublocationId: 'subloc:common_room' }),
               }),
         ),
+      startGroupChat: (command) =>
+        ok({
+          conversationId: `group:${command.actor_id}:${command.request_id}`,
+        }),
+      sendGroupMessage: (command) =>
+        command.conversation_id === 'group:ghost'
+          ? err(new OperationalError('unknown_group', 'no such group'))
+          : ok({
+              conversationId: command.conversation_id,
+              messageId: command.request_id,
+              routing: true,
+            }),
+      exitGroupChat: (command) =>
+        ok({
+          conversationId: command.conversation_id,
+          ended: true,
+          jobsEnqueued: 2,
+        }),
       heartbeatMs: 60000,
     });
     // Windows: listen({port: 0}) draws from the ephemeral range (49152+),

@@ -47,6 +47,11 @@ const envSchema = z.object({
    * 0 = disabled. Each fire is one chat-class LLM call on a real backend;
    * fires per advance are additionally capped at the freeze cap. */
   WELTARI_CRON_DM_GAME_MINUTES: z.coerce.number().nonnegative().default(1440),
+  /** Group-chat turn budget (M6 part 4, Rev 4 §8; owner ruling 2026-07-11:
+   * default 3, user-tunable): max character turns the Group-chat Narrator
+   * may route per user turn — the engine cuts it off, preventing infinite
+   * character ping-pong. */
+  WELTARI_GROUP_TURN_BUDGET: z.coerce.number().int().positive().default(3),
   /** Image pixels live as files here; rows/events hold path + hash (Brief §1). */
   WELTARI_IMAGES_DIR: z.string().min(1).default('data/images'),
   /** Painter tile source. 'stub' (default) = deterministic, free, offline —
@@ -118,6 +123,7 @@ export interface Env {
   leaseSeconds: number;
   chatIdleMinutes: number;
   cronDmGameMinutes: number;
+  groupTurnBudget: number;
   imagesDir: string;
   imageBackend: 'stub' | 'openrouter';
   imageModel: string;
@@ -176,6 +182,7 @@ export function readEnv(
       leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
       chatIdleMinutes: parsed.data.WELTARI_CHAT_IDLE_MINUTES,
       cronDmGameMinutes: parsed.data.WELTARI_CRON_DM_GAME_MINUTES,
+      groupTurnBudget: parsed.data.WELTARI_GROUP_TURN_BUDGET,
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
       imageBackend: parsed.data.WELTARI_IMAGE_BACKEND,
       imageModel: parsed.data.WELTARI_IMAGE_MODEL,

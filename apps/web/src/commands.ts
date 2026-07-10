@@ -7,9 +7,12 @@ import {
   CommandRejectedSchema,
   EndSceneAcceptedSchema,
   ExitChatAcceptedSchema,
+  ExitGroupChatAcceptedSchema,
   InterruptTurnAcceptedSchema,
   OpenSceneAcceptedSchema,
   SendChatMessageAcceptedSchema,
+  SendGroupMessageAcceptedSchema,
+  StartGroupChatAcceptedSchema,
   StartSceneFromChatAcceptedSchema,
   StartTurnAcceptedSchema,
 } from '@weltari/protocol';
@@ -24,7 +27,11 @@ export const ACTOR_ID = 'user:owner';
 export const CHAT_CHARACTERS: readonly {
   character_id: string;
   name: string;
-}[] = [{ character_id: 'char:elias', name: 'Elias' }];
+}[] = [
+  { character_id: 'char:elias', name: 'Elias' },
+  // M6 part 4: the second DM-able fixture character — groups need >= 2.
+  { character_id: 'char:mara', name: 'Mara' },
+];
 
 async function post(path: string, body: unknown): Promise<unknown> {
   const response = await fetch(path, {
@@ -168,6 +175,55 @@ export async function postExitChat(
     character_id: characterId,
   });
   const parsed = ExitChatAcceptedSchema.safeParse(raw);
+  return parsed.success ? { ended: parsed.data.ended } : null;
+}
+
+/** Start a group chat (0.14.0, Rev 4 §8: user-started only). Idempotent per
+ * request_id; chat.group_started arrives on the stream. */
+export async function postStartGroupChat(
+  memberIds: readonly string[],
+  title: string,
+): Promise<{ conversationId: string } | null> {
+  const raw = await post('/v1/commands/start-group-chat', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    member_ids: memberIds,
+    title,
+    request_id: `g-${crypto.randomUUID().slice(0, 12)}`,
+  });
+  const parsed = StartGroupChatAcceptedSchema.safeParse(raw);
+  return parsed.success
+    ? { conversationId: parsed.data.conversation_id }
+    : null;
+}
+
+/** One user line into a group (0.14.0): the Group-chat Narrator routes up to
+ * the engine-enforced budget of member replies — they arrive as events. */
+export async function postSendGroupMessage(
+  conversationId: string,
+  text: string,
+): Promise<{ routing: boolean } | null> {
+  const raw = await post('/v1/commands/send-group-message', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    conversation_id: conversationId,
+    text,
+    request_id: `m-${crypto.randomUUID().slice(0, 12)}`,
+  });
+  const parsed = SendGroupMessageAcceptedSchema.safeParse(raw);
+  return parsed.success ? { routing: parsed.data.routing } : null;
+}
+
+/** Leave the group (0.14.0): closes the range; every member reflects. */
+export async function postExitGroupChat(
+  conversationId: string,
+): Promise<{ ended: boolean } | null> {
+  const raw = await post('/v1/commands/exit-group-chat', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    conversation_id: conversationId,
+  });
+  const parsed = ExitGroupChatAcceptedSchema.safeParse(raw);
   return parsed.success ? { ended: parsed.data.ended } : null;
 }
 

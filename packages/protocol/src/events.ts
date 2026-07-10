@@ -344,6 +344,60 @@ export const ChatThreadFrozenEventSchema = z.strictObject({
 });
 
 /**
+ * A group chat opened (0.14.0, Rev 4 §8: user-started ONLY — characters
+ * cannot fire group chats and CRON never posts into them). Members are
+ * fixed at start in V1. Emitted by: the group-chat engine. Consumed by:
+ * clients (the /chats group view).
+ */
+export const ChatGroupStartedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('chat.group_started'),
+  payload: z.strictObject({
+    conversation_id: z.string().min(1),
+    title: z.string().min(1).max(120),
+    member_ids: z.array(z.string().min(1)).min(2),
+  }),
+});
+
+/**
+ * One group-chat line became durable (0.14.0, Rev 4 §8): the user's, or a
+ * member character's routed by the Group-chat Narrator (which itself NEVER
+ * narrates — router decisions are log-only trail, not transcript). Unique
+ * per (conversation, message_id) — duplicate sends and kill-retries never
+ * twin. Emitted by: the group-chat engine. Consumed by: clients.
+ */
+export const ChatGroupMessageCommittedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('chat.group_message_committed'),
+  payload: z.strictObject({
+    conversation_id: z.string().min(1),
+    sender: z.enum(['user', 'character']),
+    /** The speaking member — present exactly when sender is `character`. */
+    character_id: z.string().min(1).optional(),
+    text: z.string().min(1).max(8192),
+    message_id: z.string().min(1).max(100),
+  }),
+});
+
+/**
+ * A group-chat range closed (0.14.0, Rev 4 §8): the router's ENDSUBSESSION
+ * or the user's exit. Appended atomically WITH exactly ONE reflect_chat job
+ * per member (keys carry the character id — the group analogue of the DM's
+ * single job). Emitted by: the group-chat engine. Consumed by: clients,
+ * verify-consistency.
+ */
+export const ChatGroupEndedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('chat.group_ended'),
+  payload: z.strictObject({
+    conversation_id: z.string().min(1),
+    reason: z.enum(['exit', 'endsubsession']),
+    range_end_id: z.int().positive(),
+    member_ids: z.array(z.string().min(1)).min(2),
+  }),
+});
+
+/**
  * A hardcoded engine notice landed in a conversation (0.13.0, owner ruling
  * 2026-07-11: "a small red line shows what the error is"): a critical
  * character tool chain (startscene) exhausted its retry ceiling and rolled
@@ -810,6 +864,9 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   ChatOutreachRecordedEventSchema,
   ChatThreadFrozenEventSchema,
   ChatNoticeEventSchema,
+  ChatGroupStartedEventSchema,
+  ChatGroupMessageCommittedEventSchema,
+  ChatGroupEndedEventSchema,
   CacheAppendedEventSchema,
   SubwikiUpdatedEventSchema,
   SublocationChangedEventSchema,

@@ -8,10 +8,14 @@ import { useEffect, useRef, useState } from 'react';
 import {
   CHAT_CHARACTERS,
   postExitChat,
+  postExitGroupChat,
   postSendChatMessage,
+  postSendGroupMessage,
+  postStartGroupChat,
   postStartSceneFromChat,
 } from '../commands.js';
-import { useSceneStore, type ChatThread } from '../store.js';
+import { t } from '../i18n.js';
+import { useSceneStore, type ChatThread, type GroupThread } from '../store.js';
 
 interface ChatPageProps {
   /** Hand a startscene() 202 to the shell: navigate to the Scene route (the
@@ -59,9 +63,14 @@ export function ChatPage({
   devMode,
 }: ChatPageProps): React.JSX.Element {
   const threads = useSceneStore((s) => s.chatThreads);
+  const groups = useSceneStore((s) => s.groupThreads);
   const [selectedId, setSelectedId] = useState(
     CHAT_CHARACTERS[0]?.character_id ?? '',
   );
+  // A selected group swaps the right pane (UI Spec §2.4 group view, 0.14.0).
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const selectedGroup =
+    selectedGroupId === null ? undefined : groups[selectedGroupId];
   const selected =
     CHAT_CHARACTERS.find((c) => c.character_id === selectedId) ??
     CHAT_CHARACTERS[0];
@@ -163,125 +172,273 @@ export function ChatPage({
             key={character.character_id}
             characterId={character.character_id}
             name={character.name}
-            selected={character.character_id === selected.character_id}
+            selected={
+              selectedGroup === undefined &&
+              character.character_id === selected.character_id
+            }
             thread={threads[character.character_id]}
             onSelect={() => {
               setSelectedId(character.character_id);
+              setSelectedGroupId(null);
               setTyping(false);
             }}
           />
         ))}
+        <h2 className="wl-chat-list-title">{t('chat.groups')}</h2>
+        {Object.values(groups).map((group) => (
+          <button
+            key={group.conversation_id}
+            type="button"
+            className="wl-chat-row"
+            data-selected={group.conversation_id === selectedGroupId}
+            onClick={() => {
+              setSelectedGroupId(group.conversation_id);
+            }}
+          >
+            <span className="wl-chat-avatar" data-state="available">
+              #
+            </span>
+            <span className="wl-chat-row-main">
+              <span className="wl-chat-row-name">{group.title}</span>
+              <span className="wl-chat-preview">
+                {group.messages.at(-1)?.text ?? 'No messages yet'}
+              </span>
+            </span>
+          </button>
+        ))}
+        <button
+          type="button"
+          className="wl-chat-action"
+          disabled={busy || CHAT_CHARACTERS.length < 2}
+          onClick={() => {
+            // User-started only (Rev 4 §8) — V1 groups everyone DM-able.
+            postStartGroupChat(
+              CHAT_CHARACTERS.map((c) => c.character_id),
+              CHAT_CHARACTERS.map((c) => c.name).join(' & '),
+            )
+              .then((started) => {
+                if (started !== null)
+                  setSelectedGroupId(started.conversationId);
+              })
+              .catch(() => {
+                // CATCH-OK: a failed start changes nothing; truth is the stream.
+              });
+          }}
+        >
+          {t('chat.newGroup')}
+        </button>
       </aside>
 
-      <section className="wl-chat-conversation">
-        <header className="wl-chat-head">
-          <div>
-            <strong>{selected.name}</strong>
-            <span
-              className="wl-chat-presence"
-              data-state={inScene ? 'in_scene' : 'available'}
-            >
-              {inScene ? 'offline — in a scene' : 'online'}
-            </span>
-          </div>
-          <div className="wl-chat-head-actions">
-            {devMode ? (
+      {selectedGroup !== undefined ? (
+        <GroupConversation group={selectedGroup} />
+      ) : (
+        <section className="wl-chat-conversation">
+          <header className="wl-chat-head">
+            <div>
+              <strong>{selected.name}</strong>
+              <span
+                className="wl-chat-presence"
+                data-state={inScene ? 'in_scene' : 'available'}
+              >
+                {inScene ? 'offline — in a scene' : 'online'}
+              </span>
+            </div>
+            <div className="wl-chat-head-actions">
+              {devMode ? (
+                <button
+                  type="button"
+                  className="wl-chat-action"
+                  disabled={busy}
+                  onClick={() => {
+                    setMeetOpen((open) => !open);
+                  }}
+                >
+                  Meet in a scene (dev)
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="wl-chat-action"
                 disabled={busy}
                 onClick={() => {
-                  setMeetOpen((open) => !open);
+                  postExitChat(selected.character_id).catch(() => {
+                    // CATCH-OK: a failed exit changes nothing; truth is the stream.
+                  });
                 }}
               >
-                Meet in a scene (dev)
+                End chat
               </button>
-            ) : null}
-            <button
-              type="button"
-              className="wl-chat-action"
-              disabled={busy}
-              onClick={() => {
-                postExitChat(selected.character_id).catch(() => {
-                  // CATCH-OK: a failed exit changes nothing; truth is the stream.
-                });
-              }}
-            >
-              End chat
-            </button>
-          </div>
-        </header>
+            </div>
+          </header>
 
-        {meetOpen ? (
-          <div className="wl-chat-meet">
+          {meetOpen ? (
+            <div className="wl-chat-meet">
+              <input
+                value={meetPlace}
+                placeholder='Where? A known place or e.g. "the park"'
+                onChange={(e) => {
+                  setMeetPlace(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') fireMeet();
+                }}
+              />
+              <button type="button" disabled={busy} onClick={fireMeet}>
+                Start the scene
+              </button>
+            </div>
+          ) : null}
+
+          <div className="wl-chat-messages" ref={scrollRef}>
+            {(thread?.messages ?? []).map((message) => (
+              <div
+                key={message.message_id}
+                className="wl-chat-bubble"
+                data-sender={message.sender}
+              >
+                {message.text}
+              </div>
+            ))}
+            {thread !== undefined && thread.lastEnded !== null ? (
+              <div className="wl-chat-divider">
+                — chat ended ({thread.lastEnded.reason}) —
+              </div>
+            ) : null}
+            {typing ? (
+              <div
+                className="wl-chat-bubble wl-chat-typing"
+                data-sender="character"
+              >
+                <span />
+                <span />
+                <span />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="wl-chat-inputrow">
             <input
-              value={meetPlace}
-              placeholder='Where? A known place or e.g. "the park"'
+              value={draft}
+              placeholder={
+                inScene
+                  ? `${selected.name} is in a scene — messages wait until it ends`
+                  : `Message ${selected.name}…`
+              }
               onChange={(e) => {
-                setMeetPlace(e.target.value);
+                setDraft(e.target.value);
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') fireMeet();
+                if (e.key === 'Enter') fireSend();
               }}
             />
-            <button type="button" disabled={busy} onClick={fireMeet}>
-              Start the scene
+            <button
+              type="button"
+              disabled={busy || draft.trim() === ''}
+              onClick={fireSend}
+            >
+              Send
             </button>
           </div>
-        ) : null}
+        </section>
+      )}
+    </div>
+  );
+}
 
-        <div className="wl-chat-messages" ref={scrollRef}>
-          {(thread?.messages ?? []).map((message) => (
-            <div
-              key={message.message_id}
-              className="wl-chat-bubble"
-              data-sender={message.sender}
-            >
-              {message.text}
-            </div>
-          ))}
-          {thread !== undefined && thread.lastEnded !== null ? (
-            <div className="wl-chat-divider">
-              — chat ended ({thread.lastEnded.reason}) —
-            </div>
-          ) : null}
-          {typing ? (
-            <div
-              className="wl-chat-bubble wl-chat-typing"
-              data-sender="character"
-            >
-              <span />
-              <span />
-              <span />
-            </div>
-          ) : null}
+/** The group pane (0.14.0): member replies arrive routed by the Group-chat
+ * Narrator — up to the engine's turn budget per user line; speaker names
+ * label every character bubble. */
+function GroupConversation(props: { group: GroupThread }): React.JSX.Element {
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const count = props.group.messages.length;
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [count]);
+
+  function nameOf(id: string | undefined): string {
+    return (
+      CHAT_CHARACTERS.find((c) => c.character_id === id)?.name ?? 'Someone'
+    );
+  }
+  function fireSend(): void {
+    const text = draft.trim();
+    if (text === '' || busy) return;
+    setBusy(true);
+    setDraft('');
+    postSendGroupMessage(props.group.conversation_id, text)
+      .catch(() => null)
+      .finally(() => {
+        setBusy(false);
+      });
+  }
+
+  return (
+    <section className="wl-chat-conversation">
+      <header className="wl-chat-head">
+        <div>
+          <strong>{props.group.title}</strong>
+          <span className="wl-chat-presence" data-state="available">
+            {props.group.member_ids.map((id) => nameOf(id)).join(', ')}
+          </span>
         </div>
-
-        <div className="wl-chat-inputrow">
-          <input
-            value={draft}
-            placeholder={
-              inScene
-                ? `${selected.name} is in a scene — messages wait until it ends`
-                : `Message ${selected.name}…`
-            }
-            onChange={(e) => {
-              setDraft(e.target.value);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') fireSend();
-            }}
-          />
+        <div className="wl-chat-head-actions">
           <button
             type="button"
-            disabled={busy || draft.trim() === ''}
-            onClick={fireSend}
+            className="wl-chat-action"
+            disabled={busy}
+            onClick={() => {
+              postExitGroupChat(props.group.conversation_id).catch(() => {
+                // CATCH-OK: a failed exit changes nothing; truth is the stream.
+              });
+            }}
           >
-            Send
+            {t('chat.endGroup')}
           </button>
         </div>
-      </section>
-    </div>
+      </header>
+      <div className="wl-chat-messages" ref={scrollRef}>
+        {props.group.messages.map((message) => (
+          <div
+            key={message.message_id}
+            className="wl-chat-bubble"
+            data-sender={message.sender}
+          >
+            {message.sender === 'character' ? (
+              <span className="wl-chat-speaker">
+                {nameOf(message.speaker_id)}: {''}
+              </span>
+            ) : null}
+            {message.text}
+          </div>
+        ))}
+        {props.group.lastEnded !== null ? (
+          <div className="wl-chat-divider">
+            — group chat ended ({props.group.lastEnded.reason}) —
+          </div>
+        ) : null}
+      </div>
+      <div className="wl-chat-inputrow">
+        <input
+          value={draft}
+          placeholder={t('chat.groupPlaceholder')}
+          onChange={(e) => {
+            setDraft(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') fireSend();
+          }}
+        />
+        <button
+          type="button"
+          disabled={busy || draft.trim() === ''}
+          onClick={fireSend}
+        >
+          Send
+        </button>
+      </div>
+    </section>
   );
 }
 

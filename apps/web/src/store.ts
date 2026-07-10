@@ -101,6 +101,19 @@ export interface ChatThread {
   lastEnded: { reason: 'exit' | 'idle' | 'startscene' } | null;
 }
 
+/**
+ * One group chat (0.14.0, UI Spec §2.4 group view) — a pure projection of
+ * chat.group_started/group_message_committed/group_ended; replay-rebuilt.
+ * Character lines carry the speaker id so the view can label them.
+ */
+export interface GroupThread {
+  conversation_id: string;
+  title: string;
+  member_ids: string[];
+  messages: (ChatMessage & { speaker_id?: string })[];
+  lastEnded: { reason: 'exit' | 'endsubsession' } | null;
+}
+
 export interface SceneStore {
   connected: boolean;
   protocolVersion: string | null;
@@ -124,6 +137,8 @@ export interface SceneStore {
   knownSublocations: KnownSublocation[];
   /** Every scene ever played, in open order (the History modal's projection). */
   history: HistoryScene[];
+  /** Group chats by conversation id (0.14.0, the /chats group view). */
+  groupThreads: Record<string, GroupThread>;
   /** Latest world.time_advanced `to` — engine-owned fictional time, read never invented. */
   worldTime: string | null;
   /** The latest skip + how many cron occurrences it enqueued (Gameday flow). */
@@ -523,6 +538,71 @@ function applyOne(
         };
       });
       return;
+    case 'chat.group_started':
+      set((state) => ({
+        groupThreads: {
+          ...state.groupThreads,
+          [event.payload.conversation_id]: state.groupThreads[
+            event.payload.conversation_id
+          ] ?? {
+            conversation_id: event.payload.conversation_id,
+            title: event.payload.title,
+            member_ids: event.payload.member_ids,
+            messages: [],
+            lastEnded: null,
+          },
+        },
+      }));
+      return;
+    case 'chat.group_message_committed':
+      set((state) => {
+        const existing = state.groupThreads[event.payload.conversation_id];
+        if (existing === undefined) return {};
+        if (
+          existing.messages.some(
+            (m) => m.message_id === event.payload.message_id,
+          )
+        ) {
+          return {};
+        }
+        return {
+          groupThreads: {
+            ...state.groupThreads,
+            [event.payload.conversation_id]: {
+              ...existing,
+              messages: [
+                ...existing.messages,
+                {
+                  message_id: event.payload.message_id,
+                  sender: event.payload.sender,
+                  text: event.payload.text,
+                  ts: event.ts,
+                  ...(event.payload.character_id === undefined
+                    ? {}
+                    : { speaker_id: event.payload.character_id }),
+                },
+              ],
+              lastEnded: null,
+            },
+          },
+        };
+      });
+      return;
+    case 'chat.group_ended':
+      set((state) => {
+        const existing = state.groupThreads[event.payload.conversation_id];
+        if (existing === undefined) return {};
+        return {
+          groupThreads: {
+            ...state.groupThreads,
+            [event.payload.conversation_id]: {
+              ...existing,
+              lastEnded: { reason: event.payload.reason },
+            },
+          },
+        };
+      });
+      return;
     case 'chat.notice':
       // The red line (0.13.0, owner ruling 2026-07-11): a hardcoded engine
       // notice — e.g. a startscene fire that exhausted its retry ceiling and
@@ -646,6 +726,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
   updateJobError: null,
   pluginRejections: [],
   chatThreads: {},
+  groupThreads: {},
   subwikiBySublocation: {},
   stubNames: {},
 

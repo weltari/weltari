@@ -51,8 +51,15 @@
  * rides one transaction with the hardcoded cache.appended absence entry);
  * chat.notice event (the red-line rollback notice after a critical tool
  * chain exhausts its retry ceiling).
+ * 0.14.0 (M6 part 4, Rev 4 §8): group chats — chat.group_started /
+ * chat.group_message_committed / chat.group_ended events (user-started only;
+ * the Group-chat Narrator routes turns and NEVER narrates — router decisions
+ * are log-only; a range close enqueues exactly one reflect_chat per member);
+ * start-group-chat / send-group-message / exit-group-chat commands. The
+ * proactive-DM occurrence_iso is a GAME-time boundary from 0.13.0 on (owner
+ * ruling 2026-07-10/11: fires only when the world clock advances).
  */
-export const PROTOCOL_VERSION = '0.13.0';
+export const PROTOCOL_VERSION = '0.14.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -60,6 +67,9 @@ export {
   CharacterJoinedEventSchema,
   ChatEndedEventSchema,
   ChatMessageCommittedEventSchema,
+  ChatGroupEndedEventSchema,
+  ChatGroupMessageCommittedEventSchema,
+  ChatGroupStartedEventSchema,
   ChatNoticeEventSchema,
   ChatOutreachRecordedEventSchema,
   ChatThreadFrozenEventSchema,
@@ -134,6 +144,8 @@ export {
   EndSceneCommandSchema,
   ExitChatAcceptedSchema,
   ExitChatCommandSchema,
+  ExitGroupChatAcceptedSchema,
+  ExitGroupChatCommandSchema,
   ExploreAcceptedSchema,
   ExploreCommandSchema,
   InterruptTurnAcceptedSchema,
@@ -148,6 +160,10 @@ export {
   PaintRegionCommandSchema,
   SendChatMessageAcceptedSchema,
   SendChatMessageCommandSchema,
+  SendGroupMessageAcceptedSchema,
+  SendGroupMessageCommandSchema,
+  StartGroupChatAcceptedSchema,
+  StartGroupChatCommandSchema,
   StartSceneFromChatAcceptedSchema,
   StartSceneFromChatCommandSchema,
   StartTurnAcceptedSchema,
@@ -161,6 +177,8 @@ export {
   type EndSceneCommand,
   type ExitChatAccepted,
   type ExitChatCommand,
+  type ExitGroupChatAccepted,
+  type ExitGroupChatCommand,
   type ExploreAccepted,
   type ExploreCommand,
   type InterruptTurnAccepted,
@@ -175,6 +193,10 @@ export {
   type PaintRegionCommand,
   type SendChatMessageAccepted,
   type SendChatMessageCommand,
+  type SendGroupMessageAccepted,
+  type SendGroupMessageCommand,
+  type StartGroupChatAccepted,
+  type StartGroupChatCommand,
   type StartSceneFromChatAccepted,
   type StartSceneFromChatCommand,
   type StartTurnAccepted,

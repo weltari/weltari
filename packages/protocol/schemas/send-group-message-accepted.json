@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "accepted": {
+      "type": "boolean",
+      "const": true
+    },
+    "conversation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "message_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "routing": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "accepted",
+    "conversation_id",
+    "message_id",
+    "routing"
+  ],
+  "additionalProperties": false
+}

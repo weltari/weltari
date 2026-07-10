@@ -1687,6 +1687,12 @@ body {
   padding: 0.4rem 0;
 }
 
+/* Group speaker label (0.14.0): names the member inside its bubble. */
+.wl-chat-speaker {
+  color: var(--wl-text-dim);
+  font-size: var(--wl-font-size-ui);
+}
+
 /* The hardcoded engine notice (chat.notice, 0.13.0): a small red system
    line — never a character bubble (owner ruling 2026-07-11). */
 .wl-chat-bubble[data-sender='notice'] {
