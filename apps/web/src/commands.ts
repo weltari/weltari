@@ -191,22 +191,79 @@ export async function postStartSceneFromChat(
   return parsed.success ? { sceneId: parsed.data.scene_id } : null;
 }
 
+interface OpenSceneAttempt {
+  sceneId: string | null;
+  /** The refusal code on a 4xx (e.g. blocked_on_pending_jobs), else null. */
+  refusal: string | null;
+}
+
+async function tryOpenScene(
+  title: string,
+  options: OpenSceneOptions,
+): Promise<OpenSceneAttempt> {
+  const sceneId = `s-${crypto.randomUUID().slice(0, 8)}`;
+  const response = await fetch('/v1/commands/open-scene', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      world_id: WORLD_ID,
+      actor_id: ACTOR_ID,
+      scene_id: sceneId,
+      title,
+      participants: options.participants ?? ['char:elias'],
+      ...(options.sublocationId === undefined
+        ? {}
+        : { sublocation_id: options.sublocationId }),
+    }),
+  });
+  const raw: unknown = await response.json();
+  if (response.ok) {
+    return OpenSceneAcceptedSchema.safeParse(raw).success
+      ? { sceneId, refusal: null }
+      : { sceneId: null, refusal: null };
+  }
+  const rejected = CommandRejectedSchema.safeParse(raw);
+  return {
+    sceneId: null,
+    refusal: rejected.success ? rejected.data.error : null,
+  };
+}
+
+/** How long the cover may wait out the scene-end fan-out (Brief §4 scoped
+ * blocking): attempts × delay stays well inside the 30 s cover backstop. */
+const OPEN_RETRY_ATTEMPTS = 20;
+
+export interface OpenSceneTransition {
+  /** A scene still open when the new one was requested: it is ended FIRST.
+   * Abandoning it open would hold its characters `in_scene` forever — the
+   * presence rule would never let them answer a DM again (Rev 4 §8). */
+  endSceneId?: string;
+  /** Test seam for the retry pacing. */
+  retryDelayMs?: number;
+}
+
 /** Returns the client-generated scene id on 202 (the §1.14 cover flow
- * starts the opening-narration turn against it), null on refusal. */
+ * starts the opening-narration turn against it), null on refusal. Ends the
+ * still-open scene first, then retries while that end's reflection /
+ * World-Agent fan-out blocks the open — the cover animates the wait. */
 export async function postOpenScene(
   title: string,
   options: OpenSceneOptions = {},
+  transition: OpenSceneTransition = {},
 ): Promise<string | null> {
-  const sceneId = `s-${crypto.randomUUID().slice(0, 8)}`;
-  const raw = await post('/v1/commands/open-scene', {
-    world_id: WORLD_ID,
-    actor_id: ACTOR_ID,
-    scene_id: sceneId,
-    title,
-    participants: options.participants ?? ['char:elias'],
-    ...(options.sublocationId === undefined
-      ? {}
-      : { sublocation_id: options.sublocationId }),
-  });
-  return OpenSceneAcceptedSchema.safeParse(raw).success ? sceneId : null;
+  const delayMs = transition.retryDelayMs ?? 500;
+  if (transition.endSceneId !== undefined) {
+    // A refused end (already ended, unknown id) changes nothing: the open
+    // below is the gate; truth is the stream either way.
+    await postEndScene(transition.endSceneId);
+  }
+  for (let attempt = 0; ; attempt++) {
+    const result = await tryOpenScene(title, options);
+    if (result.sceneId !== null) return result.sceneId;
+    const blocked = result.refusal === 'blocked_on_pending_jobs';
+    if (!blocked || attempt >= OPEN_RETRY_ATTEMPTS - 1) return null;
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
+  }
 }
