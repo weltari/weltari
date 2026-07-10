@@ -1751,3 +1751,105 @@ body {
   opacity: 0.45;
   cursor: default;
 }
+
+/* ---- The Wiki page (UI Spec §2.6, M6 part 3): list-left / entry-right,
+   the Chats layout family — tokens only, no new colors. ---- */
+
+.wl-wiki-page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--wl-bg);
+  color: var(--wl-text);
+}
+
+.wl-wiki-empty {
+  margin: auto;
+  max-width: 26rem;
+  text-align: center;
+  color: var(--wl-text-dim);
+}
+
+.wl-wiki-list {
+  width: 17rem;
+  flex-shrink: 0;
+  border-right: 1px solid var(--wl-border);
+  padding: 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow-y: auto;
+}
+
+.wl-wiki-list-title {
+  margin: 0 0 0.5rem 0.4rem;
+  font-size: 1.1rem;
+  color: var(--wl-text);
+}
+
+.wl-wiki-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: var(--wl-radius);
+  background: transparent;
+  color: var(--wl-text);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.wl-wiki-row:hover {
+  background: var(--wl-panel);
+}
+
+.wl-wiki-row[data-selected='true'] {
+  background: var(--wl-panel);
+  border-color: var(--wl-border);
+}
+
+.wl-wiki-row-name {
+  font-weight: 600;
+}
+
+.wl-wiki-row-preview {
+  color: var(--wl-text-dim);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wl-wiki-entry {
+  flex: 1;
+  min-width: 0;
+  padding: 1.4rem 1.8rem;
+  overflow-y: auto;
+}
+
+.wl-wiki-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  border-bottom: 1px solid var(--wl-border);
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.wl-wiki-entry-head h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.wl-wiki-provenance {
+  color: var(--wl-text-dim);
+  font-size: 0.85rem;
+}
+
+.wl-wiki-entry-text {
+  max-width: 46rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}

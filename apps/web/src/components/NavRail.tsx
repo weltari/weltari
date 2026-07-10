@@ -119,9 +119,9 @@ const DESTINATIONS: readonly Destination[] = [
     icon: <IconChat />,
   },
   {
-    route: null,
+    route: '/wiki',
     label: 'Wiki',
-    disabledReason: 'Wiki arrives with Milestone 5 (wiki system).',
+    disabledReason: null,
     icon: <IconBook />,
   },
   {
