@@ -191,6 +191,10 @@ function applyOne(
         sceneEnd: null,
         sceneEndedLive: false,
         cast: [],
+        // A fresh scene starts every character at the default pose — the
+        // previous scene's switches must not leak across (they'd survive
+        // both live navigation and a full replay).
+        artByCharacter: {},
         history: state.history.some(
           (h) => h.scene_id === event.payload.scene_id,
         )
@@ -306,12 +310,19 @@ function applyOne(
       }));
       return;
     case 'art.switched':
-      set((state) => ({
-        artByCharacter: {
-          ...state.artByCharacter,
-          [event.payload.character_id]: event.payload.art_id,
-        },
-      }));
+      // Poses are scene-scoped (the switch_art gate runs against the scene's
+      // roster): only the current scene's switches project — a replayed
+      // switch from an earlier scene must not restyle the line-up.
+      set((state) =>
+        event.payload.scene_id === state.sceneId
+          ? {
+              artByCharacter: {
+                ...state.artByCharacter,
+                [event.payload.character_id]: event.payload.art_id,
+              },
+            }
+          : {},
+      );
       return;
     case 'world.time_advanced':
       set((state) => ({
