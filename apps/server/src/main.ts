@@ -30,6 +30,7 @@ import {
   createInvitationExpiry,
   pendingInvitationWorlds,
 } from './engine/invitation.js';
+import { OUTREACH_FREEZE_CAP } from './engine/outreach.js';
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { squareOf } from './engine/sublocations.js';
 import { createTurnEngine } from './engine/scene-turn.js';
@@ -56,7 +57,7 @@ import {
 import { createRunner } from './ledger/runner.js';
 import {
   createScheduler,
-  nextIntervalOccurrenceIso,
+  intervalOccurrencesBetween,
 } from './ledger/scheduler.js';
 import {
   createPaintRegionCommand,
@@ -556,30 +557,6 @@ if (updateNotifyEnabled) {
 
 const runnerInterval = setInterval(() => {
   updateScheduler?.tick();
-  // Proactive CRON DMs (M6 part 3, Rev 4 §8): keep the NEXT epoch-aligned
-  // cadence boundary enqueued as an idempotent ledger row (croner can't do
-  // fractional-minute cadences; the key dedupes across ticks and restarts —
-  // startup IS recovery). run_at holds it until the boundary. Owner default:
-  // disabled (0) — enabling proactive sends is a deliberate env choice.
-  if (env.cronDmMinutes > 0) {
-    const occurrenceIso = nextIntervalOccurrenceIso(
-      Date.now(),
-      env.cronDmMinutes,
-    );
-    storage.ledger.enqueue({
-      idempotency_key: `proactive_dm:${FIXTURE_WORLD_ID}:${occurrenceIso}`,
-      world_id: FIXTURE_WORLD_ID,
-      type: 'proactive_dm',
-      payload: {
-        occurrence_iso: occurrenceIso,
-        cadence_minutes: env.cronDmMinutes,
-      },
-      run_at: occurrenceIso,
-      // Fires serialize per world: two due occurrences must SEE each other's
-      // outreach (the backoff re-reads the log), never double-send in a race.
-      serial_group: `proactive_dm:${FIXTURE_WORLD_ID}`,
-    });
-  }
   catchAndLog(runner.tick(), logger, 'runner.tick');
 }, 1000);
 
@@ -672,6 +649,7 @@ const app = createHttpServer({
   endScene: (command) => lifecycle.endScene(command),
   openScene: (command) => lifecycle.openScene(command),
   advanceTime: (command) => {
+    const fromGameTime = worldClock.currentTime(command.world_id);
     const advanced = worldClock.advanceTime(command);
     // The lazy expiry judgment (Rev 4 §7): a skip that crossed a pending
     // invitation's game-time deadline expires it now — the character is
@@ -682,6 +660,34 @@ const app = createHttpServer({
         logger,
         'invitation.expire.advance',
       );
+      // Proactive CRON DMs ride the SAME advance (M6 part 4, owner ruling
+      // 2026-07-10/11: fires only when the world clock moves — a paused
+      // world sends nothing). Epoch-aligned game-time boundaries in
+      // (from, to], idempotent per occurrence; only the NEWEST few enqueue —
+      // the 3-unanswered freeze makes more per skip pure spend.
+      if (env.cronDmGameMinutes > 0) {
+        const due = intervalOccurrencesBetween(
+          fromGameTime,
+          advanced.value.worldTime,
+          env.cronDmGameMinutes,
+        ).slice(-OUTREACH_FREEZE_CAP);
+        for (const occurrenceIso of due) {
+          storage.ledger.enqueue({
+            idempotency_key: `proactive_dm:${command.world_id}:${occurrenceIso}`,
+            world_id: command.world_id,
+            type: 'proactive_dm',
+            payload: {
+              occurrence_iso: occurrenceIso,
+              cadence_minutes: env.cronDmGameMinutes,
+            },
+            // Fires serialize per world: two due occurrences must SEE each
+            // other's outreach (the backoff re-reads the log), never
+            // double-send in a race.
+            serial_group: `proactive_dm:${command.world_id}`,
+          });
+        }
+        if (due.length > 0) catchAndLog(drainLedger(), logger, 'ledger.drain');
+      }
     }
     return advanced;
   },

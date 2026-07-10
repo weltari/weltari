@@ -145,7 +145,7 @@ describe('proactive_dm job handler', () => {
     // No freeze at count 1; the chat call was chat-shaped.
     expect(events.some((e) => e.type === 'chat.thread_frozen')).toBe(false);
     expect(ctx.llmCalls[0]?.kind).toBe('chat');
-    expect(ctx.llmCalls[0]?.prompt).toContain('reaching out');
+    expect(ctx.llmCalls[0]?.prompt).toContain('reach out');
   });
 
   it('overlapping executions of ONE fire commit exactly one outreach (fused re-check)', async () => {
@@ -286,3 +286,103 @@ describe('proactive_dm job handler', () => {
     expect(ctx.storage.eventLog.readSince(0)).toHaveLength(0);
   });
 });
+
+describe('M6 part 4 additions (owner rulings 2026-07-11)', () => {
+  let storage: Storage | null = null;
+  afterEach(() => {
+    storage?.close();
+    storage = null;
+  });
+
+  function setup(): {
+    storage: Storage;
+    handler: ReturnType<typeof createProactiveDmHandler>;
+  } {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-proactive4-'));
+    const logger = quietLogger();
+    storage = openStorage({ dbPath: join(dir, 'w.sqlite') });
+    const sink = createEventSink(storage, new Bus(logger));
+    const handler = createProactiveDmHandler({
+      storage,
+      sink,
+      llm: createFakeLlmClient(),
+      profiles: [ELIAS],
+      actorId: 'user:owner',
+      logger,
+    });
+    return { storage, handler };
+  }
+
+  it('stay_silent declines the fire: nothing durable, the backoff untouched', async () => {
+    const ctx = setup();
+    // The scripted decline: the transcript carries !staysilent, so the fake
+    // returns the explicit stay_silent tool call.
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'chat.message_committed',
+      payload: {
+        conversation_id: CONVERSATION,
+        character_id: ELIAS.character_id,
+        sender: 'user',
+        text: 'quiet day !staysilent',
+        message_id: 'm-decline-seed',
+      },
+    });
+    // Close the range so the thread counts as quiet (eligibility).
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'chat.ended',
+      payload: {
+        conversation_id: CONVERSATION,
+        character_id: ELIAS.character_id,
+        reason: 'exit',
+        range_end_id: 1,
+      },
+    });
+
+    await ctx.handler(fire(OCCURRENCE));
+
+    const events = ctx.storage.eventLog.readSince(0);
+    expect(
+      events.filter(
+        (e) =>
+          e.type === 'chat.message_committed' &&
+          e.payload.sender === 'character',
+      ),
+    ).toHaveLength(0);
+    expect(outreachCount(ctx.storage)).toBe(0);
+  });
+
+  it('every pick busy (in a scene) leaves the occurrence quiet after the salted retries', async () => {
+    const ctx = setup();
+    // Elias is reserved by an open scene: all 5 salted picks land on him
+    // and every one is ineligible — the fire must no-op.
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'scene.started',
+      payload: { scene_id: 's-busy', title: 'Busy' },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'character.joined',
+      payload: {
+        scene_id: 's-busy',
+        character_id: ELIAS.character_id,
+        name: ELIAS.name,
+      },
+    });
+
+    await ctx.handler(fire(OCCURRENCE));
+    expect(outreachCount(ctx.storage)).toBe(0);
+  });
+});
+
+function outreachCount(target: Storage): number {
+  return target.eventLog
+    .readSince(0)
+    .filter((e) => e.type === 'chat.outreach_recorded').length;
+}

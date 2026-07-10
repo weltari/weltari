@@ -614,12 +614,11 @@ let pendingInvitationScene = null;
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
   rotatePort();
-  // The proactive cycle is the only one where the cadence is live — 0.02 min
-  // windows make a fire land within ~2.5 s; every other cycle runs with the
-  // owner default (disabled), so no stray outreach perturbs it.
-  const child = spawnServer(
-    point === 'mid_proactive_dm' ? { WELTARI_CRON_DM_MINUTES: '0.02' } : {},
-  );
+  // Proactive DMs ride the game clock since M6 part 4 (owner ruling
+  // 2026-07-10/11) — the default daily cadence stays on; fires only ever
+  // happen when a cycle advances time, and Elias is in_scene during those,
+  // so no stray outreach perturbs other cycles.
+  const child = spawnServer({});
   await waitForLine(child, 'weltari listening');
 
   // Resume check (criterion c/d): a reconnecting client gets every event it
@@ -1052,8 +1051,6 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       });
       if (exitRes.status !== 202) fail(`exit-chat returned ${exitRes.status}`);
       const sinceId = dbEventIdsAbove(0).at(-1) ?? 0;
-      // Attach the wait BEFORE freeing the character: the first eligible
-      // fire can land within one 1.2 s window of the scene end.
       const killAt = waitForLine(child, 'FAULT_POINT:mid_proactive_dm', 30000);
       // Free the character: the fire's eligibility needs presence available.
       const endRes = await post('/v1/commands/end-scene', {
@@ -1063,7 +1060,14 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       });
       if (endRes.status !== 202) fail(`end-scene returned ${endRes.status}`);
       needNewScene = true;
-      // The cadence fires on its own — no command drives it.
+      // The fire rides the world clock (M6 part 4): a one-day skip crosses
+      // a daily boundary and enqueues + drains the occurrence on the spot.
+      const advRes = await post('/v1/commands/advance-time', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        minutes: 1440,
+      });
+      if (advRes.status !== 202) fail(`advance-time returned ${advRes.status}`);
       await killAt;
       pendingProactive = sinceId;
       break;
