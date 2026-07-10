@@ -44,8 +44,15 @@
  * game_time) and chat.thread_frozen (the 3-unanswered hard cap as a durable
  * event — the gateway's future push hook; a user reply resets the counter by
  * construction).
+ * 0.13.0 (M6 part 4, Rev 4 §7, owner rulings 2026-07-10/11): invitation
+ * expiry — scene.started optional invitation (character-chosen game-time
+ * wait_hours + engine-stamped expires_at_game); scene.expired event (lazy
+ * judgment at clock advances/triggers; closes the scene, releases presence,
+ * rides one transaction with the hardcoded cache.appended absence entry);
+ * chat.notice event (the red-line rollback notice after a critical tool
+ * chain exhausts its retry ceiling).
  */
-export const PROTOCOL_VERSION = '0.12.0';
+export const PROTOCOL_VERSION = '0.13.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -53,6 +60,7 @@ export {
   CharacterJoinedEventSchema,
   ChatEndedEventSchema,
   ChatMessageCommittedEventSchema,
+  ChatNoticeEventSchema,
   ChatOutreachRecordedEventSchema,
   ChatThreadFrozenEventSchema,
   ReflectChatCommittedEventSchema,
@@ -71,6 +79,7 @@ export {
   PluginRejectedEventSchema,
   ReflectionCommittedEventSchema,
   SceneEndedEventSchema,
+  SceneExpiredEventSchema,
   SceneStartedEventSchema,
   SublocationChangedEventSchema,
   SublocationCreatedEventSchema,

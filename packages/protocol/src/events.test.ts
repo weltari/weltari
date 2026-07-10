@@ -980,3 +980,100 @@ describe('WeltariEventSchema', () => {
     expect(WeltariEventSchema.safeParse(extraKey).success).toBe(false);
   });
 });
+
+describe('invitation expiry family (0.13.0, Rev 4 §7)', () => {
+  it('accepts a scene.started with an invitation and rejects a malformed one', () => {
+    const withInvitation: unknown = {
+      ...envelope,
+      type: 'scene.started',
+      payload: {
+        scene_id: 's-chat-1',
+        title: 'Meeting: the shrine',
+        place_request: 'the shrine',
+        invitation: {
+          character_id: 'char:elias',
+          place: 'the shrine',
+          wait_hours: 6,
+          expires_at_game: '2000-01-01T18:00:00.000Z',
+        },
+      },
+    };
+    expect(WeltariEventSchema.safeParse(withInvitation).success).toBe(true);
+    for (const bad of [
+      { character_id: 'char:elias', place: 'the shrine', wait_hours: 0, expires_at_game: 'x' },
+      { character_id: 'char:elias', place: '', wait_hours: 6, expires_at_game: 'x' },
+      { character_id: 'char:elias', place: 'p', wait_hours: 6, expires_at_game: 'x', extra: 1 },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'scene.started',
+        payload: { scene_id: 's1', title: 't', invitation: bad },
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts scene.expired and rejects a payload missing its clock stamps', () => {
+    const expired: unknown = {
+      ...envelope,
+      type: 'scene.expired',
+      payload: {
+        scene_id: 's-chat-1',
+        character_id: 'char:elias',
+        place: 'the shrine',
+        expires_at_game: '2000-01-01T18:00:00.000Z',
+        game_time: '2000-01-02T06:00:00.000Z',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(expired).success).toBe(true);
+    const missingStamp: unknown = {
+      ...envelope,
+      type: 'scene.expired',
+      payload: {
+        scene_id: 's-chat-1',
+        character_id: 'char:elias',
+        place: 'the shrine',
+        expires_at_game: '2000-01-01T18:00:00.000Z',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(missingStamp).success).toBe(false);
+  });
+
+  it('accepts chat.notice and rejects oversized or LLM-shaped extras', () => {
+    const notice: unknown = {
+      ...envelope,
+      type: 'chat.notice',
+      payload: {
+        conversation_id: 'chat:user:owner:char:elias',
+        character_id: 'char:elias',
+        code: 'startscene_rejected',
+        text: 'Elias tried to open the meeting but the invitation could not be placed.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(notice).success).toBe(true);
+    for (const payload of [
+      {
+        conversation_id: 'c1',
+        character_id: 'char:elias',
+        code: 'startscene_rejected',
+        text: 'x'.repeat(301),
+      },
+      {
+        conversation_id: 'c1',
+        character_id: 'char:elias',
+        code: '',
+        text: 'why',
+      },
+      {
+        conversation_id: 'c1',
+        character_id: 'char:elias',
+        code: 'c',
+        text: 'why',
+        severity: 'red',
+      },
+    ]) {
+      const event: unknown = { ...envelope, type: 'chat.notice', payload };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+});
