@@ -23,7 +23,10 @@ export type FaultPoint =
   | 'mid_map_click'
   /** M6 part 2: inside the reflect_chat job — the reflection generated,
    * reflect_chat.committed not yet appended. */
-  | 'mid_reflect_chat';
+  | 'mid_reflect_chat'
+  /** M6 part 3: inside the proactive_dm job — the DM generated, the
+   * message + outreach (+ freeze) transaction not yet appended. */
+  | 'mid_proactive_dm';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;

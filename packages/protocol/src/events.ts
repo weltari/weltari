@@ -241,6 +241,59 @@ export const ReflectChatCommittedEventSchema = z.strictObject({
 });
 
 /**
+ * A proactive (CRON) DM became durable (M6 part 3, Rev 4 §8): eager
+ * generation — the push IS the message; the content committed at fire time.
+ * Appended atomically WITH the delivered chat.message_committed + its
+ * cache.appended (and, on the third unanswered, chat.thread_frozen). Natural
+ * key: (world, occurrence_iso) — one scheduler fire commits at most one
+ * outreach ever, kill-retry safe. Stamped with BOTH clocks (owner ruling
+ * 2026-07-10): occurrence_iso is the real-time fire that drives V1;
+ * game_time records the fictional clock so V2's future-event list can switch
+ * trigger bases with nothing to migrate. Emitted by: the proactive_dm job
+ * handler. Consumed by: the freeze projection, verify-consistency, the
+ * M6-part-4 gateway.
+ */
+export const ChatOutreachRecordedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('chat.outreach_recorded'),
+  payload: z.strictObject({
+    conversation_id: z.string().min(1),
+    character_id: z.string().min(1),
+    /** The real-time scheduler occurrence that fired this outreach (the
+     * natural-key component alongside world_id). */
+    occurrence_iso: z.string().min(1),
+    /** The fictional world clock at fire time (V2 bridge; unused in V1). */
+    game_time: z.string().min(1),
+    /** The chat.message_committed this outreach delivered. */
+    message_id: z.string().min(1).max(100),
+    /** Unanswered outreaches on this thread including this one (1–3). */
+    unanswered_count: z.int().positive(),
+  }),
+});
+
+/**
+ * The thread froze (M6 part 3, Rev 4 §8/§13 hard cap): the third unanswered
+ * proactive DM — no further proactive sends until the user replies. The
+ * counter itself is a projection (outreaches after the last user line), so a
+ * user reply resets it by construction; this event exists as the durable
+ * hook (owner ruling 2026-07-10): the M6-part-4 gateway pushes its hardcoded
+ * "waiting for you to reply" notice off it, while Weltari Chat shows nothing
+ * (the unread bubble suffices). Appended atomically WITH the tripping
+ * outreach. Natural key: (conversation_id, message_id).
+ */
+export const ChatThreadFrozenEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('chat.thread_frozen'),
+  payload: z.strictObject({
+    conversation_id: z.string().min(1),
+    character_id: z.string().min(1),
+    /** The outreach message that tripped the cap. */
+    message_id: z.string().min(1).max(100),
+    unanswered_count: z.int().positive(),
+  }),
+});
+
+/**
  * One CACHE entry became durable (M6 part 2, Rev 4 §11 first slice): the
  * character's mandatory 1–2 line recap of what just happened to it. The CACHE
  * store is a PROJECTION of these events (latest-per-origin is a view, never a
@@ -681,6 +734,8 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   ChatMessageCommittedEventSchema,
   ChatEndedEventSchema,
   ReflectChatCommittedEventSchema,
+  ChatOutreachRecordedEventSchema,
+  ChatThreadFrozenEventSchema,
   CacheAppendedEventSchema,
   SubwikiUpdatedEventSchema,
   SublocationChangedEventSchema,

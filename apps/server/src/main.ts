@@ -39,6 +39,7 @@ import { createMapClickHandler } from './ledger/handlers/map-click.js';
 import { createMapEditHandler } from './ledger/handlers/map-edit.js';
 import { createMaterializeHandler } from './ledger/handlers/materialize.js';
 import { createPainterHandler } from './ledger/handlers/painter.js';
+import { createProactiveDmHandler } from './ledger/handlers/proactive-dm.js';
 import { createReflectChatHandler } from './ledger/handlers/reflect-chat.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
 import { createUpdateApplyHandler } from './ledger/handlers/update-apply.js';
@@ -49,7 +50,10 @@ import {
   createWorldCronLlmHandler,
 } from './ledger/handlers/world-cron.js';
 import { createRunner } from './ledger/runner.js';
-import { createScheduler } from './ledger/scheduler.js';
+import {
+  createScheduler,
+  nextIntervalOccurrenceIso,
+} from './ledger/scheduler.js';
 import {
   createPaintRegionCommand,
   enqueueSquarePaint,
@@ -419,6 +423,15 @@ const runner = createRunner({
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
+    proactive_dm: createProactiveDmHandler({
+      storage,
+      sink,
+      llm,
+      profiles: [elias],
+      actorId: 'user:owner',
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
     world_agent: createWorldAgentHandler({
       storage,
       sink,
@@ -538,6 +551,30 @@ if (updateNotifyEnabled) {
 
 const runnerInterval = setInterval(() => {
   updateScheduler?.tick();
+  // Proactive CRON DMs (M6 part 3, Rev 4 §8): keep the NEXT epoch-aligned
+  // cadence boundary enqueued as an idempotent ledger row (croner can't do
+  // fractional-minute cadences; the key dedupes across ticks and restarts —
+  // startup IS recovery). run_at holds it until the boundary. Owner default:
+  // disabled (0) — enabling proactive sends is a deliberate env choice.
+  if (env.cronDmMinutes > 0) {
+    const occurrenceIso = nextIntervalOccurrenceIso(
+      Date.now(),
+      env.cronDmMinutes,
+    );
+    storage.ledger.enqueue({
+      idempotency_key: `proactive_dm:${FIXTURE_WORLD_ID}:${occurrenceIso}`,
+      world_id: FIXTURE_WORLD_ID,
+      type: 'proactive_dm',
+      payload: {
+        occurrence_iso: occurrenceIso,
+        cadence_minutes: env.cronDmMinutes,
+      },
+      run_at: occurrenceIso,
+      // Fires serialize per world: two due occurrences must SEE each other's
+      // outreach (the backoff re-reads the log), never double-send in a race.
+      serial_group: `proactive_dm:${FIXTURE_WORLD_ID}`,
+    });
+  }
   catchAndLog(runner.tick(), logger, 'runner.tick');
 }, 1000);
 
