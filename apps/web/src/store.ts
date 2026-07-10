@@ -162,6 +162,13 @@ export interface SceneStore {
   pluginRejections: PluginRejection[];
   /** character_id → DM thread (Weltari Chat, 0.11.0) — replay-rebuilt. */
   chatThreads: Record<string, ChatThread>;
+  /** sublocation_id → its wiki entry (subwiki.updated projection, M6 part
+   * 3): latest per sublocation WINS — the Wiki page's read-only source,
+   * provenance = the scene whose end-pass wrote it (UI Spec §2.6). */
+  subwikiBySublocation: Record<string, { entry: string; sceneId: string }>;
+  /** Narrator-stub names (sublocation.stub_created) — interiors never
+   * materialize, so the Wiki page resolves their names here. */
+  stubNames: Record<string, string>;
 
   // ---- reducer actions: called ONLY from stream.ts ----
   setConnected(connected: boolean): void;
@@ -458,8 +465,16 @@ function applyOne(
       return;
     }
     case 'sublocation.stub_created':
-      // Stubs are enterable through scenes only (Rev 4 §14) — no client
-      // projection: the map ignores them and Hang around never lands on one.
+      // Stubs are enterable through scenes only (Rev 4 §14) — the map
+      // ignores them and Hang around never lands on one. Their NAME still
+      // projects (M6 part 3): the Wiki page must never show a raw stub id
+      // for an interior that will never materialize.
+      set((state) => ({
+        stubNames: {
+          ...state.stubNames,
+          [event.payload.sublocation_id]: event.payload.name,
+        },
+      }));
       return;
     case 'chat.message_committed':
       set((state) => {
@@ -510,6 +525,19 @@ function applyOne(
     // (map refresh, feed, job status UI). map_edit.requested is the map
     // plugin's lock overlay — it reads the stream directly. reflect_chat
     // and CACHE entries are log-only trail surfaces (dev mode, §2.8).
+    case 'subwiki.updated':
+      // The Wiki projection (M6 part 3, UI Spec §2.6): latest entry per
+      // sublocation wins; full history stays in the log (auditable).
+      set((state) => ({
+        subwikiBySublocation: {
+          ...state.subwikiBySublocation,
+          [event.payload.sublocation_id]: {
+            entry: event.payload.entry,
+            sceneId: event.payload.scene_id,
+          },
+        },
+      }));
+      return;
     // The proactive DM itself arrives as chat.message_committed above; the
     // outreach record is bookkeeping, and a frozen thread shows NOTHING in
     // Weltari Chat (owner ruling 2026-07-10: the unread bubble suffices —
@@ -519,7 +547,6 @@ function applyOne(
     case 'map_edit.requested':
     case 'reflect_chat.committed':
     case 'cache.appended':
-    case 'subwiki.updated': // the Wiki surface arrives with M6 part 3
     case 'chat.outreach_recorded':
     case 'chat.thread_frozen':
       return;
@@ -558,6 +585,8 @@ export const useSceneStore = create<SceneStore>((set) => ({
   updateJobError: null,
   pluginRejections: [],
   chatThreads: {},
+  subwikiBySublocation: {},
+  stubNames: {},
 
   setConnected(connected: boolean): void {
     set({ connected });

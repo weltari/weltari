@@ -17,6 +17,7 @@ import { NavRail } from './components/NavRail.js';
 import { type CoverState } from './components/SceneCover.js';
 import { ChatPage } from './pages/ChatPage.js';
 import { ConfigPage } from './pages/ConfigPage.js';
+import { WikiPage } from './pages/WikiPage.js';
 import { GamedayPage } from './pages/GamedayPage.js';
 import { MapPage } from './pages/MapPage.js';
 import { ScenePage } from './pages/ScenePage.js';
@@ -182,6 +183,8 @@ export function App(): React.JSX.Element {
               navigate('/');
             }}
           />
+        ) : route === '/wiki' ? (
+          <WikiPage />
         ) : route === '/config' ? (
           <ConfigPage plugins={plugins} />
         ) : (

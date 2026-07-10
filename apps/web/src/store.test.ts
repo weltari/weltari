@@ -39,6 +39,53 @@ function apply(event: WeltariEvent): void {
   useSceneStore.getState().applyEvent(event);
 }
 
+function subwikiUpdated(
+  sublocationId: string,
+  sceneId: string,
+  entry: string,
+): WeltariEvent {
+  return {
+    id: nextId++,
+    world_id: 'w1',
+    actor_id: 'system:world_agent',
+    ts: TS,
+    type: 'subwiki.updated',
+    payload: { sublocation_id: sublocationId, scene_id: sceneId, entry },
+  };
+}
+
+describe('subwiki.updated projection (the Wiki page source, M6 part 3)', () => {
+  it('latest entry per sublocation wins; provenance rides along', () => {
+    apply(subwikiUpdated('subloc:stub-camp', 's-old', 'Kilns smolder.'));
+    apply(subwikiUpdated('subloc:stub-camp', 's-new', 'The kilns are cold.'));
+    apply(subwikiUpdated('subloc:cellar', 's-old', 'Casks float upright.'));
+    expect(useSceneStore.getState().subwikiBySublocation).toMatchObject({
+      'subloc:stub-camp': { entry: 'The kilns are cold.', sceneId: 's-new' },
+      'subloc:cellar': { entry: 'Casks float upright.', sceneId: 's-old' },
+    });
+  });
+
+  it('stub names project so the Wiki never shows a raw id for an interior', () => {
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: TS,
+      type: 'sublocation.stub_created',
+      payload: {
+        scene_id: 's-k1',
+        sublocation_id: 'subloc:stub-the-inn-kitchen',
+        name: 'the inn kitchen',
+        description: 'Copper pots over a low fire.',
+        parent_id: 'subloc:common_room',
+      },
+    });
+    expect(useSceneStore.getState().stubNames).toMatchObject({
+      'subloc:stub-the-inn-kitchen': 'the inn kitchen',
+    });
+  });
+});
+
 describe('art.switched projection is scene-scoped', () => {
   it('a switch in the current scene projects', () => {
     apply(sceneStarted('s-art-1'));
