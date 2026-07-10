@@ -18,11 +18,12 @@ import type {
 } from '@weltari/protocol';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
-import type { EventBus } from '../http/bus.js';
+import type { DevBus, EventBus } from '../http/bus.js';
 import { parseChatToolCall, type StartSceneToolInput } from '../llm/tools.js';
 import type { LlmClient } from '../llm/types.js';
 import type { Storage } from '../storage/db.js';
 import { cacheRecapText, capCacheLine, latestPerOrigin } from './cache.js';
+import { runSessionquery, runWikiquery } from './chat-queries.js';
 import {
   assembleContext,
   type CharacterProfile,
@@ -167,6 +168,9 @@ export interface ChatEngineOptions {
   bridgeRetryDelayMs?: number;
   /** Drain the ledger now — an enqueued reflect_chat starts on the spot. */
   kickRunner?: () => void;
+  /** The dev-mode trail (C11): mid-call queries leave dev.tool_call frames
+   * exactly like the narrator's query_sublocations does. */
+  devBus?: DevBus;
 }
 
 /** How long the bridge may wait out the scene-end fan-out — attempts × delay
@@ -391,13 +395,45 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
             ...(recap === '' ? {} : { cache_recap: recap }),
           },
         );
+        // The query escalation (M6 part 3, Rev 4 §11): wikiquery +
+        // sessionquery run mid-call through the proven queries seam — the
+        // instant recap stays the hot path; specifics escalate on demand.
+        // Each execution leaves a dev.tool_call frame (C11).
+        const queryOf = (
+          tool: 'wikiquery' | 'sessionquery',
+          run: (input: unknown) => string,
+        ): ((input: unknown) => string) => {
+          return (input: unknown): string => {
+            options.devBus?.publish({
+              type: 'dev.tool_call',
+              turn_id: conversationId,
+              tool,
+              input_json: JSON.stringify(input),
+            });
+            return run(input);
+          };
+        };
         const result = await llm.streamCall({
           kind: 'chat',
           characterId: profile.character_id,
           system: context.stablePrefix,
-          prompt: `${context.dynamicTail}\n\n## Instruction\nReply as ${profile.name} to the last User message: a short, in-character text message (1-3 sentences, first person, no narration). This is a private chat outside any scene — you cannot change the world from here. Follow your Texting skill: if meeting in person is on the table, gather what is missing (the place above all), and once the place is agreed call the startscene tool yourself in this reply. After writing your reply, call the cache tool with a private 1-2 line recap of this exchange.`,
+          prompt: `${context.dynamicTail}\n\n## Instruction\nReply as ${profile.name} to the last User message: a short, in-character text message (1-3 sentences, first person, no narration). This is a private chat outside any scene — you cannot change the world from here. Follow your Texting skill: if meeting in person is on the table, gather what is missing (the place above all), and once the place is agreed call the startscene tool yourself in this reply. When the User asks about a place or something specific that happened, use wikiquery/sessionquery to check before answering. After writing your reply, call the cache tool with a private 1-2 line recap of this exchange.`,
           onTextDelta: (): void => undefined, // chat replies do not stream (V1)
           toolset: 'chat',
+          queries: {
+            wikiquery: queryOf('wikiquery', (input) =>
+              runWikiquery(storage, command.world_id, logger, input),
+            ),
+            sessionquery: queryOf('sessionquery', (input) =>
+              runSessionquery(
+                storage,
+                command.world_id,
+                profile.character_id,
+                logger,
+                input,
+              ),
+            ),
+          },
         });
         if (!result.ok) {
           logger.error(

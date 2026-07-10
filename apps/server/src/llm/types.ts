@@ -48,7 +48,12 @@ export interface LlmCall {
    * and answers malformed input with an error string the model can react to.
    */
   queries?: {
-    query_sublocations: (input: unknown) => string;
+    /** Narrator toolset: the sublocation lookup (M6 part 1). */
+    query_sublocations?: (input: unknown) => string;
+    /** Chat toolset (M6 part 3, Rev 4 §11): the wiki read. */
+    wikiquery?: (input: unknown) => string;
+    /** Chat toolset (M6 part 3): scene-query — participation-gated. */
+    sessionquery?: (input: unknown) => string;
   };
   /**
    * Engine-owned gate executor (M6 part 2). When offered, the client runs

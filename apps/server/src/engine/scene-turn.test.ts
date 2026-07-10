@@ -648,7 +648,7 @@ describe('narrator tool pipeline (B6 two gates)', () => {
         if (
           call.kind !== 'narrator' ||
           call.gate === undefined ||
-          call.queries === undefined
+          call.queries?.query_sublocations === undefined
         ) {
           return fake.streamCall(call);
         }

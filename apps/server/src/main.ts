@@ -259,6 +259,7 @@ const chatEngine = createChatEngine({
   kickRunner: (): void => {
     catchAndLog(drainLedger(), logger, 'ledger.drain');
   },
+  devBus,
 });
 
 async function startTurn(
