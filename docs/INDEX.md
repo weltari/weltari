@@ -7,7 +7,7 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [handover.md](handover.md) — for the next AI agent: state at handover, the working contract, how to continue from the Week 11 kickoff.
 - [project-overview.md](project-overview.md) — for humans: what the app is, where it stands, what's left, how to run and test it.
 - [code-tour/](code-tour/README.md) — plain-language tour of every source module, with a suggested reading order.
-- [kickoffs/](kickoffs/) — the historical weekly kickoff prompts (weeks 1–10); the CURRENT week's prompt lives at the repo root.
+- [kickoffs/](kickoffs/) — the historical weekly kickoff prompts (weeks 1–11 + debug sessions); the CURRENT week's prompt lives at the repo root.
 
 ## Module wiki (grows with the code, same-commit rule)
 
@@ -38,4 +38,5 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [week8-results.md](week8-results.md) — Milestone 5 part-2 results (Flow A write into / Flow B read out of the map, sharp-feather + edit-model finds, all criteria PASS at $0.93).
 - [week9-results.md](week9-results.md) — Milestone 6 part-1 results (in-scene creation loop, mid-call query seam on real provider, all criteria PASS at $0.33).
 - [week10-results.md](week10-results.md) — Milestone 6 part-2 results (Weltari Chat part one: DM core, presence, reflect_chat, startscene bridge, subwiki pass — all criteria PASS at $0.19).
+- [week11-results.md](week11-results.md) — Milestone 6 part-3 results (Weltari Chat part two: character-led startscene, proactive CRON DMs + freeze, query escalation, the Wiki page — all criteria PASS at $0.03).
 - [dependencies.md](dependencies.md) — the dependency ledger (one `##` heading per package; CI keys on headings).
