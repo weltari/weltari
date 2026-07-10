@@ -124,6 +124,12 @@ describe('GET /* (the SPA wildcard route)', () => {
         Promise.resolve(
           err(new OperationalError('unknown_character', 'test stub')),
         ),
+      startGroupChat: () =>
+        err(new OperationalError('unknown_character', 'test stub')),
+      sendGroupMessage: () =>
+        err(new OperationalError('unknown_group', 'test stub')),
+      exitGroupChat: () =>
+        err(new OperationalError('unknown_group', 'test stub')),
       ...(resolveStatic === undefined ? {} : { resolveStatic }),
     });
     return app;

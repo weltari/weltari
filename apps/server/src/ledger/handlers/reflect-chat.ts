@@ -35,22 +35,36 @@ export interface ReflectChatHandlerOptions {
 }
 
 /** The closed range's transcript: this conversation's messages up to and
- * including the range end (the previous range's lines age out of the slice). */
+ * including the range end (the previous range's lines age out of the slice).
+ * Covers BOTH the DM shape and the group shape (M6 part 4): group lines are
+ * labeled with each speaking member's name. */
 function rangeTranscript(
   storage: Storage,
   conversationId: string,
   rangeEndId: number,
   characterName: string,
+  nameOf: (characterId: string) => string,
 ): TurnLine[] {
   const lines: TurnLine[] = [];
   for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (event.id > rangeEndId) continue;
     if (
       event.type === 'chat.message_committed' &&
-      event.payload.conversation_id === conversationId &&
-      event.id <= rangeEndId
+      event.payload.conversation_id === conversationId
     ) {
       lines.push({
         speaker: event.payload.sender === 'user' ? 'User' : characterName,
+        text: event.payload.text,
+      });
+    } else if (
+      event.type === 'chat.group_message_committed' &&
+      event.payload.conversation_id === conversationId
+    ) {
+      lines.push({
+        speaker:
+          event.payload.sender === 'user'
+            ? 'User'
+            : nameOf(event.payload.character_id ?? ''),
         text: event.payload.text,
       });
     }
@@ -83,6 +97,9 @@ export function createReflectChatHandler(
       );
     }
 
+    // The character id is part of the key (M6 part 4): a GROUP range closes
+    // with one reflect pass PER member over the same range — each must
+    // commit exactly once without blocking its siblings.
     const alreadyCommitted = (): boolean =>
       storage.eventLog
         .readSince(0, 100000)
@@ -90,7 +107,8 @@ export function createReflectChatHandler(
           (e) =>
             e.type === 'reflect_chat.committed' &&
             e.payload.conversation_id === conversation_id &&
-            e.payload.range_end_id === range_end_id,
+            e.payload.range_end_id === range_end_id &&
+            e.payload.character_id === character_id,
         );
 
     // Idempotency gate: the retry after a kill -9 must not reflect twice.
@@ -111,6 +129,7 @@ export function createReflectChatHandler(
         conversation_id,
         range_end_id,
         profile.name,
+        (id) => profiles.find((p) => p.character_id === id)?.name ?? 'Someone',
       ),
       wiki: [],
     });

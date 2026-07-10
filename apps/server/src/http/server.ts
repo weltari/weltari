@@ -32,6 +32,12 @@ import {
   PluginListSchema,
   PROTOCOL_VERSION,
   SendChatMessageAcceptedSchema,
+  SendGroupMessageAcceptedSchema,
+  SendGroupMessageCommandSchema,
+  StartGroupChatAcceptedSchema,
+  StartGroupChatCommandSchema,
+  ExitGroupChatAcceptedSchema,
+  ExitGroupChatCommandSchema,
   SendChatMessageCommandSchema,
   StartSceneFromChatAcceptedSchema,
   StartSceneFromChatCommandSchema,
@@ -61,6 +67,12 @@ import {
   type PluginInfo,
   type PluginList,
   type SendChatMessageAccepted,
+  type SendGroupMessageAccepted,
+  type SendGroupMessageCommand,
+  type StartGroupChatAccepted,
+  type StartGroupChatCommand,
+  type ExitGroupChatAccepted,
+  type ExitGroupChatCommand,
   type SendChatMessageCommand,
   type StartSceneFromChatAccepted,
   type StartSceneFromChatCommand,
@@ -139,6 +151,20 @@ export interface HttpDeps {
   startSceneFromChat: (
     command: StartSceneFromChatCommand,
   ) => Promise<Result<{ sceneId: string; sublocationId?: string }>>;
+  /** Group-chat seams (M6 part 4, Rev 4 §8): user-started only; the router
+   * round runs detached under the engine-enforced turn budget; exit closes
+   * the range + enqueues one reflect_chat per member atomically. */
+  startGroupChat: (
+    command: StartGroupChatCommand,
+  ) => Result<{ conversationId: string }>;
+  sendGroupMessage: (command: SendGroupMessageCommand) => Result<{
+    conversationId: string;
+    messageId: string;
+    routing: boolean;
+  }>;
+  exitGroupChat: (
+    command: ExitGroupChatCommand,
+  ) => Result<{ conversationId: string; ended: boolean; jobsEnqueued: number }>;
   /**
    * Read-only painter-output serving (GET /v1/images/*): resolves a path
    * RELATIVE to the images dir, contained to it; null = 404. The event
@@ -660,6 +686,112 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         ...(result.value.sublocationId === undefined
           ? {}
           : { sublocation_id: result.value.sublocationId }),
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/start-group-chat',
+    {
+      schema: {
+        body: StartGroupChatCommandSchema,
+        response: {
+          202: StartGroupChatAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.startGroupChat(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'start-group-chat rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: StartGroupChatAccepted = {
+        accepted: true,
+        conversation_id: result.value.conversationId,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/send-group-message',
+    {
+      schema: {
+        body: SendGroupMessageCommandSchema,
+        response: {
+          202: SendGroupMessageAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.sendGroupMessage(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'send-group-message rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: SendGroupMessageAccepted = {
+        accepted: true,
+        conversation_id: result.value.conversationId,
+        message_id: result.value.messageId,
+        routing: result.value.routing,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/exit-group-chat',
+    {
+      schema: {
+        body: ExitGroupChatCommandSchema,
+        response: {
+          202: ExitGroupChatAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.exitGroupChat(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'exit-group-chat rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: ExitGroupChatAccepted = {
+        accepted: true,
+        conversation_id: result.value.conversationId,
+        ended: result.value.ended,
+        jobs_enqueued: result.value.jobsEnqueued,
       };
       return accepted;
     },

@@ -215,6 +215,22 @@ for (const event of events) {
   if (event.type === 'scene.expired') {
     dupCheck('scene.expired', payload.scene_id, event.id);
   }
+  // M6 part 4 (Rev 4 §8, groups): lines unique per (conversation, message);
+  // a range closes at most once per range end.
+  if (event.type === 'chat.group_message_committed') {
+    dupCheck(
+      'chat.group_message_committed',
+      `${payload.conversation_id}:${payload.message_id}`,
+      event.id,
+    );
+  }
+  if (event.type === 'chat.group_ended') {
+    dupCheck(
+      'chat.group_ended',
+      `${payload.conversation_id}:${payload.range_end_id}`,
+      event.id,
+    );
+  }
   // …and a thread freezes at most once per tripping outreach.
   if (event.type === 'chat.thread_frozen') {
     dupCheck(
@@ -309,15 +325,28 @@ for (const event of events) {
 
 // 4h. Chat-end atomicity (M6 part 2, Rev 4 §8): a chat.ended commits in ONE
 //     transaction with its reflect_chat job — the event without the row is a
-//     torn transaction.
+//     torn transaction. M6 part 4: a chat.group_ended commits with exactly
+//     ONE reflect_chat job PER MEMBER (keys carry the character id).
 for (const event of events) {
-  if (event.type !== 'chat.ended') continue;
-  const payload = JSON.parse(event.payload);
-  const key = `reflect_chat:${payload.conversation_id}:${payload.range_end_id}`;
-  if (jobKeyExists.get(key).n !== 1) {
-    failures.push(
-      `chat.ended ${payload.conversation_id}: missing job ${key} (torn transaction)`,
-    );
+  if (event.type === 'chat.ended') {
+    const payload = JSON.parse(event.payload);
+    const key = `reflect_chat:${payload.conversation_id}:${payload.range_end_id}`;
+    if (jobKeyExists.get(key).n !== 1) {
+      failures.push(
+        `chat.ended ${payload.conversation_id}: missing job ${key} (torn transaction)`,
+      );
+    }
+  }
+  if (event.type === 'chat.group_ended') {
+    const payload = JSON.parse(event.payload);
+    for (const memberId of payload.member_ids) {
+      const key = `reflect_chat:${payload.conversation_id}:${memberId}:${payload.range_end_id}`;
+      if (jobKeyExists.get(key).n !== 1) {
+        failures.push(
+          `chat.group_ended ${payload.conversation_id}: missing member job ${key} (torn transaction)`,
+        );
+      }
+    }
   }
 }
 

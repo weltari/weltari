@@ -141,6 +141,33 @@ export function buildEliasProfile(targetPrefixTokens = 800): CharacterProfile {
 }
 
 /**
+ * The second DM-able fixture character (M6 part 4: groups need ≥2 members).
+ * Deliberately light — Elias carries the prefix-size load; Mara exists so
+ * group routing, group reflection fan-out and the acquaintance rule have a
+ * real second party at $0.
+ */
+export function buildMaraProfile(): CharacterProfile {
+  return {
+    character_id: 'char:mara',
+    name: 'Mara the Ferrywoman',
+    skills: [
+      'River craft: reads the current like a page; never misses the landing.',
+      'Gossip trade: swaps news for fares — knows who crossed and when.',
+    ],
+    personality:
+      'Loud, warm, teasing. Talks in long runs. Calls everyone "love". Hates being on land too long.',
+    memory_core: [
+      'Mara runs the river ferry by the Rainy Inn; storm season halves her fares.',
+      'She owes Elias for fixing the landing bell and never lets him forget she paid in eels.',
+    ],
+    goals: [
+      'Keep the ferry running through storm season.',
+      'Find out why the north-road merchants stopped crossing at dusk.',
+    ],
+  };
+}
+
+/**
  * The narrator makes the FIRST call of every turn, so its prefix carries the
  * ~50K-token load in the success-criteria run (criterion a measures a real
  * big-prefix prefill, not a small warm-up call).

@@ -18,7 +18,10 @@ export type CallKind =
   /** M6 part 2: a Weltari Chat DM reply (Rev 4 §8) — short context, chat toolset. */
   | 'chat'
   /** M6 part 2: the reflect_chat pass over an ended conversation range. */
-  | 'reflect_chat';
+  | 'reflect_chat'
+  /** M6 part 4: one Group-chat Narrator routing decision (Rev 4 §8) —
+   * router-class, tiny prompt, NO narration ever. */
+  | 'group_route';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */
@@ -38,7 +41,7 @@ export interface LlmCall {
    * executed by the SDK). Returned calls are RAW — the caller must run both
    * B6 gates.
    */
-  toolset?: 'narrator' | 'chat';
+  toolset?: 'narrator' | 'chat' | 'group_router';
   /**
    * Engine-owned read-only query executors offered alongside the toolset
    * (M6 part 1, Rev 4 §6). The client runs these DURING the call and feeds

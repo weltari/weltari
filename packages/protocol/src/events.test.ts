@@ -1093,3 +1093,71 @@ describe('invitation expiry family (0.13.0, Rev 4 §7)', () => {
     }
   });
 });
+
+describe('group chat family (0.14.0, Rev 4 §8)', () => {
+  it('accepts the group trio and pins the member floor + speaker rule shapes', () => {
+    const started: unknown = {
+      ...envelope,
+      type: 'chat.group_started',
+      payload: {
+        conversation_id: 'group:user:owner:g-1',
+        title: 'Elias & Mara',
+        member_ids: ['char:elias', 'char:mara'],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(started).success).toBe(true);
+    const oneMember: unknown = {
+      ...envelope,
+      type: 'chat.group_started',
+      payload: {
+        conversation_id: 'g1',
+        title: 't',
+        member_ids: ['char:elias'],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(oneMember).success).toBe(false);
+
+    for (const payload of [
+      // a user line has no speaker id
+      { conversation_id: 'g1', sender: 'user', text: 'hi', message_id: 'm1' },
+      // a character line carries one
+      {
+        conversation_id: 'g1',
+        sender: 'character',
+        character_id: 'char:mara',
+        text: 'Love, the ferry waits for nobody.',
+        message_id: 'm2',
+      },
+    ]) {
+      const line: unknown = {
+        ...envelope,
+        type: 'chat.group_message_committed',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(line).success).toBe(true);
+    }
+
+    const ended: unknown = {
+      ...envelope,
+      type: 'chat.group_ended',
+      payload: {
+        conversation_id: 'g1',
+        reason: 'endsubsession',
+        range_end_id: 12,
+        member_ids: ['char:elias', 'char:mara'],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(ended).success).toBe(true);
+    const badReason: unknown = {
+      ...envelope,
+      type: 'chat.group_ended',
+      payload: {
+        conversation_id: 'g1',
+        reason: 'timeout',
+        range_end_id: 12,
+        member_ids: ['a', 'b'],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(badReason).success).toBe(false);
+  });
+});

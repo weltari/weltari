@@ -15,6 +15,7 @@ import { createEventSink, type EventSink } from './engine/event-sink.js';
 import type { FaultPointHook } from './engine/fault-points.js';
 import {
   buildEliasProfile,
+  buildMaraProfile,
   buildNarratorProfile,
   FIXTURE_SCENE_ID,
   FIXTURE_SCENE_TITLE,
@@ -35,6 +36,7 @@ import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { squareOf } from './engine/sublocations.js';
 import { createTurnEngine } from './engine/scene-turn.js';
 import { createWorldClock } from './engine/world-clock.js';
+import { createGroupChatEngine } from './engine/group-chat.js';
 import { createGatewayHost } from './gateway/host.js';
 import { createTelegramConnector } from './gateway/telegram/connector.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
@@ -114,7 +116,12 @@ const stopGauges = startGauges({
 });
 
 const elias = buildEliasProfile(env.prefixTokens);
+const mara = buildMaraProfile();
 const narrator = buildNarratorProfile(env.prefixTokens);
+// The DM-able roster (M6 part 4: groups need >= 2 members). Mara is
+// chat-side only — the scene cast stays Elias, so prefix-size runs and the
+// harness scenes are untouched.
+const dmRoster = [elias, mara];
 const knownCharacters = [
   { character_id: elias.character_id, name: elias.name },
 ];
@@ -256,11 +263,27 @@ const chatEngine = createChatEngine({
   eventBus,
   llm,
   logger,
-  profiles: [elias],
+  profiles: dmRoster,
   idleCutoffIso: (): string =>
     new Date(Date.now() - env.chatIdleMinutes * 60_000).toISOString(),
   openScene: (request) => lifecycle.openScene(request),
   endScene: (command) => lifecycle.endScene(command),
+  kickRunner: (): void => {
+    catchAndLog(drainLedger(), logger, 'ledger.drain');
+  },
+  devBus,
+});
+
+// Group chats (M6 part 4, Rev 4 §8): user-started only; the router routes,
+// the engine cuts at the turn budget (owner default 3, WELTARI_GROUP_TURN_BUDGET).
+const groupChatEngine = createGroupChatEngine({
+  storage,
+  sink,
+  eventBus,
+  llm,
+  logger,
+  profiles: dmRoster,
+  turnBudget: env.groupTurnBudget,
   kickRunner: (): void => {
     catchAndLog(drainLedger(), logger, 'ledger.drain');
   },
@@ -425,7 +448,7 @@ const runner = createRunner({
       storage,
       sink,
       llm,
-      profiles: [elias],
+      profiles: dmRoster,
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
@@ -433,7 +456,7 @@ const runner = createRunner({
       storage,
       sink,
       llm,
-      profiles: [elias],
+      profiles: dmRoster,
       actorId: 'user:owner',
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
@@ -726,6 +749,25 @@ const app = createHttpServer({
   },
   exitChat: (command) => chatEngine.exitChat(command),
   startSceneFromChat: async (command) => chatEngine.startSceneFromChat(command),
+  startGroupChat: (command) => groupChatEngine.startGroup(command),
+  sendGroupMessage: (command) => {
+    const result = groupChatEngine.sendMessage(command);
+    if (result.ok) {
+      // The router round runs detached — a failure logs, never crashes (A8).
+      catchAndLog(result.value.completion, logger, 'group-round');
+    }
+    return result.ok
+      ? {
+          ok: true,
+          value: {
+            conversationId: result.value.conversationId,
+            messageId: result.value.messageId,
+            routing: result.value.routing,
+          },
+        }
+      : result;
+  },
+  exitGroupChat: (command) => groupChatEngine.exitGroup(command),
   plugins: plugins.map((plugin) => plugin.info),
   resolvePluginAsset: createPluginAssetResolver(plugins),
   resolveImage: createImageResolver(env.imagesDir),

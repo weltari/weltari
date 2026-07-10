@@ -366,6 +366,80 @@ export type StartSceneFromChatAccepted = z.infer<
   typeof StartSceneFromChatAcceptedSchema
 >;
 
+/**
+ * POST /v1/commands/start-group-chat — open a group chat (0.14.0, Rev 4 §8:
+ * USER-started only — characters cannot fire group chats and CRON never
+ * posts into them). Members are fixed at start in V1. Idempotent per
+ * request_id (it seeds the conversation id).
+ */
+export const StartGroupChatCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  member_ids: z.array(z.string().min(1)).min(2).max(5),
+  title: z.string().min(1).max(120),
+  request_id: z.string().min(1).max(100),
+});
+export type StartGroupChatCommand = z.infer<typeof StartGroupChatCommandSchema>;
+
+/** 202 response: the group exists; chat.group_started is on the stream. */
+export const StartGroupChatAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  conversation_id: z.string().min(1),
+});
+export type StartGroupChatAccepted = z.infer<
+  typeof StartGroupChatAcceptedSchema
+>;
+
+/**
+ * POST /v1/commands/send-group-message — one user line into a group (0.14.0):
+ * the line commits at the seam; the Group-chat Narrator then routes up to the
+ * engine-enforced turn budget of character replies (NO narration of its own),
+ * each arriving as chat.group_message_committed. Idempotent per request_id.
+ */
+export const SendGroupMessageCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  conversation_id: z.string().min(1),
+  text: z.string().min(1).max(8192),
+  request_id: z.string().min(1).max(100),
+});
+export type SendGroupMessageCommand = z.infer<
+  typeof SendGroupMessageCommandSchema
+>;
+
+/** 202 response: the user line is durable; `routing` = the router round is
+ * generating now. */
+export const SendGroupMessageAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  conversation_id: z.string().min(1),
+  message_id: z.string().min(1),
+  routing: z.boolean(),
+});
+export type SendGroupMessageAccepted = z.infer<
+  typeof SendGroupMessageAcceptedSchema
+>;
+
+/**
+ * POST /v1/commands/exit-group-chat — the user leaves the group (0.14.0):
+ * closes the open range with chat.group_ended(reason exit) and enqueues
+ * exactly ONE reflect_chat job per member atomically.
+ */
+export const ExitGroupChatCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  conversation_id: z.string().min(1),
+});
+export type ExitGroupChatCommand = z.infer<typeof ExitGroupChatCommandSchema>;
+
+/** 202 response. `ended` = a chat.group_ended committed. */
+export const ExitGroupChatAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  conversation_id: z.string().min(1),
+  ended: z.boolean(),
+  jobs_enqueued: z.int().nonnegative(),
+});
+export type ExitGroupChatAccepted = z.infer<typeof ExitGroupChatAcceptedSchema>;
+
 /** 4xx response for a schema-valid command the engine refused (e.g. busy scene). */
 export const CommandRejectedSchema = z.strictObject({
   accepted: z.literal(false),

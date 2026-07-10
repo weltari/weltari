@@ -219,54 +219,85 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
         toolCalls:
           call.toolset === 'narrator'
             ? scriptedToolCalls(call.prompt)
-            : call.toolset === 'chat'
-              ? // The mandatory CACHE line rides every scripted chat reply
-                // (Rev 4 §11) — tests and the harness get real entries at $0.
-                // `!startscene <place-slug>` scripts the bridge (Rev 4 §8):
-                // hyphens become spaces, so `!startscene the-park` proposes
-                // meeting at "the park" (wait_hours 6 — the 0.13.0 window).
-                // `!startscene-nowindow <place>` omits wait_hours until the
-                // correction round arrives (scripts retry-then-succeed);
-                // `!startscene-stubborn <place>` omits it every round
-                // (scripts ceiling exhaustion → the chat.notice rollback).
-                [
-                  {
-                    tool: 'cache',
-                    input: {
-                      line: 'Texted with the traveler; quiet stormy night at the inn.',
-                    },
-                  },
-                  // `!staysilent` scripts the explicit decline (M6 part 4):
-                  // the character chooses to send nothing — the proactive
-                  // handler must leave the fire quiet at $0.
-                  ...(call.prompt.includes('!staysilent')
-                    ? [{ tool: 'stay_silent', input: {} }]
-                    : []),
-                  ...((): RawToolCall[] => {
-                    const corrected = call.prompt.includes('## Correction');
-                    const scripted =
-                      /!(startscene(?:-nowindow|-stubborn)?)\s+(\S+)/.exec(
-                        call.prompt,
-                      );
-                    if (scripted === null) return [];
-                    const variant = scripted[1] ?? 'startscene';
-                    const place = (scripted[2] ?? '').replaceAll('-', ' ');
-                    const withWindow =
-                      variant === 'startscene' ||
-                      (variant === 'startscene-nowindow' && corrected);
+            : call.toolset === 'group_router'
+              ? // Group-router scripts (M6 part 4, Rev 4 §8) read the text
+                // AFTER the last user line only, so a marker never haunts
+                // later rounds: `!endsub` ends the round, `!route <char-id>`
+                // routes explicitly, default = the FIRST listed member (the
+                // engine's turn budget is what stops the ping-pong).
+                ((): RawToolCall[] => {
+                  const tail = call.prompt.slice(
+                    call.prompt.lastIndexOf('User:'),
+                  );
+                  if (/!endsub\b/.test(tail)) {
+                    return [{ tool: 'endsubsession', input: {} }];
+                  }
+                  const route = /!route\s+(\S+)/.exec(tail);
+                  if (route?.[1] !== undefined) {
                     return [
-                      {
-                        tool: 'startscene',
-                        input: {
-                          place,
-                          premise: 'They meet as planned, the rain easing off.',
-                          ...(withWindow ? { wait_hours: 6 } : {}),
-                        },
-                      },
+                      { tool: 'route', input: { next_character_id: route[1] } },
                     ];
-                  })(),
-                ]
-              : [],
+                  }
+                  const members = /Members: ([^\n]+)/.exec(call.prompt);
+                  const first = members?.[1]?.split(',')[0]?.trim();
+                  return first === undefined || first === ''
+                    ? []
+                    : [
+                        {
+                          tool: 'route',
+                          input: { next_character_id: first },
+                        },
+                      ];
+                })()
+              : call.toolset === 'chat'
+                ? // The mandatory CACHE line rides every scripted chat reply
+                  // (Rev 4 §11) — tests and the harness get real entries at $0.
+                  // `!startscene <place-slug>` scripts the bridge (Rev 4 §8):
+                  // hyphens become spaces, so `!startscene the-park` proposes
+                  // meeting at "the park" (wait_hours 6 — the 0.13.0 window).
+                  // `!startscene-nowindow <place>` omits wait_hours until the
+                  // correction round arrives (scripts retry-then-succeed);
+                  // `!startscene-stubborn <place>` omits it every round
+                  // (scripts ceiling exhaustion → the chat.notice rollback).
+                  [
+                    {
+                      tool: 'cache',
+                      input: {
+                        line: 'Texted with the traveler; quiet stormy night at the inn.',
+                      },
+                    },
+                    // `!staysilent` scripts the explicit decline (M6 part 4):
+                    // the character chooses to send nothing — the proactive
+                    // handler must leave the fire quiet at $0.
+                    ...(call.prompt.includes('!staysilent')
+                      ? [{ tool: 'stay_silent', input: {} }]
+                      : []),
+                    ...((): RawToolCall[] => {
+                      const corrected = call.prompt.includes('## Correction');
+                      const scripted =
+                        /!(startscene(?:-nowindow|-stubborn)?)\s+(\S+)/.exec(
+                          call.prompt,
+                        );
+                      if (scripted === null) return [];
+                      const variant = scripted[1] ?? 'startscene';
+                      const place = (scripted[2] ?? '').replaceAll('-', ' ');
+                      const withWindow =
+                        variant === 'startscene' ||
+                        (variant === 'startscene-nowindow' && corrected);
+                      return [
+                        {
+                          tool: 'startscene',
+                          input: {
+                            place,
+                            premise:
+                              'They meet as planned, the rain easing off.',
+                            ...(withWindow ? { wait_hours: 6 } : {}),
+                          },
+                        },
+                      ];
+                    })(),
+                  ]
+                : [],
       });
     },
   };

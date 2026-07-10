@@ -190,6 +190,68 @@ export const CHAT_TOOL_DESCRIPTIONS: Record<ChatToolName, string> = {
     'Choose to send nothing right now. Use it when you were free to reach out but have nothing you genuinely want to say — entirely your choice. reason (optional): one short private line on why.',
 };
 
+/**
+ * The Group-chat Narrator toolset (M6 part 4, Rev 4 §8): routes turns ONLY —
+ * it NEVER narrates (any text it produces is dropped un-surfaced); the
+ * engine enforces the turn budget on top. Data-only, like every chat tool.
+ */
+export const RouteToolSchema = z.strictObject({
+  /** The member who speaks next — a character id from the Members list. */
+  next_character_id: z.string().min(1).max(100),
+});
+export type RouteToolInput = z.infer<typeof RouteToolSchema>;
+
+export const EndSubsessionToolSchema = z.strictObject({});
+
+export const GROUP_ROUTER_TOOL_DESCRIPTIONS = {
+  route:
+    'Pick which member speaks next: next_character_id must be a character id from the Members list. Call it when that character would naturally respond to the last line.',
+  endsubsession:
+    'End this group round: the conversation reached a natural resting point and nobody else would realistically jump in right now.',
+} as const;
+
+export type ValidatedGroupRouterCall =
+  { tool: 'route'; input: RouteToolInput } | { tool: 'endsubsession' };
+
+/** Gate 1 for the Group-chat Narrator's routing calls (same contract as
+ * every parse here: reject as a value, zero rows). */
+export function parseGroupRouterCall(
+  raw: RawToolCall,
+  logger: Logger,
+): Result<ValidatedGroupRouterCall> {
+  switch (raw.tool) {
+    case 'route': {
+      const input = validateAt(
+        'llm',
+        'tool:route',
+        RouteToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'route', input: input.value } }
+        : input;
+    }
+    case 'endsubsession': {
+      const input = validateAt(
+        'llm',
+        'tool:endsubsession',
+        EndSubsessionToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok ? { ok: true, value: { tool: 'endsubsession' } } : input;
+    }
+    default:
+      return err(
+        new OperationalError(
+          'unknown_tool',
+          `no such group-router tool: ${raw.tool}`,
+        ),
+      );
+  }
+}
+
 /** A tool call as the provider (or the fake) returned it — unvalidated. */
 export interface RawToolCall {
   tool: string;
