@@ -136,6 +136,30 @@ export type StartSceneToolInput = z.infer<typeof StartSceneToolSchema>;
 export const CHAT_TOOL_NAMES = ['cache', 'startscene'] as const;
 export type ChatToolName = (typeof CHAT_TOOL_NAMES)[number];
 
+/**
+ * The chat query escalation (M6 part 3, Rev 4 §11): "latest-per-origin
+ * instantly; escalate to scene-query → session read for specifics". Both are
+ * READ-ONLY mid-call executors on the chat toolset — they run through the
+ * proven LlmCall.queries seam (week 9/10) and are never staged as data.
+ * memoryquery waits for the real memory store (M7) — deferred, not stubbed.
+ */
+export const WikiqueryToolSchema = z.strictObject({
+  /** Keywords about a place ("the flooded cellar", "charcoal camp"). */
+  query: z.string().min(1).max(200),
+});
+
+export const SessionqueryToolSchema = z.strictObject({
+  /** Keywords about a past scene you took part in. */
+  query: z.string().min(1).max(200),
+});
+
+export const CHAT_QUERY_DESCRIPTIONS = {
+  wikiquery:
+    'Look up what is publicly known about a place: searches the world wiki (place names, descriptions, latest entries). Use it when the User asks about a location and your instant recall is not enough. The result returns to you immediately.',
+  sessionquery:
+    'Recall a past scene YOU took part in: searches your scenes by their recaps and returns the best match with its final lines. You can only read scenes you were present in. Use it when the User asks about something specific that happened. The result returns to you immediately.',
+} as const;
+
 /** Static descriptions for the chat toolset (stable strings — never state). */
 export const CHAT_TOOL_DESCRIPTIONS: Record<ChatToolName, string> = {
   cache:
@@ -279,6 +303,17 @@ export function parseChatToolCall(
         ? { ok: true, value: { tool: 'startscene', input: input.value } }
         : input;
     }
+    case 'wikiquery':
+    case 'sessionquery':
+      // Queries execute DURING the call (LlmCall.queries) and are filtered
+      // out of the returned tool calls; one arriving here means the client
+      // mis-routed it. Reject as a value — nothing durable happens (I8).
+      return err(
+        new OperationalError(
+          'query_not_stageable',
+          `${raw.tool} executes during the call and is never staged`,
+        ),
+      );
     default:
       return err(
         new OperationalError('unknown_tool', `no such chat tool: ${raw.tool}`),

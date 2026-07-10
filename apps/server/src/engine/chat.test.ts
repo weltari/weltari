@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { ok, type Result } from '../errors.js';
-import { Bus, type EventBus } from '../http/bus.js';
+import { Bus, type DevBus, type EventBus } from '../http/bus.js';
 import { createFakeLlmClient } from '../llm/fake-client.js';
 import type { LlmCall, LlmCallResult, LlmClient } from '../llm/types.js';
 import { createRootLogger } from '../observability/logger.js';
@@ -35,6 +35,8 @@ interface Ctx {
   engine: ReturnType<typeof createChatEngine>;
   lifecycle: SceneLifecycle;
   llmCalls: LlmCall[];
+  /** dev.tool_call frames the engine published (the C11 trail). */
+  devFrames: { tool: string; input_json: string }[];
 }
 
 /** Stand-in for the runner: claim and commit every active job — the shape
@@ -59,6 +61,13 @@ function setup(
   const logger = quietLogger();
   const storage = openStorage({ dbPath: join(dir, 'w.sqlite') });
   const eventBus: EventBus = new Bus(logger);
+  const devBus: DevBus = new Bus(logger);
+  const devFrames: { tool: string; input_json: string }[] = [];
+  devBus.subscribe((frame) => {
+    if (frame.type === 'dev.tool_call') {
+      devFrames.push({ tool: frame.tool, input_json: frame.input_json });
+    }
+  });
   const llmCalls: LlmCall[] = [];
   const base = options.llm ?? createFakeLlmClient();
   const recording: LlmClient = {
@@ -88,6 +97,7 @@ function setup(
     openScene: (request) => lifecycle.openScene(request),
     endScene: (command) => lifecycle.endScene(command),
     bridgeRetryDelayMs: 1,
+    devBus,
     ...(options.drainOnKick === true
       ? {
           kickRunner: (): void => {
@@ -96,7 +106,7 @@ function setup(
         }
       : {}),
   });
-  return { storage, engine, lifecycle, llmCalls };
+  return { storage, engine, lifecycle, llmCalls, devFrames };
 }
 
 const SEND = {
@@ -179,6 +189,41 @@ describe('DM a character outside any scene (criterion a)', () => {
     // The texting conduct skill rides the stable prefix (M6 part 3): the
     // negotiation + the firing rule are taught, not hoped for.
     expect(chatCalls[0]?.system).toContain('call the startscene tool yourself');
+    ctx.storage.close();
+  });
+
+  it('the query escalation: a DM question runs wikiquery mid-call, the reply uses it, the dev trail shows it (M6 part 3)', async () => {
+    const ctx = setup();
+    // The registry knows a place the recap alone cannot answer.
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'sublocation.materialized',
+      payload: {
+        sublocation_id: 'subloc:cellar',
+        name: 'The Flooded Cellar',
+        description: 'The river seeps in every storm season.',
+        square: { col: 3, row: 5 },
+        map_position: { x: 0.38, y: 0.72 },
+      },
+    });
+    await sendAndAwait(ctx, {
+      ...SEND,
+      text: 'What do you know about the cellar? !wikiquery cellar',
+    });
+    const reply = ctx.storage.eventLog
+      .readSince(0)
+      .find(
+        (e) =>
+          e.type === 'chat.message_committed' &&
+          e.payload.sender === 'character',
+      );
+    // The reply VISIBLY uses the executor's result (criterion d shape)…
+    if (reply?.type === 'chat.message_committed') {
+      expect(reply.payload.text).toContain('The Flooded Cellar');
+    }
+    // …and the escalation left its dev.tool_call frame (C11).
+    expect(ctx.devFrames.some((f) => f.tool === 'wikiquery')).toBe(true);
     ctx.storage.close();
   });
 

@@ -10,13 +10,16 @@ import type { ModelRegistry } from './model-registry.js';
 import {
   CacheToolSchema,
   ChangeSublocationToolSchema,
+  CHAT_QUERY_DESCRIPTIONS,
   CHAT_TOOL_DESCRIPTIONS,
   CreateSublocationToolSchema,
   EndSceneToolSchema,
   NARRATOR_TOOL_DESCRIPTIONS,
   QuerySublocationsToolSchema,
+  SessionqueryToolSchema,
   StartSceneToolSchema,
   SwitchArtToolSchema,
+  WikiqueryToolSchema,
   type RawToolCall,
 } from './tools.js';
 import type { LlmCall, LlmCallResult, LlmClient } from './types.js';
@@ -102,15 +105,45 @@ function narratorToolsFor(call: LlmCall): ToolSet {
               gate({ tool: 'create_sublocation', input }),
           }),
         };
-  if (call.queries === undefined) return mutating;
-  const queries = call.queries;
+  const querySublocations = call.queries?.query_sublocations;
+  if (querySublocations === undefined) return mutating;
   return {
     ...mutating,
     query_sublocations: tool({
       description: NARRATOR_TOOL_DESCRIPTIONS.query_sublocations,
       inputSchema: QuerySublocationsToolSchema,
-      execute: (input): string => queries.query_sublocations(input),
+      execute: (input): string => querySublocations(input),
     }),
+  };
+}
+
+/** The chat toolset wired to the call's read-only query executors (M6 part
+ * 3, Rev 4 §11): wikiquery/sessionquery run mid-call through the SAME seam
+ * the narrator's query_sublocations proved in weeks 9/10 — results feed back
+ * to the model; the stageable tools (cache/startscene) stay data-only. */
+function chatToolsFor(call: LlmCall): ToolSet {
+  const wikiquery = call.queries?.wikiquery;
+  const sessionquery = call.queries?.sessionquery;
+  return {
+    ...CHAT_TOOLS,
+    ...(wikiquery === undefined
+      ? {}
+      : {
+          wikiquery: tool({
+            description: CHAT_QUERY_DESCRIPTIONS.wikiquery,
+            inputSchema: WikiqueryToolSchema,
+            execute: (input): string => wikiquery(input),
+          }),
+        }),
+    ...(sessionquery === undefined
+      ? {}
+      : {
+          sessionquery: tool({
+            description: CHAT_QUERY_DESCRIPTIONS.sessionquery,
+            inputSchema: SessionqueryToolSchema,
+            execute: (input): string => sessionquery(input),
+          }),
+        }),
   };
 }
 
@@ -212,7 +245,15 @@ export function createOpenRouterClient(
                     }),
               }
             : call.toolset === 'chat'
-              ? { tools: CHAT_TOOLS, toolChoice: 'auto' as const }
+              ? {
+                  tools: chatToolsFor(call),
+                  toolChoice: 'auto' as const,
+                  // Query escalation (M6 part 3): query → result → the model
+                  // keeps generating in ONE call, same budget as the narrator.
+                  ...(call.queries === undefined
+                    ? {}
+                    : { stopWhen: stepCountIs(QUERY_STEP_LIMIT) }),
+                }
               : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable

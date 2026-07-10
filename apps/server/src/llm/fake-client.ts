@@ -159,17 +159,37 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
   const firstTokenDelayMs = options.firstTokenDelayMs ?? 0;
   return {
     async streamCall(call: LlmCall): Promise<Result<LlmCallResult>> {
-      const text = SCRIPT[call.kind] ?? 'The rain continues.';
+      let text = SCRIPT[call.kind] ?? 'The rain continues.';
       // The scripted mid-call query (M6 part 1): a real model would receive
       // the executor's result and keep generating — the fake just runs the
       // executor so the engine's query-first flag and dev trail behave
       // exactly as with a real backend.
       if (
         call.toolset === 'narrator' &&
-        call.queries !== undefined &&
+        call.queries?.query_sublocations !== undefined &&
         call.prompt.includes('!query')
       ) {
         call.queries.query_sublocations({ mode: 'parentless' });
+      }
+      // The scripted chat escalation (M6 part 3, Rev 4 §11): `!wikiquery
+      // <words>` / `!sessionquery <words>` run the executor mid-call and the
+      // reply VISIBLY uses the result — tests and the browser demo drive the
+      // whole escalation at $0.
+      if (call.toolset === 'chat') {
+        const wiki = /!wikiquery\s+([^\n!]+)/.exec(call.prompt);
+        if (wiki !== null && call.queries?.wikiquery !== undefined) {
+          const answer = call.queries.wikiquery({
+            query: (wiki[1] ?? '').trim(),
+          });
+          text = `Checked what I know. ${answer}`;
+        }
+        const session = /!sessionquery\s+([^\n!]+)/.exec(call.prompt);
+        if (session !== null && call.queries?.sessionquery !== undefined) {
+          const answer = call.queries.sessionquery({
+            query: (session[1] ?? '').trim(),
+          });
+          text = `Let me think back. ${answer}`;
+        }
       }
       if (firstTokenDelayMs > 0) {
         await new Promise<void>((resolve) => {
