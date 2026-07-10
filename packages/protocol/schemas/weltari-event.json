@@ -45,6 +45,35 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 200
+            },
+            "invitation": {
+              "type": "object",
+              "properties": {
+                "character_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "place": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "wait_hours": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "expires_at_game": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "character_id",
+                "place",
+                "wait_hours",
+                "expires_at_game"
+              ],
+              "additionalProperties": false
             }
           },
           "required": [
@@ -138,6 +167,76 @@
           "required": [
             "scene_id",
             "participants"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "world_id",
+        "actor_id",
+        "ts",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "world_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "type": {
+          "type": "string",
+          "const": "scene.expired"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "scene_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "character_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "place": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expires_at_game": {
+              "type": "string",
+              "minLength": 1
+            },
+            "game_time": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "scene_id",
+            "character_id",
+            "place",
+            "expires_at_game",
+            "game_time"
           ],
           "additionalProperties": false
         }
@@ -690,6 +789,72 @@
             "character_id",
             "message_id",
             "unanswered_count"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "world_id",
+        "actor_id",
+        "ts",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "world_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "type": {
+          "type": "string",
+          "const": "chat.notice"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "conversation_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "character_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "conversation_id",
+            "character_id",
+            "code",
+            "text"
           ],
           "additionalProperties": false
         }

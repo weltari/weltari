@@ -46,6 +46,27 @@ export const SceneStartedEventSchema = z.strictObject({
      * change_sublocation or create_sublocation (query-first rule included).
      */
     place_request: z.string().min(1).max(200).optional(),
+    /**
+     * The character-fired invitation this scene opened on (0.13.0, Rev 4 §7,
+     * owner ruling 2026-07-10/11): the character chose how long it will wait
+     * in GAME time (`wait_hours` — a required startscene tool parameter, its
+     * own model decision, never an env default); the engine stamped the
+     * resulting expiry against the world clock at open. A scene carrying
+     * this and never entered (no turn.committed) expires lazily the moment
+     * the user's own play moves the clock past `expires_at_game` — while the
+     * user is away the clock is paused, so the character has fictionally
+     * waited no time at all.
+     */
+    invitation: z
+      .strictObject({
+        character_id: z.string().min(1),
+        /** The place as the character proposed it (display + memory text). */
+        place: z.string().min(1).max(200),
+        wait_hours: z.number().positive(),
+        /** World-clock instant the invitation lapses (engine-computed). */
+        expires_at_game: z.string().min(1),
+      })
+      .optional(),
   }),
 });
 
@@ -142,6 +163,35 @@ export const SceneEndedEventSchema = z.strictObject({
         premise_seed: z.string().min(1).max(500).optional(),
       })
       .optional(),
+  }),
+});
+
+/**
+ * A character-fired invitation scene lapsed un-entered (0.13.0, Rev 4 §7,
+ * owner ruling 2026-07-11): the user's own play moved the world clock past
+ * `expires_at_game` while the scene still had no turn.committed. Judged
+ * LAZILY — at clock advances and chat triggers, never on wall-clock time.
+ * Closes the scene for every projection (presence releases exactly like
+ * scene.ended); appended atomically WITH the hardcoded cache.appended
+ * absence entry (never an extra LLM call) so the character complains on its
+ * next trigger. NO reflection/World-Agent fan-out: nothing happened in the
+ * scene. Natural key: scene_id — one expiry per scene ever, kill-retry safe.
+ * Emitted by: the invitation expiry routine. Consumed by: clients (scene
+ * close + chat header), verify-consistency.
+ */
+export const SceneExpiredEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('scene.expired'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    /** The inviting character released back to `available`. */
+    character_id: z.string().min(1),
+    /** The place as the character proposed it (memory-entry text). */
+    place: z.string().min(1).max(200),
+    /** The invitation's world-clock deadline that was crossed. */
+    expires_at_game: z.string().min(1),
+    /** The world clock at the lazy judgment (>= expires_at_game). */
+    game_time: z.string().min(1),
   }),
 });
 
@@ -290,6 +340,28 @@ export const ChatThreadFrozenEventSchema = z.strictObject({
     /** The outreach message that tripped the cap. */
     message_id: z.string().min(1).max(100),
     unanswered_count: z.int().positive(),
+  }),
+});
+
+/**
+ * A hardcoded engine notice landed in a conversation (0.13.0, owner ruling
+ * 2026-07-11: "a small red line shows what the error is"): a critical
+ * character tool chain (startscene) exhausted its retry ceiling and rolled
+ * back — the chat continues as if the tool never fired, and this line tells
+ * the user why. Durable and replayable like any transcript line; rendered
+ * as a red system line, never as a character message. Emitted by: the chat
+ * engine. Consumed by: clients (ChatPage).
+ */
+export const ChatNoticeEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('chat.notice'),
+  payload: z.strictObject({
+    conversation_id: z.string().min(1),
+    character_id: z.string().min(1),
+    /** Machine-readable notice class, e.g. `startscene_rejected`. */
+    code: z.string().min(1).max(100),
+    /** The hardcoded human-readable line (never LLM-authored). */
+    text: z.string().min(1).max(300),
   }),
 });
 
@@ -728,6 +800,7 @@ export const JobParkedEventSchema = z.strictObject({
 export const WeltariEventSchema = z.discriminatedUnion('type', [
   SceneStartedEventSchema,
   SceneEndedEventSchema,
+  SceneExpiredEventSchema,
   CharacterJoinedEventSchema,
   TurnStartedEventSchema,
   TurnCommittedEventSchema,
@@ -736,6 +809,7 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   ReflectChatCommittedEventSchema,
   ChatOutreachRecordedEventSchema,
   ChatThreadFrozenEventSchema,
+  ChatNoticeEventSchema,
   CacheAppendedEventSchema,
   SubwikiUpdatedEventSchema,
   SublocationChangedEventSchema,
