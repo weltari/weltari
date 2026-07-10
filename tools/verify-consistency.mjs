@@ -201,6 +201,56 @@ for (const event of events) {
       event.id,
     );
   }
+  // M6 part 3 (Rev 4 §8): one scheduler fire commits at most one outreach —
+  // the proactive_dm natural key (world, occurrence) survives kill-retries.
+  if (event.type === 'chat.outreach_recorded') {
+    dupCheck(
+      'chat.outreach_recorded',
+      `${event.world_id}:${payload.occurrence_iso}`,
+      event.id,
+    );
+  }
+  // …and a thread freezes at most once per tripping outreach.
+  if (event.type === 'chat.thread_frozen') {
+    dupCheck(
+      'chat.thread_frozen',
+      `${payload.conversation_id}:${payload.message_id}`,
+      event.id,
+    );
+  }
+}
+
+// 4i. Outreach atomicity (M6 part 3, Rev 4 §8): every chat.outreach_recorded
+//     commits in ONE transaction with the chat.message_committed it delivered
+//     — the record without its message is a torn transaction. And every
+//     chat.thread_frozen must sit on an outreach whose count reached the cap.
+{
+  const messageKeys = new Set();
+  for (const event of events) {
+    if (event.type !== 'chat.message_committed') continue;
+    const payload = JSON.parse(event.payload);
+    messageKeys.add(`${payload.conversation_id}:${payload.message_id}`);
+  }
+  for (const event of events) {
+    if (event.type === 'chat.outreach_recorded') {
+      const payload = JSON.parse(event.payload);
+      if (
+        !messageKeys.has(`${payload.conversation_id}:${payload.message_id}`)
+      ) {
+        failures.push(
+          `chat.outreach_recorded ${payload.occurrence_iso}: missing its delivered message ${payload.message_id} (torn transaction)`,
+        );
+      }
+    }
+    if (event.type === 'chat.thread_frozen') {
+      const payload = JSON.parse(event.payload);
+      if (payload.unanswered_count < 3) {
+        failures.push(
+          `chat.thread_frozen ${payload.conversation_id}: froze below the 3-unanswered cap (${payload.unanswered_count})`,
+        );
+      }
+    }
+  }
 }
 
 // 4h. Chat-end atomicity (M6 part 2, Rev 4 §8): a chat.ended commits in ONE

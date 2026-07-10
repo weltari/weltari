@@ -38,8 +38,14 @@
  * place_request (the chat→scene handoff surface); subwiki.updated event
  * (Rev 4 §10: the World Agent's scene-end pass writes wiki entries for
  * Narrator-created sublocations that participated — transient places never).
+ * 0.12.0 (M6 part 3, Rev 4 §8): proactive CRON DMs — chat.outreach_recorded
+ * (eager generation: the push IS the message; natural key world +
+ * occurrence_iso; stamped with both the real fire time and the fictional
+ * game_time) and chat.thread_frozen (the 3-unanswered hard cap as a durable
+ * event — the gateway's future push hook; a user reply resets the counter by
+ * construction).
  */
-export const PROTOCOL_VERSION = '0.11.0';
+export const PROTOCOL_VERSION = '0.12.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -47,6 +53,8 @@ export {
   CharacterJoinedEventSchema,
   ChatEndedEventSchema,
   ChatMessageCommittedEventSchema,
+  ChatOutreachRecordedEventSchema,
+  ChatThreadFrozenEventSchema,
   ReflectChatCommittedEventSchema,
   ImageRegionSchema,
   MAP_FOG_GRID,

@@ -3,9 +3,30 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openStorage } from '../storage/db.js';
-import { createScheduler } from './scheduler.js';
+import { createScheduler, nextIntervalOccurrenceIso } from './scheduler.js';
 
 const NOW = '2026-07-06T12:00:30.000Z';
+
+describe('nextIntervalOccurrenceIso (M6 part 3: the proactive-DM cadence)', () => {
+  it('epoch-aligned boundaries: every caller derives the same next fire', () => {
+    // 12:00:30 with a 5-minute cadence → the 12:05 boundary.
+    const nowMs = new Date('2026-07-06T12:00:30.000Z').getTime();
+    expect(nextIntervalOccurrenceIso(nowMs, 5)).toBe(
+      '2026-07-06T12:05:00.000Z',
+    );
+    // Exactly ON a boundary → the NEXT one (never re-fires the current).
+    expect(
+      nextIntervalOccurrenceIso(
+        new Date('2026-07-06T12:05:00.000Z').getTime(),
+        5,
+      ),
+    ).toBe('2026-07-06T12:10:00.000Z');
+    // Fractional minutes work (the harness cadence): 0.02 = 1.2 s windows.
+    const fracMs = new Date(nextIntervalOccurrenceIso(nowMs, 0.02)).getTime();
+    expect(fracMs - nowMs).toBeGreaterThan(0);
+    expect(fracMs - nowMs).toBeLessThanOrEqual(1200);
+  });
+});
 
 describe('croner scheduler', () => {
   it('writes the next occurrence as a ledger row and never duplicates it', () => {

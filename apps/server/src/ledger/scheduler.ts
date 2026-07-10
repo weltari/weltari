@@ -30,6 +30,21 @@ export function addMinutesIso(iso: string, minutes: number): string {
 }
 
 /**
+ * The NEXT interval-cadence boundary after `nowMs` (M6 part 3, proactive
+ * DMs): cadence windows are aligned to the epoch, so every process — and
+ * every restart — derives the same boundary and the idempotency key dedupes
+ * (croner cannot express sub-hour-clean or fractional-minute cadences, which
+ * the demo and the kill harness need). Pure math, caller supplies the clock.
+ */
+export function nextIntervalOccurrenceIso(
+  nowMs: number,
+  cadenceMinutes: number,
+): string {
+  const ms = cadenceMinutes * 60_000;
+  return new Date((Math.floor(nowMs / ms) + 1) * ms).toISOString();
+}
+
+/**
  * Every occurrence of `pattern` in (fromIso, toIso], ascending. Used by the
  * time-skip replay: these are FICTIONAL datetimes — croner only does calendar
  * math here, never reads the wall clock. Throws past `cap` occurrences so a

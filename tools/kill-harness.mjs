@@ -46,6 +46,14 @@ const POINTS = [
   // reflect_chat.committed for the range (Elias is in_scene during harness
   // cycles, so the DM stores without a reply — fully deterministic).
   'mid_reflect_chat',
+  // M6 part 3 (proactive CRON DMs): a scheduler fire killed mid-commit —
+  // the DM is generated, the message + outreach transaction not yet
+  // appended; convergence = the retried job commits EXACTLY one
+  // chat.outreach_recorded for the occurrence (the fire's natural key).
+  // The cycle resets the thread first (a user line + exit while Elias is
+  // still in_scene — no reply generates), then frees him by ending the
+  // scene, so eligibility is deterministic. Cadence env: 0.02 min = 1.2 s.
+  'mid_proactive_dm',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -244,6 +252,19 @@ function dbCountReflectChat(conversationId, rangeEndId) {
   return row.n;
 }
 
+/** Proactive-DM convergence (I4): outreaches committed after a log head. */
+function dbCountOutreachAbove(sinceId) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'chat.outreach_recorded' AND id > ?`,
+    )
+    .get(sinceId);
+  db.close();
+  return row.n;
+}
+
 function dbHasStagedUpdate(version) {
   const db = new Database(dbPath);
   const row = db
@@ -263,10 +284,11 @@ function readPointer() {
   return text === '' ? null : text;
 }
 
-function spawnServer() {
+function spawnServer(extraEnv = {}) {
   const child = spawn(process.execPath, [MAIN], {
     env: {
       ...process.env,
+      ...extraEnv,
       WELTARI_FAKE_LLM: '1',
       WELTARI_EMIT_FAULT_POINTS: '1',
       WELTARI_FAULT_PAUSE_MS: '400',
@@ -545,11 +567,20 @@ let pendingClick = null;
 // convergence = exactly one reflect_chat.committed for the exited range.
 let chatSeq = 0;
 let pendingReflectChat = null;
+// M6 part 3 proactive cycles: a CRON fire killed mid-commit; convergence =
+// the retried job commits its outreach exactly once (natural key).
+let proactiveSeq = 0;
+let pendingProactive = null;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
   rotatePort();
-  const child = spawnServer();
+  // The proactive cycle is the only one where the cadence is live — 0.02 min
+  // windows make a fire land within ~2.5 s; every other cycle runs with the
+  // owner default (disabled), so no stray outreach perturbs it.
+  const child = spawnServer(
+    point === 'mid_proactive_dm' ? { WELTARI_CRON_DM_MINUTES: '0.02' } : {},
+  );
   await waitForLine(child, 'weltari listening');
 
   // Resume check (criterion c/d): a reconnecting client gets every event it
@@ -728,6 +759,26 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       `mid_reflect_chat convergence ok: range ${pendingReflectChat.rangeEndId} reflected exactly once after restart`,
     );
     pendingReflectChat = null;
+  }
+
+  // M6 part 3: a kill at mid_proactive_dm must CONVERGE — the leased fire
+  // retries and commits its outreach (message + record atomically) exactly
+  // once; per-occurrence uniqueness is verify-consistency's dup check.
+  if (pendingProactive !== null) {
+    const deadline = Date.now() + 30000;
+    while (dbCountOutreachAbove(pendingProactive) < 1) {
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          'lost proactive DM: no chat.outreach_recorded committed after mid_proactive_dm kill',
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      'mid_proactive_dm convergence ok: the fire committed its outreach after restart',
+    );
+    pendingProactive = null;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -909,6 +960,49 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
         conversationId: exitBody.conversation_id,
         rangeEndId,
       };
+      break;
+    }
+    case 'mid_proactive_dm': {
+      proactiveSeq += 1;
+      // Reset the thread deterministically while Elias is STILL in_scene:
+      // the user line stores without a reply (presence rule) and clears any
+      // unanswered count; exit-chat closes the range (quiet thread).
+      const resetRes = await post('/v1/commands/send-chat-message', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:elias',
+        text: `Harness reset ${proactiveSeq}: clearing the outreach counter.`,
+        request_id: `harness-proactive-reset-${proactiveSeq}`,
+      });
+      if (resetRes.status !== 202)
+        fail(`send-chat-message returned ${resetRes.status}`);
+      const resetBody = await resetRes.json();
+      if (resetBody.replying !== false) {
+        fail(
+          'presence rule violated: Elias is in a scene but the chat engine started a reply',
+        );
+      }
+      const exitRes = await post('/v1/commands/exit-chat', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:elias',
+      });
+      if (exitRes.status !== 202) fail(`exit-chat returned ${exitRes.status}`);
+      const sinceId = dbEventIdsAbove(0).at(-1) ?? 0;
+      // Attach the wait BEFORE freeing the character: the first eligible
+      // fire can land within one 1.2 s window of the scene end.
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_proactive_dm', 30000);
+      // Free the character: the fire's eligibility needs presence available.
+      const endRes = await post('/v1/commands/end-scene', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: currentScene,
+      });
+      if (endRes.status !== 202) fail(`end-scene returned ${endRes.status}`);
+      needNewScene = true;
+      // The cadence fires on its own — no command drives it.
+      await killAt;
+      pendingProactive = sinceId;
       break;
     }
     case 'mid_update': {

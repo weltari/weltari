@@ -160,6 +160,66 @@ describe('chat event family (0.11.0, Rev 4 §8/§11)', () => {
     expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
   });
 
+  it('accepts chat.outreach_recorded and rejects a missing stamp or extra key (B5)', () => {
+    const payload = {
+      conversation_id: 'chat:user:owner:char:elias',
+      character_id: 'char:elias',
+      occurrence_iso: '2026-07-10T10:00:00.000Z',
+      game_time: '2000-01-03T18:00:00.000Z',
+      message_id: 'outreach-abc123',
+      unanswered_count: 1,
+    };
+    const valid: unknown = {
+      ...envelope,
+      type: 'chat.outreach_recorded',
+      payload,
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    // Both clock stamps are REQUIRED (owner ruling 2026-07-10: game_time is
+    // the V2 trigger-base bridge — an outreach without it is malformed).
+    const { game_time, ...withoutGameTime } = payload;
+    void game_time;
+    const missing: unknown = {
+      ...envelope,
+      type: 'chat.outreach_recorded',
+      payload: withoutGameTime,
+    };
+    expect(WeltariEventSchema.safeParse(missing).success).toBe(false);
+    const extra: unknown = {
+      ...envelope,
+      type: 'chat.outreach_recorded',
+      payload: { ...payload, retries: 2 },
+    };
+    expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('accepts chat.thread_frozen and rejects a non-positive count or extra key (B5)', () => {
+    const payload = {
+      conversation_id: 'chat:user:owner:char:elias',
+      character_id: 'char:elias',
+      message_id: 'outreach-abc123',
+      unanswered_count: 3,
+    };
+    const valid: unknown = {
+      ...envelope,
+      type: 'chat.thread_frozen',
+      payload,
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const zero: unknown = {
+      ...envelope,
+      type: 'chat.thread_frozen',
+      payload: { ...payload, unanswered_count: 0 },
+    };
+    expect(WeltariEventSchema.safeParse(zero).success).toBe(false);
+    const extra: unknown = {
+      ...envelope,
+      type: 'chat.thread_frozen',
+      payload: { ...payload, visible: true },
+    };
+    expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
+  });
+
   it('scene.started accepts the 0.11.0 premise + place_request handoff fields', () => {
     const started: unknown = {
       ...envelope,

@@ -510,12 +510,18 @@ function applyOne(
     // (map refresh, feed, job status UI). map_edit.requested is the map
     // plugin's lock overlay — it reads the stream directly. reflect_chat
     // and CACHE entries are log-only trail surfaces (dev mode, §2.8).
+    // The proactive DM itself arrives as chat.message_committed above; the
+    // outreach record is bookkeeping, and a frozen thread shows NOTHING in
+    // Weltari Chat (owner ruling 2026-07-10: the unread bubble suffices —
+    // the "waiting for you" notice is the part-4 gateway push).
     case 'reflection.committed':
     case 'world_agent.committed':
     case 'map_edit.requested':
     case 'reflect_chat.committed':
     case 'cache.appended':
     case 'subwiki.updated': // the Wiki surface arrives with M6 part 3
+    case 'chat.outreach_recorded':
+    case 'chat.thread_frozen':
       return;
   }
 }

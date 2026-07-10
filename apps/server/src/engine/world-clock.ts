@@ -57,6 +57,19 @@ interface Occurrence {
   jobClass: 'code' | 'llm';
 }
 
+/** The fictional clock as a standalone projection (M6 part 3: the
+ * proactive_dm handler stamps outreach entries with it — game-day stamps are
+ * the V2 trigger-base bridge, owner ruling 2026-07-10). */
+export function worldTimeOf(storage: Storage, worldId: string): string {
+  let time = WORLD_EPOCH;
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (event.type === 'world.time_advanced' && event.world_id === worldId) {
+      time = event.payload.to;
+    }
+  }
+  return time;
+}
+
 export function createWorldClock(options: WorldClockOptions): WorldClock {
   const {
     storage,
@@ -68,13 +81,7 @@ export function createWorldClock(options: WorldClockOptions): WorldClock {
   } = options;
 
   function currentTime(worldId: string): string {
-    let time = WORLD_EPOCH;
-    for (const event of storage.eventLog.readSince(0, 100000)) {
-      if (event.type === 'world.time_advanced' && event.world_id === worldId) {
-        time = event.payload.to;
-      }
-    }
-    return time;
+    return worldTimeOf(storage, worldId);
   }
 
   return {
