@@ -3,6 +3,7 @@
 // scene ended. Render-only: every affordance is a command; the store changes
 // when events come back down. Opens go through the §1.14 masked transition.
 import { useSceneStore } from '../store.js';
+import { t } from '../i18n.js';
 import { WORLD_NAME } from '../commands.js';
 
 export function SceneSplash(props: {
@@ -28,33 +29,35 @@ export function SceneSplash(props: {
   return (
     <div className="wl-splash" aria-label="scene landing">
       <div className="wl-splash-shape wl-splash-cloud" aria-hidden="true" />
-      <h1 className="wl-splash-title">Adventure Awaits</h1>
+      <h1 className="wl-splash-title">{t('splash.title')}</h1>
       <div className="wl-splash-actions">
         <button
           className="wl-button"
           disabled={props.covering}
           onClick={props.onHistory}
         >
-          <span aria-hidden="true">↺</span> History scene
+          <span aria-hidden="true">↺</span> {t('splash.history')}
         </button>
+        {/* "Go Somewhere…", not "Open Map" (owner ruling 2026-07-11): the map
+            is framed as a tool the player uses, never the entrance itself. */}
         <button
           className="wl-button"
           disabled={props.covering}
           onClick={props.onOpenMap}
         >
-          <span aria-hidden="true">◎</span> Open Map
+          <span aria-hidden="true">◎</span> {t('splash.goSomewhere')}
         </button>
         <button
           className="wl-button wl-button-accent"
           disabled={props.covering || knownSublocations.length === 0}
           title={
             knownSublocations.length === 0
-              ? 'No known sublocations yet — explore the map first.'
-              : 'Open a scene at a random known place'
+              ? t('splash.hangAround.empty')
+              : t('splash.hangAround.hint')
           }
           onClick={hangAround}
         >
-          <span aria-hidden="true">➜</span> Hang around
+          <span aria-hidden="true">➜</span> {t('splash.hangAround')}
         </button>
       </div>
       <div className="wl-splash-shape wl-splash-hills" aria-hidden="true" />

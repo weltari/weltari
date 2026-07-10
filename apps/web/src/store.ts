@@ -79,7 +79,9 @@ export interface HistoryScene {
 
 export interface ChatMessage {
   message_id: string;
-  sender: 'user' | 'character';
+  /** `notice` = a hardcoded engine line (chat.notice, 0.13.0) — rendered as
+   * a small red system line, never as a character bubble. */
+  sender: 'user' | 'character' | 'notice';
   text: string;
   /** Wall-clock append time from the event envelope (ISO). */
   ts: string;
@@ -520,6 +522,65 @@ function applyOne(
           },
         };
       });
+      return;
+    case 'chat.notice':
+      // The red line (0.13.0, owner ruling 2026-07-11): a hardcoded engine
+      // notice — e.g. a startscene fire that exhausted its retry ceiling and
+      // rolled back — rides the thread like a transcript line.
+      set((state) => {
+        const characterId = event.payload.character_id;
+        const existing = state.chatThreads[characterId];
+        const noticeId = `notice-${String(event.id)}`;
+        if (
+          existing?.messages.some((m) => m.message_id === noticeId) === true
+        ) {
+          return {};
+        }
+        const message: ChatMessage = {
+          message_id: noticeId,
+          sender: 'notice',
+          text: event.payload.text,
+          ts: event.ts,
+        };
+        return {
+          chatThreads: {
+            ...state.chatThreads,
+            [characterId]: {
+              conversation_id: event.payload.conversation_id,
+              character_id: characterId,
+              messages: [...(existing?.messages ?? []), message],
+              lastEnded: existing?.lastEnded ?? null,
+            },
+          },
+        };
+      });
+      return;
+    case 'scene.expired':
+      // Invitation expiry (0.13.0, Rev 4 §7): the never-entered meeting
+      // closed — clear it if it is somehow the viewed scene (back to the
+      // splash), and close its History entry with the expiry divider. The
+      // character's complaint arrives later, in character, via chat.
+      set((state) => ({
+        ...(state.sceneId === event.payload.scene_id
+          ? {
+              sceneId: null,
+              sceneEnd: null,
+              sceneEndedLive: false,
+              cast: [],
+              openTurnId: null,
+            }
+          : {}),
+        history: state.history.map((h) =>
+          h.scene_id === event.payload.scene_id
+            ? {
+                ...h,
+                ended: true,
+                end_type: 'rest' as const,
+                divider_text: '— the meeting expired —',
+              }
+            : h,
+        ),
+      }));
       return;
     // No projection (yet): these surfaces arrive in later milestones
     // (map refresh, feed, job status UI). map_edit.requested is the map
