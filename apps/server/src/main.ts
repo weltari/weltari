@@ -26,6 +26,10 @@ import { createChatEngine } from './engine/chat.js';
 import { createExploreCommand } from './engine/explore.js';
 import { createMapClickCommand } from './engine/map-click.js';
 import { createMapEditCommand } from './engine/map-edit.js';
+import {
+  createInvitationExpiry,
+  pendingInvitationWorlds,
+} from './engine/invitation.js';
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { squareOf } from './engine/sublocations.js';
 import { createTurnEngine } from './engine/scene-turn.js';
@@ -603,6 +607,24 @@ const worldClock = createWorldClock({
   },
 });
 
+// Invitation expiry (M6 part 4, Rev 4 §7): lazy against the world clock —
+// the sweep runs after every clock advance (the ONLY way the deadline can
+// newly pass) and once at boot (recovery path = startup path: a kill inside
+// the mid_invitation_expiry window heals here).
+const invitationExpiry = createInvitationExpiry({
+  storage,
+  eventBus,
+  logger,
+  ...(faultPoint === undefined ? {} : { faultPoint }),
+});
+for (const pendingWorld of pendingInvitationWorlds(storage)) {
+  catchAndLog(
+    invitationExpiry.expireDue(pendingWorld),
+    logger,
+    'invitation.expire.boot',
+  );
+}
+
 // The built frontend ships from this process (FINAL item 2). The default sits
 // next to the compiled server both in-repo and in the packaged layout; a
 // missing dist just means API-only (dev uses the Vite server instead).
@@ -649,7 +671,20 @@ const app = createHttpServer({
   interruptTurn: (command) => engine.interruptTurn(command),
   endScene: (command) => lifecycle.endScene(command),
   openScene: (command) => lifecycle.openScene(command),
-  advanceTime: (command) => worldClock.advanceTime(command),
+  advanceTime: (command) => {
+    const advanced = worldClock.advanceTime(command);
+    // The lazy expiry judgment (Rev 4 §7): a skip that crossed a pending
+    // invitation's game-time deadline expires it now — the character is
+    // released and the hardcoded absence entry lands.
+    if (advanced.ok) {
+      catchAndLog(
+        invitationExpiry.expireDue(command.world_id),
+        logger,
+        'invitation.expire.advance',
+      );
+    }
+    return advanced;
+  },
   paintRegion: createPaintRegionCommand(storage),
   explore: createExploreCommand({
     storage,

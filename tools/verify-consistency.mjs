@@ -210,6 +210,11 @@ for (const event of events) {
       event.id,
     );
   }
+  // M6 part 4 (Rev 4 §7): one expiry per scene ever — the invitation's
+  // natural key survives kill-retries and racing sweeps.
+  if (event.type === 'scene.expired') {
+    dupCheck('scene.expired', payload.scene_id, event.id);
+  }
   // …and a thread freezes at most once per tripping outreach.
   if (event.type === 'chat.thread_frozen') {
     dupCheck(
@@ -249,6 +254,55 @@ for (const event of events) {
           `chat.thread_frozen ${payload.conversation_id}: froze below the 3-unanswered cap (${payload.unanswered_count})`,
         );
       }
+    }
+  }
+}
+
+// 4j. Invitation-expiry atomicity (M6 part 4, Rev 4 §7): every scene.expired
+//     commits in ONE transaction with its hardcoded absence cache entry; it
+//     may only close a never-entered invitation scene, and never coexists
+//     with a scene.ended for the same scene.
+{
+  const invitationScenes = new Set();
+  const firstTurnAt = new Map(); // scene_id -> first turn.committed event id
+  const endedScenes = new Set();
+  const sceneCacheContexts = new Set(); // context_id of scene-origin lines
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'scene.started' && payload.invitation !== undefined) {
+      invitationScenes.add(payload.scene_id);
+    }
+    if (event.type === 'turn.committed' && !firstTurnAt.has(payload.scene_id)) {
+      firstTurnAt.set(payload.scene_id, event.id);
+    }
+    if (event.type === 'scene.ended') endedScenes.add(payload.scene_id);
+    if (event.type === 'cache.appended' && payload.origin === 'scene') {
+      sceneCacheContexts.add(payload.context_id);
+    }
+  }
+  for (const event of events) {
+    if (event.type !== 'scene.expired') continue;
+    const payload = JSON.parse(event.payload);
+    if (!invitationScenes.has(payload.scene_id)) {
+      failures.push(
+        `scene.expired ${payload.scene_id}: its scene.started carries no invitation`,
+      );
+    }
+    const enteredAt = firstTurnAt.get(payload.scene_id);
+    if (enteredAt !== undefined && enteredAt < event.id) {
+      failures.push(
+        `scene.expired ${payload.scene_id}: the user had entered (turn.committed ${enteredAt})`,
+      );
+    }
+    if (endedScenes.has(payload.scene_id)) {
+      failures.push(
+        `scene.expired ${payload.scene_id}: coexists with a scene.ended`,
+      );
+    }
+    if (!sceneCacheContexts.has(payload.scene_id)) {
+      failures.push(
+        `scene.expired ${payload.scene_id}: missing its absence cache entry (torn transaction)`,
+      );
     }
   }
 }

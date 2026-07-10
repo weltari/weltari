@@ -54,6 +54,12 @@ const POINTS = [
   // still in_scene — no reply generates), then frees him by ending the
   // scene, so eligibility is deterministic. Cadence env: 0.02 min = 1.2 s.
   'mid_proactive_dm',
+  // M6 part 4 (invitation expiry, Rev 4 §7): a character-fired startscene
+  // sits pending, a 12 h skip crosses its 6 h window, and the sweep is
+  // killed BEFORE the scene.expired + cache.appended pair commits;
+  // convergence = the BOOT sweep (recovery path = startup path) commits the
+  // pair exactly once (natural key scene_id, fused re-check).
+  'mid_invitation_expiry',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -219,6 +225,35 @@ function dbCountCreated(editId) {
        WHERE type = 'sublocation.created' AND payload LIKE ?`,
     )
     .get(`%"edit_id":"${editId}"%`);
+  db.close();
+  return row.n;
+}
+
+/** The invitation cycle's pending scene (M6 part 4): the first scene.started
+ * above sinceId that carries an invitation — the character-fired bridge's
+ * commit; null until the detached reply lands. */
+function dbFindInvitationSceneAbove(sinceId) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT payload FROM events
+       WHERE id > ? AND type = 'scene.started' AND payload LIKE '%"invitation"%'
+       ORDER BY id LIMIT 1`,
+    )
+    .get(sinceId);
+  db.close();
+  return row === undefined ? null : JSON.parse(row.payload).scene_id;
+}
+
+/** Exactly-once check for an invitation expiry (natural key scene_id). */
+function dbCountExpired(sceneId) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'scene.expired' AND payload LIKE ?`,
+    )
+    .get(`%"scene_id":"${sceneId}"%`);
   db.close();
   return row.n;
 }
@@ -571,6 +606,10 @@ let pendingReflectChat = null;
 // the retried job commits its outreach exactly once (natural key).
 let proactiveSeq = 0;
 let pendingProactive = null;
+// M6 part 4 invitation cycles: the expiry sweep killed mid-commit;
+// convergence = the boot sweep commits the pair exactly once.
+let inviteSeq = 0;
+let pendingInvitationScene = null;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -779,6 +818,30 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       'mid_proactive_dm convergence ok: the fire committed its outreach after restart',
     );
     pendingProactive = null;
+  }
+
+  // M6 part 4: a kill at mid_invitation_expiry must CONVERGE — the boot
+  // sweep (recovery path = startup path) expires the still-pending
+  // invitation exactly once; pair atomicity is verify-consistency's 4j.
+  if (pendingInvitationScene !== null) {
+    const deadline = Date.now() + 30000;
+    while (dbCountExpired(pendingInvitationScene) < 1) {
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          'lost invitation expiry: no scene.expired committed after mid_invitation_expiry kill',
+        );
+      }
+      await sleep(500);
+    }
+    if (dbCountExpired(pendingInvitationScene) > 1) {
+      child.kill('SIGKILL');
+      fail('twinned invitation expiry: scene.expired committed twice');
+    }
+    console.log(
+      'mid_invitation_expiry convergence ok: the boot sweep expired the invitation exactly once',
+    );
+    pendingInvitationScene = null;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -1003,6 +1066,57 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       // The cadence fires on its own — no command drives it.
       await killAt;
       pendingProactive = sinceId;
+      break;
+    }
+    case 'mid_invitation_expiry': {
+      inviteSeq += 1;
+      // Free Elias first (chat replies need presence available), then have
+      // HIM fire the meeting — the character-led startscene carries the
+      // game-time window (the fake scripts wait_hours 6).
+      const endRes = await post('/v1/commands/end-scene', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: currentScene,
+      });
+      if (endRes.status !== 202) fail(`end-scene returned ${endRes.status}`);
+      needNewScene = true;
+      const sinceId = dbEventIdsAbove(0).at(-1) ?? 0;
+      const sendRes = await post('/v1/commands/send-chat-message', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:elias',
+        text: `Meet me. !startscene harness-shrine-${inviteSeq}`,
+        request_id: `harness-invite-${inviteSeq}`,
+      });
+      if (sendRes.status !== 202)
+        fail(`send-chat-message returned ${sendRes.status}`);
+      // The reply + bridge run detached (the bridge waits out the ended
+      // scene's fan-out); poll for the invitation scene it opens.
+      let inviteScene = null;
+      const bridgeDeadline = Date.now() + 30000;
+      while (inviteScene === null) {
+        if (Date.now() > bridgeDeadline) {
+          child.kill('SIGKILL');
+          fail('no invitation scene.started committed by the bridge');
+        }
+        inviteScene = dbFindInvitationSceneAbove(sinceId);
+        if (inviteScene === null) await sleep(250);
+      }
+      // A 12 h skip crosses the 6 h window: the expiry sweep runs right
+      // after the advance and the kill lands inside its window.
+      const killAt = waitForLine(
+        child,
+        'FAULT_POINT:mid_invitation_expiry',
+        30000,
+      );
+      const advRes = await post('/v1/commands/advance-time', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        minutes: 720,
+      });
+      if (advRes.status !== 202) fail(`advance-time returned ${advRes.status}`);
+      await killAt;
+      pendingInvitationScene = inviteScene;
       break;
     }
     case 'mid_update': {
