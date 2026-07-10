@@ -12,9 +12,11 @@ import type {
 import { z } from 'zod';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { EventBus } from '../http/bus.js';
+import { addMinutesIso } from '../ledger/scheduler.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
 import { knownSublocations, latestBackdropPath } from './sublocations.js';
+import { worldTimeOf } from './world-clock.js';
 
 export interface KnownCharacter {
   character_id: string;
@@ -40,6 +42,18 @@ export interface SceneLifecycleOptions {
 export interface OpenSceneRequest extends OpenSceneCommand {
   premise?: string;
   place_request?: string;
+  /**
+   * The character-fired invitation (0.13.0, Rev 4 §7): only the chat
+   * bridge's CHARACTER path sets it — the dev-mode button and every
+   * user-fired open never do (the user firing a scene IS showing up).
+   * The engine stamps `expires_at_game` against the world clock at open;
+   * the character supplied only its own game-time `wait_hours`.
+   */
+  invitation?: {
+    character_id: string;
+    place: string;
+    wait_hours: number;
+  };
 }
 
 export interface SceneLifecycle {
@@ -157,9 +171,16 @@ export function createSceneLifecycle(
           new OperationalError('scene_not_found', 'no scene.started for id'),
         );
       }
-      if (events.some((e) => e.type === 'scene.ended')) {
+      if (
+        events.some(
+          (e) => e.type === 'scene.ended' || e.type === 'scene.expired',
+        )
+      ) {
         return err(
-          new OperationalError('scene_already_ended', 'scene.ended exists'),
+          new OperationalError(
+            'scene_already_ended',
+            'scene.ended or scene.expired exists',
+          ),
         );
       }
 
@@ -240,6 +261,21 @@ export function createSceneLifecycle(
           'open-scene: unknown participant ids skipped from the roster',
         );
       }
+      // The invitation's game-clock deadline is stamped HERE (0.13.0, Rev 4
+      // §7): the character chose wait_hours; the engine owns the clock math
+      // (A16 — calendar math delegated to the scheduler's pure functions).
+      const invitation =
+        command.invitation === undefined
+          ? undefined
+          : {
+              character_id: command.invitation.character_id,
+              place: command.invitation.place,
+              wait_hours: command.invitation.wait_hours,
+              expires_at_game: addMinutesIso(
+                worldTimeOf(storage, command.world_id),
+                Math.round(command.invitation.wait_hours * 60),
+              ),
+            };
       const persisted = storage.transact(() => {
         const events = [
           storage.eventLog.append({
@@ -255,6 +291,7 @@ export function createSceneLifecycle(
               ...(command.place_request === undefined
                 ? {}
                 : { place_request: command.place_request }),
+              ...(invitation === undefined ? {} : { invitation }),
             },
           }),
         ];
