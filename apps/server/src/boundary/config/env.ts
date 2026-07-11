@@ -29,6 +29,11 @@ const envSchema = z.object({
   WELTARI_MODEL: z.string().min(1).default('anthropic/claude-sonnet-4.5'),
   /** Comma-separated OpenRouter provider.order pin (cache stability, FINAL risk #1). */
   WELTARI_PROVIDER_ORDER: z.string().optional(),
+  /** OpenRouter model for GM calls (M7 part 2, Rev 4 §16 model routing:
+   * distinct roles never collapse onto one prompt — the GM is independently
+   * configurable). ABSENT = WELTARI_MODEL (chat-class is plenty for the
+   * interview; switching is a config change, not code). */
+  WELTARI_GM_MODEL: z.string().min(1).optional(),
   /** Stable-prefix size for the fixture profile (success criterion a: ~50000). */
   WELTARI_PREFIX_TOKENS: z.coerce.number().int().positive().default(800),
   /** Harness only: hold at between_calls/pre_commit so SIGKILL lands inside the window. */
@@ -129,6 +134,7 @@ export interface Env {
   fakeLlmDelayMs: number;
   emitFaultPoints: boolean;
   model: string;
+  gmModel: string | undefined;
   providerOrder: readonly string[] | undefined;
   prefixTokens: number;
   faultPauseMs: number;
@@ -186,6 +192,7 @@ export function readEnv(
       fakeLlmDelayMs: parsed.data.WELTARI_FAKE_LLM_DELAY_MS,
       emitFaultPoints: parsed.data.WELTARI_EMIT_FAULT_POINTS === '1',
       model: parsed.data.WELTARI_MODEL,
+      gmModel: parsed.data.WELTARI_GM_MODEL,
       providerOrder:
         parsed.data.WELTARI_PROVIDER_ORDER === undefined
           ? undefined

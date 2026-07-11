@@ -407,6 +407,163 @@ export function parseGroupRouterCall(
   }
 }
 
+/**
+ * The GM toolset (M7 part 2, Rev 4 §9/§16): every authoring tool is a
+ * PROPOSAL — data-only here, gate-1 parsed, then re-shaped through the wire
+ * union and gate-2 checked by the proposal engine; nothing the GM says is
+ * durable world change until the user approves the card. The diff shapes
+ * mirror the protocol's ProposalPlaceDiff / ProposalCharacterDiff on
+ * purpose: a tool input that drifts from the wire union is refused at the
+ * submit seam, visibly.
+ */
+export const ProposePlaceToolSchema = z.strictObject({
+  name: z.string().min(1).max(120),
+  description: z.string().min(1).max(2000),
+  space: z.enum(['public', 'private']),
+  wiki_entry: z.string().min(1).max(4000).optional(),
+  rationale: z.string().min(1).max(1000),
+});
+export type ProposePlaceToolInput = z.infer<typeof ProposePlaceToolSchema>;
+
+export const ProposeCharacterToolSchema = z.strictObject({
+  name: z.string().min(1).max(120),
+  personality: z.string().min(1).max(1000),
+  goals: z.array(z.string().min(1).max(300)).min(1).max(8),
+  /** Optional — the submit seam normalizes absence to []. */
+  core: z.array(z.string().min(1).max(300)).max(12).optional(),
+  skills: z.array(z.string().min(1).max(300)).max(8).optional(),
+  rationale: z.string().min(1).max(1000),
+});
+export type ProposeCharacterToolInput = z.infer<
+  typeof ProposeCharacterToolSchema
+>;
+
+export const ProposeWikiEditToolSchema = z.strictObject({
+  sublocation_id: z.string().min(1).max(200),
+  entry: z.string().min(1).max(4000),
+  rationale: z.string().min(1).max(1000),
+});
+export type ProposeWikiEditToolInput = z.infer<
+  typeof ProposeWikiEditToolSchema
+>;
+
+export const ProposeWorldSeedToolSchema = z.strictObject({
+  world_name: z.string().min(1).max(120),
+  language: z.string().min(1).max(35),
+  chapter_seed: z.string().min(1).max(2000).optional(),
+  places: z
+    .array(ProposePlaceToolSchema.omit({ rationale: true }))
+    .min(2)
+    .max(8),
+  characters: z
+    .array(ProposeCharacterToolSchema.omit({ rationale: true }))
+    .min(1)
+    .max(6),
+  rationale: z.string().min(1).max(1000),
+});
+export type ProposeWorldSeedToolInput = z.infer<
+  typeof ProposeWorldSeedToolSchema
+>;
+
+export const GM_TOOL_NAMES = [
+  'propose_place',
+  'propose_character',
+  'propose_wiki_edit',
+  'propose_world_seed',
+] as const;
+export type GmToolName = (typeof GM_TOOL_NAMES)[number];
+
+/** Static descriptions for the GM toolset (stable strings — I5). */
+export const GM_TOOL_DESCRIPTIONS: Record<GmToolName, string> = {
+  propose_place:
+    'Propose a new place for this world. Nothing is created yet: the user sees your proposal as a card with your rationale and decides. name + description; space = "public" (anyone can wander in — squares, taverns, markets) or "private" (someone\'s own space — a home, a workshop); wiki_entry (optional) = the opening wiki text documenting the place; rationale = one honest paragraph on why the world wants it.',
+  propose_character:
+    'Propose a new character for this world. Nothing is created until the user approves the card. name, personality (their full personality text), goals (1-8 short lines), core (optional, up to 12 short lines of seed memories they start life knowing), skills (optional), rationale = why this character belongs.',
+  propose_wiki_edit:
+    "Propose replacing a place's wiki entry with new text. Use the wikiquery tool FIRST to read what stands there now — your entry replaces it whole. sublocation_id must be the real id from wikiquery. The user sees old vs new as a diff card.",
+  propose_world_seed:
+    'Submit the completed world-creation form ONCE, when the interview has covered everything: world_name, language (what the user chose), chapter_seed (optional: the opening story situation), places (2-8; every place you deliberately name — at least one public AND one private), characters (1-6). The user reviews the whole world as one card; approval creates all of it at once. Do not call this while anything essential is still unasked.',
+};
+
+/** A GM tool call that passed gate 1. The proposal engine's gate 2 (world
+ * state) still applies at submit. */
+export type ValidatedGmToolCall =
+  | { tool: 'propose_place'; input: ProposePlaceToolInput }
+  | { tool: 'propose_character'; input: ProposeCharacterToolInput }
+  | { tool: 'propose_wiki_edit'; input: ProposeWikiEditToolInput }
+  | { tool: 'propose_world_seed'; input: ProposeWorldSeedToolInput };
+
+/** Gate 1 for the GM toolset — same contract as every parse here: reject as
+ * a value, zero rows (I8). */
+export function parseGmToolCall(
+  raw: RawToolCall,
+  logger: Logger,
+): Result<ValidatedGmToolCall> {
+  switch (raw.tool) {
+    case 'propose_place': {
+      const input = validateAt(
+        'llm',
+        'tool:propose_place',
+        ProposePlaceToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'propose_place', input: input.value } }
+        : input;
+    }
+    case 'propose_character': {
+      const input = validateAt(
+        'llm',
+        'tool:propose_character',
+        ProposeCharacterToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? {
+            ok: true,
+            value: { tool: 'propose_character', input: input.value },
+          }
+        : input;
+    }
+    case 'propose_wiki_edit': {
+      const input = validateAt(
+        'llm',
+        'tool:propose_wiki_edit',
+        ProposeWikiEditToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? {
+            ok: true,
+            value: { tool: 'propose_wiki_edit', input: input.value },
+          }
+        : input;
+    }
+    case 'propose_world_seed': {
+      const input = validateAt(
+        'llm',
+        'tool:propose_world_seed',
+        ProposeWorldSeedToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? {
+            ok: true,
+            value: { tool: 'propose_world_seed', input: input.value },
+          }
+        : input;
+    }
+    default:
+      return err(
+        new OperationalError('unknown_tool', `no such GM tool: ${raw.tool}`),
+      );
+  }
+}
+
 /** A tool call as the provider (or the fake) returned it — unvalidated. */
 export interface RawToolCall {
   tool: string;

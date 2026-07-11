@@ -33,7 +33,11 @@ export type CallKind =
   | 'social_reply'
   /** M7 part 1 (Rev 4 §11): the compaction pass — summarize the character's
    * old memory deltas into one record; cold path, world-inert. */
-  | 'compaction';
+  | 'compaction'
+  /** M7 part 2 (Rev 4 §9): a GM conversation turn — interview, authoring
+   * negotiation, settings talk. Chat-class; per-role override via
+   * WELTARI_GM_MODEL (the registry's per-character key char:gm). */
+  | 'gm';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */
@@ -67,7 +71,12 @@ export interface LlmCall {
      * SCENE turn — read-only queries only (memoryquery + wikiquery run
      * mid-call; nothing stageable), so a character can deep-dive its own
      * past or look up a place without ever mutating anything. */
-    | 'character_scene';
+    | 'character_scene'
+    /** M7 part 2 (Rev 4 §9/§16): the GM's authoring tools — every one a
+     * data-only PROPOSAL (propose_place / propose_character /
+     * propose_wiki_edit / propose_world_seed); the GM engine gates and
+     * submits, the user's approval applies. wikiquery runs mid-call. */
+    | 'gm';
   /**
    * Engine-owned read-only query executors offered alongside the toolset
    * (M6 part 1, Rev 4 §6). The client runs these DURING the call and feeds

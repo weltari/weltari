@@ -51,6 +51,8 @@ const SCRIPT: Record<string, string> = {
   // standing in for the covered delta range — deterministic, $0.
   compaction:
     'Storm season so far: the traveler lies about small things, the shrine bell is being silenced by someone, and the workshop roof went up before the rain returned.',
+  // The GM conversation turn (M7 part 2, Rev 4 §9): deterministic, in-persona.
+  gm: 'Welcome to the table. Tell me what kind of world you want to wake up in, and we will build it together — one honest question at a time.',
 };
 
 /**
@@ -213,6 +215,17 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
             query: (memory[1] ?? '').trim(),
           });
           text = `Give me a moment to remember. ${answer}`;
+        }
+      }
+      // The GM's mid-call wiki read (M7 part 2): same marker as chat — the
+      // GM checks what stands in the wiki before proposing an edit.
+      if (call.toolset === 'gm') {
+        const wiki = /!wikiquery\s+([^\n!]+)/.exec(call.prompt);
+        if (wiki !== null && call.queries?.wikiquery !== undefined) {
+          const answer = call.queries.wikiquery({
+            query: (wiki[1] ?? '').trim(),
+          });
+          text = `Let me check the record. ${answer}`;
         }
       }
       // The character's scene-side queries (M7 part 1): same markers, spoken
@@ -457,7 +470,171 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                           }
                           return calls;
                         })()
-                      : [],
+                      : call.toolset === 'gm'
+                        ? // The GM's scripted proposals (M7 part 2, Rev 4
+                          // §9/§16) — tests, the harness and the browser
+                          // drive the whole consent pipeline at $0:
+                          //   !proposeplace <name-slug>   → propose_place (public)
+                          //   !proposeprivate <name-slug> → propose_place (private)
+                          //   !proposechar <name-slug>    → propose_character
+                          //   !proposewiki <sublocation_id> → propose_wiki_edit
+                          //   !proposeseed <world-slug>   → propose_world_seed
+                          //     (3 places incl. the §9 public+private mix, 2
+                          //     characters — the cold-boot demo's whole form)
+                          //   !badproposal                → gate-1 subject
+                          ((): RawToolCall[] => {
+                            const calls: RawToolCall[] = [];
+                            const place = /!proposeplace\s+(\S+)/.exec(
+                              call.prompt,
+                            );
+                            if (place !== null) {
+                              calls.push({
+                                tool: 'propose_place',
+                                input: {
+                                  name: (place[1] ?? '').replaceAll('-', ' '),
+                                  description:
+                                    'A place the interview conjured; the rain has not mapped its corners yet.',
+                                  space: 'public',
+                                  wiki_entry:
+                                    'Newly noted on the town record; details accrue as stories touch it.',
+                                  rationale:
+                                    'The user asked for somewhere like this, and the world has no such place yet.',
+                                },
+                              });
+                            }
+                            const privatePlace = /!proposeprivate\s+(\S+)/.exec(
+                              call.prompt,
+                            );
+                            if (privatePlace !== null) {
+                              calls.push({
+                                tool: 'propose_place',
+                                input: {
+                                  name: (privatePlace[1] ?? '').replaceAll(
+                                    '-',
+                                    ' ',
+                                  ),
+                                  description:
+                                    'A private space with a door that stays shut to strangers.',
+                                  space: 'private',
+                                  rationale:
+                                    'Someone in this world needs a home the story can knock on.',
+                                },
+                              });
+                            }
+                            const character = /!proposechar\s+(\S+)/.exec(
+                              call.prompt,
+                            );
+                            if (character !== null) {
+                              calls.push({
+                                tool: 'propose_character',
+                                input: {
+                                  name: (character[1] ?? '').replaceAll(
+                                    '-',
+                                    ' ',
+                                  ),
+                                  personality:
+                                    'Steady, watchful, keeps promises slowly and completely.',
+                                  goals: [
+                                    'Find a place in this town worth defending.',
+                                  ],
+                                  core: [
+                                    'Arrived with one bag and a debt nobody here knows about.',
+                                  ],
+                                  skills: [],
+                                  rationale:
+                                    'The interview asked for a new face; this one fits the world described.',
+                                },
+                              });
+                            }
+                            const wikiEdit = /!proposewiki\s+(\S+)/.exec(
+                              call.prompt,
+                            );
+                            if (wikiEdit !== null) {
+                              calls.push({
+                                tool: 'propose_wiki_edit',
+                                input: {
+                                  sublocation_id: wikiEdit[1] ?? '',
+                                  entry:
+                                    'The record here has grown: what the town whispers is now written plainly.',
+                                  rationale:
+                                    'The current entry no longer matches what everyone can see.',
+                                },
+                              });
+                            }
+                            const seed = /!proposeseed\s+(\S+)/.exec(
+                              call.prompt,
+                            );
+                            if (seed !== null) {
+                              calls.push({
+                                tool: 'propose_world_seed',
+                                input: {
+                                  world_name: (seed[1] ?? '').replaceAll(
+                                    '-',
+                                    ' ',
+                                  ),
+                                  language: 'en',
+                                  chapter_seed:
+                                    'A small town holds its breath between two storms.',
+                                  places: [
+                                    {
+                                      name: 'The Lantern Square',
+                                      description:
+                                        'The town square; market stalls by day, lantern circles by night.',
+                                      space: 'public',
+                                      wiki_entry:
+                                        'The square every road in town eventually crosses.',
+                                    },
+                                    {
+                                      name: 'The Weaver House',
+                                      description:
+                                        'A narrow private house; looms upstairs, secrets downstairs.',
+                                      space: 'private',
+                                    },
+                                    {
+                                      name: 'The Rope Bridge',
+                                      description:
+                                        'A swaying crossing over the gorge; everyone has one bridge story.',
+                                      space: 'public',
+                                    },
+                                  ],
+                                  characters: [
+                                    {
+                                      name: 'Senna the Weaver',
+                                      personality:
+                                        'Sharp-eyed, dry-humored, counts threads and favors alike.',
+                                      goals: [
+                                        'Keep the loom house independent.',
+                                      ],
+                                      core: [
+                                        'Senna wove the banner that hangs over the Lantern Square.',
+                                      ],
+                                      skills: [],
+                                    },
+                                    {
+                                      name: 'Brack the Bridgekeeper',
+                                      personality:
+                                        'Slow-spoken, superstitious, remembers every crossing.',
+                                      goals: [
+                                        'See the bridge through one more storm season.',
+                                      ],
+                                      core: [],
+                                      skills: [],
+                                    },
+                                  ],
+                                  rationale:
+                                    'The interview is complete: language chosen, world described, people named.',
+                                },
+                              });
+                            }
+                            if (call.prompt.includes('!badproposal')) {
+                              calls.push({
+                                tool: 'propose_place',
+                                input: { name: 42 },
+                              });
+                            }
+                            return calls;
+                          })()
+                        : [],
       });
     },
   };
