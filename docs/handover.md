@@ -42,9 +42,18 @@ week 13 lands here, designed for the GM from day one — user profiling, the
 gateway-onboarding GM message; plus the real memory store + `memoryquery`).
 Read `docs/week13-results.md` first — above all the owner rulings of
 2026-07-11 (Proposals dropped from V1 wiki writes; reply-to-comment is
-answer-only; user posting is V1.5). When a Week 14 kickoff prompt exists at
-the repo root, treat it as the authoritative task description; where it
-conflicts with anything else except the owner, it wins.
+answer-only; user posting is V1.5). The Week 14 kickoff prompt at the repo
+root is the authoritative task description; where it conflicts with
+anything else except the owner, it wins.
+
+**The road to V1 is mapped week-by-week (weeks 14–19) in the "V1
+completion map" inside `Week 14 Kickoff Prompt.md`** (owner rulings
+2026-07-11: weather → V1.5; every other Rev 4 §18 V1 item stays — a hard
+code-vs-spec audit found chance-encounter markers, CRON world movement,
+storytelling subgoals, the scene orchestration tools, and objects/backpacks
+were in no milestone). Carry that map into every kickoff and results doc;
+week 19 is a dedicated code-vs-Rev-4 verification week before V1 is
+declared done.
 
 The weekly rhythm, which you should continue: kickoff prompt → agree scope
 and budget with the owner at session start → build in small conventional
