@@ -29,6 +29,7 @@ import {
   type TurnLine,
 } from './context-assembler.js';
 import type { EventSink } from './event-sink.js';
+import { liveProfile } from './memory.js';
 
 /** How many recent group lines a router/character call sees. */
 const GROUP_TRANSCRIPT_LINES = 32;
@@ -274,7 +275,10 @@ export function createGroupChatEngine(
       latestPerOrigin(storage, profile.character_id),
     );
     const context = assembleContext(
-      { ...profile, skills: [...profile.skills, CHAT_CONDUCT_SKILL] },
+      {
+        ...liveProfile(storage, profile),
+        skills: [...profile.skills, CHAT_CONDUCT_SKILL],
+      },
       {
         scene_id: conversationId,
         heading: 'Group chat',

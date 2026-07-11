@@ -21,6 +21,7 @@ import {
 import { presenceOf } from '../../engine/chat.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
+import { liveProfile } from '../../engine/memory.js';
 import { pickIndex } from '../../engine/outreach.js';
 import {
   acquaintancesOf,
@@ -126,7 +127,10 @@ export function createSocialPostHandler(
       latestPerOrigin(storage, profile.character_id),
     );
     const context = assembleContext(
-      { ...profile, skills: [...profile.skills, SOCIAL_CONDUCT_SKILL] },
+      {
+        ...liveProfile(storage, profile),
+        skills: [...profile.skills, SOCIAL_CONDUCT_SKILL],
+      },
       {
         scene_id: `feed:${job.world_id}`,
         heading: 'The Feed',

@@ -24,6 +24,7 @@ import type { LlmClient } from '../llm/types.js';
 import type { Storage } from '../storage/db.js';
 import { cacheRecapText, capCacheLine, latestPerOrigin } from './cache.js';
 import { runSessionquery, runWikiquery } from './chat-queries.js';
+import { liveProfile } from './memory.js';
 import {
   assembleContext,
   type CharacterProfile,
@@ -403,9 +404,15 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
           latestPerOrigin(storage, profile.character_id),
         );
         // The conduct skill rides the STABLE prefix (a constant appended to
-        // constant profile skills — byte-identical across calls, I5).
+        // constant profile skills — byte-identical across calls, I5). The
+        // profile is the LIVE fold (M7 part 1): seed + latest durable core,
+        // evolved personality/goals — it changes only when a reflection-class
+        // job commits a memory event, never within a call.
         const context = assembleContext(
-          { ...profile, skills: [...profile.skills, CHAT_CONDUCT_SKILL] },
+          {
+            ...liveProfile(storage, profile),
+            skills: [...profile.skills, CHAT_CONDUCT_SKILL],
+          },
           {
             scene_id: conversationId,
             heading: 'Conversation',

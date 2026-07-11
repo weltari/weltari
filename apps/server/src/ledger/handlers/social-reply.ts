@@ -18,6 +18,7 @@ import {
   latestPerOrigin,
 } from '../../engine/cache.js';
 import type { EventSink } from '../../engine/event-sink.js';
+import { liveProfile } from '../../engine/memory.js';
 import { SOCIAL_CONDUCT_SKILL } from '../../engine/social.js';
 import { parseSocialToolCall } from '../../llm/tools.js';
 import type { LlmClient } from '../../llm/types.js';
@@ -134,7 +135,10 @@ export function createSocialReplyHandler(
 
     const recap = cacheRecapText(latestPerOrigin(storage, character_id));
     const context = assembleContext(
-      { ...profile, skills: [...profile.skills, SOCIAL_CONDUCT_SKILL] },
+      {
+        ...liveProfile(storage, profile),
+        skills: [...profile.skills, SOCIAL_CONDUCT_SKILL],
+      },
       {
         scene_id: `feed:${job.world_id}`,
         heading: 'The Feed',

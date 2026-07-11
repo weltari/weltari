@@ -34,6 +34,7 @@ import {
   type TurnLine,
 } from './context-assembler.js';
 import type { EventSink } from './event-sink.js';
+import { liveProfile } from './memory.js';
 import {
   buildEliasProfile,
   buildNarratorProfile,
@@ -264,7 +265,10 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       ...recentTurns(sceneId),
       ...priorSteps.map((s) => ({ speaker: s.speaker, text: s.text })),
     ];
-    const context = assembleContext(plan.profile, {
+    // The LIVE profile fold (M7 part 1): seed + latest durable core, evolved
+    // personality/goals — the scene call after a core update provably injects
+    // it (criterion b); folding the Narrator is a no-op (it never reflects).
+    const context = assembleContext(liveProfile(storage, plan.profile), {
       scene_id: sceneId,
       world_clock_text: worldClockText,
       latest_turns: transcript,

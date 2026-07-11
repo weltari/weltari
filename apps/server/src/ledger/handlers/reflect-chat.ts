@@ -13,6 +13,7 @@ import type {
 } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
+import { liveProfile } from '../../engine/memory.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
 import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
@@ -120,7 +121,7 @@ export function createReflectChatHandler(
       return;
     }
 
-    const context = assembleContext(profile, {
+    const context = assembleContext(liveProfile(storage, profile), {
       scene_id: conversation_id,
       heading: 'Conversation',
       world_clock_text: 'The chat has just ended.',
