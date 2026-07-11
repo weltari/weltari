@@ -17,6 +17,7 @@ import { NavRail } from './components/NavRail.js';
 import { type CoverState } from './components/SceneCover.js';
 import { ChatPage } from './pages/ChatPage.js';
 import { ConfigPage } from './pages/ConfigPage.js';
+import { FeedPage } from './pages/FeedPage.js';
 import { WikiPage } from './pages/WikiPage.js';
 import { GamedayPage } from './pages/GamedayPage.js';
 import { MapPage } from './pages/MapPage.js';
@@ -172,6 +173,8 @@ export function App(): React.JSX.Element {
       <div className="wl-page">
         {route === '/map' ? (
           <MapPage mapReady={mapReady} />
+        ) : route === '/feed' ? (
+          <FeedPage />
         ) : route === '/gameday' ? (
           <GamedayPage />
         ) : route === '/chats' ? (

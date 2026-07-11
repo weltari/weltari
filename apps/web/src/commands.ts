@@ -8,6 +8,7 @@ import {
   EndSceneAcceptedSchema,
   ExitChatAcceptedSchema,
   ExitGroupChatAcceptedSchema,
+  FeedReplyAcceptedSchema,
   InterruptTurnAcceptedSchema,
   OpenSceneAcceptedSchema,
   SendChatMessageAcceptedSchema,
@@ -15,6 +16,7 @@ import {
   StartGroupChatAcceptedSchema,
   StartSceneFromChatAcceptedSchema,
   StartTurnAcceptedSchema,
+  SubwikiEditAcceptedSchema,
 } from '@weltari/protocol';
 
 /** Fixture identity until multi-actor auth exists (actor_id everywhere, §1.3). */
@@ -225,6 +227,41 @@ export async function postExitGroupChat(
   });
   const parsed = ExitGroupChatAcceptedSchema.safeParse(raw);
   return parsed.success ? { ended: parsed.data.ended } : null;
+}
+
+/** Reply to a feed comment (0.15.0, owner ruling 2026-07-11): the reply is
+ * durable at the seam; the comment author's answer arrives on the stream as
+ * social.reply_answered. Never routed into Weltari Chat. */
+export async function postFeedReply(
+  postId: string,
+  reactionId: string,
+  text: string,
+): Promise<{ replyId: string } | null> {
+  const raw = await post('/v1/commands/feed-reply', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    post_id: postId,
+    reaction_id: reactionId,
+    text,
+    request_id: `reply-${crypto.randomUUID().slice(0, 12)}`,
+  });
+  const parsed = FeedReplyAcceptedSchema.safeParse(raw);
+  return parsed.success ? { replyId: parsed.data.reply_id } : null;
+}
+
+/** Manual wiki edit (0.15.0, owner ruling 2026-07-11: applies immediately —
+ * subwiki.edited comes back on the stream with USER actor provenance). */
+export async function postSubwikiEdit(
+  sublocationId: string,
+  entry: string,
+): Promise<boolean> {
+  const raw = await post('/v1/commands/subwiki-edit', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    sublocation_id: sublocationId,
+    entry,
+  });
+  return SubwikiEditAcceptedSchema.safeParse(raw).success;
 }
 
 /** The startscene() bridge, user side (Rev 4 §8): ends the chat and opens a

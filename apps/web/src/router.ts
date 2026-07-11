@@ -4,13 +4,15 @@
 // SSE projections, so navigation can never lose scene state.
 import { useSyncExternalStore } from 'react';
 
-export type Route = '/' | '/map' | '/gameday' | '/chats' | '/wiki' | '/config';
+export type Route =
+  '/' | '/map' | '/feed' | '/gameday' | '/chats' | '/wiki' | '/config';
 
 const listeners = new Set<() => void>();
 
 /** Unknown paths render the Scene route (SPA fallback serves index.html). */
 function normalize(pathname: string): Route {
   return pathname === '/map' ||
+    pathname === '/feed' ||
     pathname === '/gameday' ||
     pathname === '/chats' ||
     pathname === '/wiki' ||

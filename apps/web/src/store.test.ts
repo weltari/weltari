@@ -168,3 +168,120 @@ describe('invitation expiry + the red-line notice (0.13.0, M6 part 4)', () => {
     expect(notices[0]?.text).toContain('no scene was opened');
   });
 });
+
+function socialPost(postId: string, body = 'Roof beams up.'): WeltariEvent {
+  return {
+    id: nextId++,
+    world_id: 'w1',
+    actor_id: 'char:elias',
+    ts: TS,
+    type: 'social.post_committed',
+    payload: {
+      post_id: postId,
+      occurrence_iso: '2000-01-02T00:00:00.000Z',
+      game_time: '2000-01-02T08:00:00.000Z',
+      character_id: 'char:elias',
+      body,
+      recipient_ids: ['char:mara'],
+    },
+  };
+}
+
+function socialComment(postId: string, reactionId: string): WeltariEvent {
+  return {
+    id: nextId++,
+    world_id: 'w1',
+    actor_id: 'char:mara',
+    ts: TS,
+    type: 'social.reaction_committed',
+    payload: {
+      post_id: postId,
+      reaction_id: reactionId,
+      character_id: 'char:mara',
+      kind: 'comment',
+      body: 'Rain never asks first.',
+    },
+  };
+}
+
+describe('the Feed projection (0.15.0, UI Spec §2.5)', () => {
+  it('posts, reactions and reply threads fold; duplicates are no-ops; answers land in the bell', () => {
+    const before = useSceneStore.getState().feedPosts.length;
+    apply(socialPost('post-1'));
+    apply(socialPost('post-1')); // replay duplicate
+    apply(socialComment('post-1', 'post-1:char:mara'));
+    apply(socialComment('post-1', 'post-1:char:mara')); // duplicate
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'social.reply_posted',
+      payload: {
+        post_id: 'post-1',
+        reaction_id: 'post-1:char:mara',
+        reply_id: 'req-1',
+        body: 'What did the eels say?',
+      },
+    });
+    const answerId = nextId;
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:mara',
+      ts: TS,
+      type: 'social.reply_answered',
+      payload: {
+        post_id: 'post-1',
+        reaction_id: 'post-1:char:mara',
+        reply_id: 'answer-1',
+        in_reply_to: 'req-1',
+        character_id: 'char:mara',
+        body: 'Eels keep their opinions under water.',
+      },
+    });
+
+    const state = useSceneStore.getState();
+    const posts = state.feedPosts.filter((p) => p.post_id === 'post-1');
+    expect(state.feedPosts.length).toBe(before + 1);
+    expect(posts).toHaveLength(1);
+    const post = posts[0];
+    expect(post?.reactions).toHaveLength(1);
+    expect(post?.reactions[0]?.kind).toBe('comment');
+    expect(post?.reactions[0]?.replies.map((r) => r.author)).toEqual([
+      'user',
+      'character',
+    ]);
+    // The bell holds the one thing directed at the user: the answer.
+    const bell = state.feedNotifications.find((n) => n.reply_id === 'answer-1');
+    expect(bell?.character_id).toBe('char:mara');
+    expect(bell?.event_id).toBe(answerId);
+    expect(state.feedLastEventId).toBeGreaterThanOrEqual(answerId);
+  });
+});
+
+describe('subwiki.edited projection (0.15.0, manual edits)', () => {
+  it('a manual edit wins the view with user provenance and never bumps the blue-dot counter', () => {
+    apply(subwikiUpdated('subloc:edit-me', 's-1', 'The agent wrote this.'));
+    const dotAfterAgent = useSceneStore.getState().wikiLastEventId;
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'subwiki.edited',
+      payload: {
+        sublocation_id: 'subloc:edit-me',
+        entry: 'I rewrote this myself.',
+      },
+    });
+    const state = useSceneStore.getState();
+    expect(state.subwikiBySublocation['subloc:edit-me']).toEqual({
+      entry: 'I rewrote this myself.',
+      sceneId: null,
+      editedByUser: true,
+    });
+    // The blue dot announces the WORLD writing — not the user's own edit.
+    expect(state.wikiLastEventId).toBe(dotAfterAgent);
+  });
+});

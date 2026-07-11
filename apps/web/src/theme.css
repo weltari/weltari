@@ -25,6 +25,11 @@
   --wl-ok: #7fa763;
   --wl-border: rgba(232, 228, 218, 0.12);
 
+  /* ---- activity dots + feed accents (M6 part 5) ---- */
+  --wl-dot-feed: #d05548;
+  --wl-dot-wiki: #5a8fd0;
+  --wl-comment-hover: rgba(232, 228, 218, 0.07);
+
   /* ---- narrator vs character voices ---- */
   --wl-narrator-text: #b9b2a4;
   --wl-character-text: #e8e4da;
@@ -1871,4 +1876,314 @@ body {
   max-width: 46rem;
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+/* ---- NavRail activity dots (M6 part 5): red = feed, blue = wiki ---- */
+
+.wl-rail-button {
+  position: relative;
+}
+
+.wl-rail-dot {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.55rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.wl-rail-dot[data-kind='feed'] {
+  background: var(--wl-dot-feed);
+}
+
+.wl-rail-dot[data-kind='wiki'] {
+  background: var(--wl-dot-wiki);
+}
+
+/* ---- The Feed page (UI Spec §2.5, M6 part 5) ---- */
+
+.wl-feed-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--wl-bg);
+  color: var(--wl-text);
+}
+
+.wl-feed-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 1rem 1.4rem 0.7rem;
+  border-bottom: 1px solid var(--wl-border);
+}
+
+.wl-feed-title {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.wl-feed-catchup {
+  color: var(--wl-text-dim);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.wl-feed-bell-wrap {
+  margin-left: auto;
+  position: relative;
+}
+
+.wl-feed-bell {
+  position: relative;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--wl-radius);
+  color: var(--wl-text-dim);
+  padding: 0.35rem 0.45rem;
+  cursor: pointer;
+}
+
+.wl-feed-bell:hover {
+  background: var(--wl-panel);
+  color: var(--wl-text);
+}
+
+.wl-feed-bell-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  stroke: currentColor;
+  display: block;
+}
+
+.wl-feed-bell .wl-rail-dot {
+  top: 0.15rem;
+  right: 0.15rem;
+}
+
+.wl-feed-bell-popup {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  width: 19rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  background: var(--wl-panel);
+  border: 1px solid var(--wl-border);
+  border-radius: var(--wl-radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  padding: 0.7rem 0.8rem;
+  z-index: 30;
+}
+
+.wl-feed-bell-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.wl-feed-bell-empty {
+  margin: 0;
+  color: var(--wl-text-dim);
+  font-size: 0.85rem;
+}
+
+.wl-feed-bell-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--wl-border);
+}
+
+.wl-feed-bell-item-head {
+  color: var(--wl-accent);
+  font-size: 0.8rem;
+}
+
+.wl-feed-bell-item-body {
+  font-size: 0.88rem;
+}
+
+.wl-feed-empty {
+  margin: auto;
+  max-width: 26rem;
+  text-align: center;
+  color: var(--wl-text-dim);
+}
+
+.wl-feed-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.4rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  align-items: center;
+}
+
+.wl-feed-post {
+  width: 100%;
+  max-width: 40rem;
+  background: var(--wl-panel);
+  border: 1px solid var(--wl-border);
+  border-radius: var(--wl-radius);
+  padding: 0.9rem 1.1rem;
+}
+
+.wl-feed-post-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.35rem;
+}
+
+.wl-feed-post-author {
+  font-weight: 600;
+  color: var(--wl-accent);
+}
+
+.wl-feed-post-stamp {
+  color: var(--wl-text-dim);
+  font-size: 0.78rem;
+}
+
+.wl-feed-post-body {
+  margin: 0 0 0.5rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.wl-feed-likes {
+  color: var(--wl-text-dim);
+  font-size: 0.82rem;
+  margin-bottom: 0.35rem;
+}
+
+.wl-feed-comment-block {
+  border-top: 1px solid var(--wl-border);
+  padding-top: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+/* Hovering a comment greys it slightly; clicking opens the reply box
+   (owner ruling 2026-07-11). */
+.wl-feed-comment {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--wl-radius);
+  color: var(--wl-text);
+  padding: 0.35rem 0.45rem;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.wl-feed-comment:hover,
+.wl-feed-comment[data-open='true'] {
+  background: var(--wl-comment-hover);
+}
+
+.wl-feed-comment-author {
+  color: var(--wl-accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.wl-feed-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0.25rem 1.4rem;
+}
+
+.wl-feed-reply {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.wl-feed-reply-author {
+  color: var(--wl-text-dim);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.wl-feed-reply[data-author='user'] .wl-feed-reply-author {
+  color: var(--wl-ok);
+}
+
+.wl-feed-replybox {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.35rem 0 0.2rem 1.4rem;
+}
+
+.wl-feed-replybox-input {
+  flex: 1;
+  background: var(--wl-bg);
+  border: 1px solid var(--wl-border);
+  border-radius: var(--wl-radius);
+  color: var(--wl-text);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.wl-feed-replybox-send {
+  background: var(--wl-accent-soft);
+  border: 1px solid var(--wl-border);
+  border-radius: var(--wl-radius);
+  color: var(--wl-accent);
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+.wl-feed-replybox-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---- Wiki edit-in-place (M6 part 5): pencil ⇄ book ---- */
+
+.wl-wiki-tool {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--wl-radius);
+  color: var(--wl-text-dim);
+  padding: 0.3rem 0.4rem;
+  cursor: pointer;
+}
+
+.wl-wiki-tool:hover {
+  background: var(--wl-panel);
+  color: var(--wl-text);
+}
+
+.wl-wiki-tool-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  stroke: currentColor;
+  display: block;
+}
+
+.wl-wiki-editor {
+  width: 100%;
+  max-width: 46rem;
+  min-height: 14rem;
+  resize: vertical;
+  background: var(--wl-panel);
+  border: 1px solid var(--wl-border);
+  border-radius: var(--wl-radius);
+  color: var(--wl-text);
+  font-family: var(--wl-font-narration);
+  font-size: var(--wl-font-size-narration);
+  line-height: 1.55;
+  padding: 0.8rem 1rem;
 }

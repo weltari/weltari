@@ -114,6 +114,49 @@ export interface GroupThread {
   lastEnded: { reason: 'exit' | 'endsubsession' } | null;
 }
 
+export interface FeedReplyLine {
+  reply_id: string;
+  author: 'user' | 'character';
+  body: string;
+  ts: string;
+}
+
+/** One reaction on a feed post (0.15.0): a like, or a comment carrying its
+ * feed-local reply thread (owner ruling 2026-07-11: the user may reply to a
+ * comment; the author answers — never routed into Weltari Chat). */
+export interface FeedReaction {
+  reaction_id: string;
+  character_id: string;
+  kind: 'like' | 'comment';
+  body: string | null;
+  replies: FeedReplyLine[];
+  ts: string;
+}
+
+/** One feed post (0.15.0, Rev 4 §12) — a pure projection of
+ * social.post_committed / reaction / reply events; replay-rebuilt. */
+export interface FeedPost {
+  post_id: string;
+  character_id: string;
+  body: string;
+  /** The fictional clock at fire time. */
+  game_time: string;
+  ts: string;
+  reactions: FeedReaction[];
+}
+
+/** One bell item (0.15.0): a character answered MY reply on a comment —
+ * the only thing directed at the user in V1 (they cannot post yet). */
+export interface FeedNotification {
+  reply_id: string;
+  post_id: string;
+  reaction_id: string;
+  character_id: string;
+  body: string;
+  event_id: number;
+  ts: string;
+}
+
 export interface SceneStore {
   connected: boolean;
   protocolVersion: string | null;
@@ -179,13 +222,29 @@ export interface SceneStore {
   pluginRejections: PluginRejection[];
   /** character_id → DM thread (Weltari Chat, 0.11.0) — replay-rebuilt. */
   chatThreads: Record<string, ChatThread>;
-  /** sublocation_id → its wiki entry (subwiki.updated projection, M6 part
-   * 3): latest per sublocation WINS — the Wiki page's read-only source,
-   * provenance = the scene whose end-pass wrote it (UI Spec §2.6). */
-  subwikiBySublocation: Record<string, { entry: string; sceneId: string }>;
+  /** sublocation_id → its wiki entry (subwiki.updated + subwiki.edited
+   * projection, M6 parts 3+5): latest per sublocation WINS — the Wiki
+   * page's source. Provenance: sceneId for a World-Agent pass,
+   * editedByUser for a manual edit (UI Spec §2.6). */
+  subwikiBySublocation: Record<
+    string,
+    { entry: string; sceneId: string | null; editedByUser: boolean }
+  >;
   /** Narrator-stub names (sublocation.stub_created) — interiors never
    * materialize, so the Wiki page resolves their names here. */
   stubNames: Record<string, string>;
+  /** The Feed (0.15.0, Rev 4 §12): posts in append order; the page renders
+   * newest-first. Viewer-only for top-level posts. */
+  feedPosts: FeedPost[];
+  /** Bell items, oldest first (0.15.0): character answers to MY replies. */
+  feedNotifications: FeedNotification[];
+  /** Highest event id among social.* events — the NavRail red dot compares
+   * it against the locally persisted seen mark (a view concern; the dot
+   * itself never lives in the store). */
+  feedLastEventId: number;
+  /** Highest subwiki.updated event id (World Agent writes only — the blue
+   * dot announces the world writing, not the user's own edits). */
+  wikiLastEventId: number;
 
   // ---- reducer actions: called ONLY from stream.ts ----
   setConnected(connected: boolean): void;
@@ -675,10 +734,128 @@ function applyOne(
           [event.payload.sublocation_id]: {
             entry: event.payload.entry,
             sceneId: event.payload.scene_id,
+            editedByUser: false,
+          },
+        },
+        wikiLastEventId: Math.max(state.wikiLastEventId, event.id),
+      }));
+      return;
+    case 'subwiki.edited':
+      // A manual user edit (0.15.0, owner ruling 2026-07-11): applied
+      // immediately, same latest-wins projection; provenance = the user.
+      // No blue dot — the dot announces the WORLD writing, not the user.
+      set((state) => ({
+        subwikiBySublocation: {
+          ...state.subwikiBySublocation,
+          [event.payload.sublocation_id]: {
+            entry: event.payload.entry,
+            sceneId: null,
+            editedByUser: true,
           },
         },
       }));
       return;
+    case 'social.post_committed':
+      // The Feed (0.15.0, Rev 4 §12): one post per cadence boundary.
+      set((state) => {
+        if (state.feedPosts.some((p) => p.post_id === event.payload.post_id)) {
+          return { feedLastEventId: Math.max(state.feedLastEventId, event.id) };
+        }
+        return {
+          feedPosts: [
+            ...state.feedPosts,
+            {
+              post_id: event.payload.post_id,
+              character_id: event.payload.character_id,
+              body: event.payload.body,
+              game_time: event.payload.game_time,
+              ts: event.ts,
+              reactions: [],
+            },
+          ],
+          feedLastEventId: Math.max(state.feedLastEventId, event.id),
+        };
+      });
+      return;
+    case 'social.reaction_committed':
+      set((state) => ({
+        feedPosts: state.feedPosts.map((post) => {
+          if (post.post_id !== event.payload.post_id) return post;
+          if (
+            post.reactions.some(
+              (r) => r.reaction_id === event.payload.reaction_id,
+            )
+          ) {
+            return post;
+          }
+          return {
+            ...post,
+            reactions: [
+              ...post.reactions,
+              {
+                reaction_id: event.payload.reaction_id,
+                character_id: event.payload.character_id,
+                kind: event.payload.kind,
+                body: event.payload.body ?? null,
+                replies: [],
+                ts: event.ts,
+              },
+            ],
+          };
+        }),
+        feedLastEventId: Math.max(state.feedLastEventId, event.id),
+      }));
+      return;
+    case 'social.reply_posted':
+    case 'social.reply_answered': {
+      // The feed-local comment thread (0.15.0): user replies and character
+      // answers hang under the comment they belong to, in event order.
+      const line: FeedReplyLine = {
+        reply_id: event.payload.reply_id,
+        author: event.type === 'social.reply_posted' ? 'user' : 'character',
+        body: event.payload.body,
+        ts: event.ts,
+      };
+      set((state) => ({
+        feedPosts: state.feedPosts.map((post) => {
+          if (post.post_id !== event.payload.post_id) return post;
+          return {
+            ...post,
+            reactions: post.reactions.map((reaction) => {
+              if (reaction.reaction_id !== event.payload.reaction_id) {
+                return reaction;
+              }
+              if (reaction.replies.some((r) => r.reply_id === line.reply_id)) {
+                return reaction;
+              }
+              return { ...reaction, replies: [...reaction.replies, line] };
+            }),
+          };
+        }),
+        feedLastEventId: Math.max(state.feedLastEventId, event.id),
+        // An answer to MY reply is the one thing directed at me — the bell.
+        ...(event.type === 'social.reply_answered' &&
+        !state.feedNotifications.some(
+          (n) => n.reply_id === event.payload.reply_id,
+        )
+          ? {
+              feedNotifications: [
+                ...state.feedNotifications,
+                {
+                  reply_id: event.payload.reply_id,
+                  post_id: event.payload.post_id,
+                  reaction_id: event.payload.reaction_id,
+                  character_id: event.payload.character_id,
+                  body: event.payload.body,
+                  event_id: event.id,
+                  ts: event.ts,
+                },
+              ],
+            }
+          : {}),
+      }));
+      return;
+    }
     // The proactive DM itself arrives as chat.message_committed above; the
     // outreach record is bookkeeping, and a frozen thread shows NOTHING in
     // Weltari Chat (owner ruling 2026-07-10: the unread bubble suffices —
@@ -729,6 +906,10 @@ export const useSceneStore = create<SceneStore>((set) => ({
   groupThreads: {},
   subwikiBySublocation: {},
   stubNames: {},
+  feedPosts: [],
+  feedNotifications: [],
+  feedLastEventId: 0,
+  wikiLastEventId: 0,
 
   setConnected(connected: boolean): void {
     set({ connected });
