@@ -51,7 +51,15 @@ export interface LlmCall {
    * B6 gates.
    */
   toolset?:
-    'narrator' | 'chat' | 'group_router' | 'social_react' | 'social_reply';
+    | 'narrator'
+    | 'chat'
+    | 'group_router'
+    | 'social_react'
+    | 'social_reply'
+    /** M7 part 1 (Rev 4 §11): the reflection memory outputs — memory_delta /
+     * update_core / evolve, all data-only; the reflection handlers run both
+     * B6 gates and commit atomically with their existing events. */
+    | 'reflection';
   /**
    * Engine-owned read-only query executors offered alongside the toolset
    * (M6 part 1, Rev 4 §6). The client runs these DURING the call and feeds

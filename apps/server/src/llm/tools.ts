@@ -191,6 +191,118 @@ export const CHAT_TOOL_DESCRIPTIONS: Record<ChatToolName, string> = {
 };
 
 /**
+ * memory_delta — one curated recall note for the character's permanent
+ * archive (M7 part 1, Rev 4 §11). 1–3 per reflection (the engine gate caps);
+ * data-only — the reflection handler gates and appends.
+ */
+export const MemoryDeltaToolSchema = z.strictObject({
+  content: z.string().min(1).max(1000),
+});
+export type MemoryDeltaToolInput = z.infer<typeof MemoryDeltaToolSchema>;
+
+/**
+ * update_core — the FULL replacement snapshot of the character's durable
+ * memory core (M7 part 1, Rev 4 §11): small, always injected. At most one
+ * per reflection (the engine gate keeps the last). Data-only.
+ */
+export const UpdateCoreToolSchema = z.strictObject({
+  core: z.array(z.string().min(1).max(300)).min(1).max(12),
+});
+export type UpdateCoreToolInput = z.infer<typeof UpdateCoreToolSchema>;
+
+/**
+ * evolve — personality/goals evolution (M7 part 1, Rev 4 §7, owner ruling
+ * 2026-07-11): full replacements, at least one field (the engine gate
+ * refuses an empty call, and refuses EVERYTHING for a locked character).
+ * Data-only.
+ */
+export const EvolveToolSchema = z.strictObject({
+  personality: z.string().min(1).max(1000).optional(),
+  goals: z.array(z.string().min(1).max(300)).min(1).max(8).optional(),
+});
+export type EvolveToolInput = z.infer<typeof EvolveToolSchema>;
+
+export const REFLECTION_TOOL_NAMES = [
+  'memory_delta',
+  'update_core',
+  'evolve',
+] as const;
+export type ReflectionToolName = (typeof REFLECTION_TOOL_NAMES)[number];
+
+/** Static descriptions for the reflection toolset (stable strings). */
+export const REFLECTION_TOOL_DESCRIPTIONS: Record<ReflectionToolName, string> =
+  {
+    memory_delta:
+      'Record ONE lasting memory from what just happened: a self-contained first-person note your future self will search for (who, what, where — names matter). Call it 1-3 times, one distinct memory each. These notes are permanent; only record what genuinely matters to you.',
+    update_core:
+      'Rewrite your always-remembered core: the FULL list of identity-defining facts, active relationships and open threads you must never lose (max 12 short lines). Only call this when something changed what you fundamentally know or pursue — the new list REPLACES the old one entirely, so carry forward everything still true.',
+    evolve:
+      'Evolve who you are, only if this experience genuinely changed you: personality = your full rewritten personality text, and/or goals = your full new goals list. Both are complete replacements. Most reflections should NOT call this — character change is rare and earned.',
+  };
+
+/** A reflection tool call that passed gate 1. Gate 2 (state) still applies. */
+export type ValidatedReflectionToolCall =
+  | { tool: 'memory_delta'; input: MemoryDeltaToolInput }
+  | { tool: 'update_core'; input: UpdateCoreToolInput }
+  | { tool: 'evolve'; input: EvolveToolInput };
+
+/**
+ * Gate 1 for the reflection toolset (M7 part 1): shape-validate one raw call
+ * from a reflection. Same contract as every parse here — reject as a value,
+ * zero rows (I8).
+ */
+export function parseReflectionToolCall(
+  raw: RawToolCall,
+  logger: Logger,
+): Result<ValidatedReflectionToolCall> {
+  switch (raw.tool) {
+    case 'memory_delta': {
+      const input = validateAt(
+        'llm',
+        'tool:memory_delta',
+        MemoryDeltaToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'memory_delta', input: input.value } }
+        : input;
+    }
+    case 'update_core': {
+      const input = validateAt(
+        'llm',
+        'tool:update_core',
+        UpdateCoreToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'update_core', input: input.value } }
+        : input;
+    }
+    case 'evolve': {
+      const input = validateAt(
+        'llm',
+        'tool:evolve',
+        EvolveToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'evolve', input: input.value } }
+        : input;
+    }
+    default:
+      return err(
+        new OperationalError(
+          'unknown_tool',
+          `no such reflection tool: ${raw.tool}`,
+        ),
+      );
+  }
+}
+
+/**
  * react — one recipient's reaction decision on a feed post (M6 part 5,
  * Rev 4 §12): like, or a one-line comment. Data-only like every chat tool —
  * the social_reaction handler gates and appends; the engine enforces

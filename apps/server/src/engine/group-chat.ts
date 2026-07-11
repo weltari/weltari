@@ -202,6 +202,8 @@ export function createGroupChatEngine(
             character_id: memberId,
             range_end_id: state.openTailId,
           },
+          // The character's memory mailbox (M7 part 1, Rev 4 §11).
+          serial_group: `memory:${worldId}:${memberId}`,
         });
         if (job !== null) jobsEnqueued += 1;
       }
