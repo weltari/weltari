@@ -53,6 +53,14 @@ export interface SceneContext {
    * so it rides the tail delimiter-wrapped like any external block (B14).
    */
   cache_recap?: string;
+  /**
+   * The archive POINTER (M7 part 1, owner ruling 2026-07-11): the latest
+   * compaction summary + how much lies behind it, so the character can
+   * judge whether a memoryquery deep dive is worthwhile (Rev 4 §11: the
+   * main memory carries a pointer summarizing the sub-memory). Reflection-
+   * authored text re-entering a prompt is data — tail, wrapped (B14).
+   */
+  archive_recap?: string;
 }
 
 export interface AssembledContext {
@@ -99,6 +107,9 @@ export function assembleContext(
   ];
   if (scene.cache_recap !== undefined && scene.cache_recap !== '') {
     tailParts.push(externalBlock('cache', scene.cache_recap));
+  }
+  if (scene.archive_recap !== undefined && scene.archive_recap !== '') {
+    tailParts.push(externalBlock('memory', scene.archive_recap));
   }
   if (scene.wiki.length > 0) {
     tailParts.push(externalBlock('wiki', scene.wiki.join('\n')));

@@ -167,6 +167,31 @@ Weather is V1.5 (owner ruling); every other Rev 4 §18 "In V1" item stays V1.
 
 (Exact total = 23.427119 − 23.393343 from `GET /v1/credits`.)
 
+## Post-session owner ruling (2026-07-11, same day) — memory semantics
+
+Flagged by the owner after the criteria run; inked here and built in the
+same session (the archive-pointer commit):
+
+- **Reflection must UPDATE, not just add.** Confirmed satisfied by design:
+  the memory core is a full REPLACEMENT snapshot (a changed stance — "I no
+  longer trust them" — supersedes the old core line) and personality/goals
+  evolution is full-replacement too; the append-only deltas are the raw
+  diary underneath, kept as history on purpose.
+- **The archive pointer** (built now): the main memory must carry a
+  summary of the sub-memory so the agent can judge whether retrieval is
+  worthwhile. `archiveRecapText` injects the latest compaction summary +
+  "N original notes stand behind this — use memoryquery for specifics"
+  into the dynamic tail of chat replies and character scene turns.
+- **Sub-memory organization at scale** (topic-split pointered sub-stores)
+  is the V2 extension; V1 = one archive per character with FTS retrieval
+  + the condensed-summary pointer. The event-sourced design permits the
+  split later without migration (deltas can gain a topic field).
+- **No memory deletion in V1** (owner: agents might accidentally delete
+  files, making them unrecoverable). Already guaranteed by construction:
+  the events table physically rejects UPDATE/DELETE (I1), retention is a
+  view watermark, compaction re-runs supersede — no code path can destroy
+  a memory.
+
 ## Notes for the next session
 
 - **Week 15 = the GM agent** (see the kickoff prompt): the Proposal

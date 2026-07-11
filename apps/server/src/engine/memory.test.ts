@@ -7,7 +7,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openStorage, type Storage } from '../storage/db.js';
 import { buildEliasProfile } from './fixture/rainy-inn.js';
-import { archiveView, liveProfile, memoryStateOf } from './memory.js';
+import {
+  archiveRecapText,
+  archiveView,
+  liveProfile,
+  memoryStateOf,
+} from './memory.js';
 
 function tempStorage(): Storage {
   return openStorage({
@@ -144,6 +149,32 @@ describe('memory fold (Rev 4 §11)', () => {
     expect(view.summary).toBe('Two old notes, summarized.');
     expect(view.deltas.map((d) => d.event_id)).toEqual([c]);
     expect(view.deltas.map((d) => d.event_id)).not.toContain(a);
+    storage.close();
+  });
+
+  it('the archive pointer surfaces the condensed summary + what stands behind it (owner ruling 2026-07-11)', () => {
+    const storage = tempStorage();
+    // No compaction yet — no pointer (nothing worth advertising).
+    expect(archiveRecapText(storage, 'char:elias')).toBe('');
+    const a = appendDelta(storage, 'Old note one.');
+    appendDelta(storage, 'Old note two.');
+    storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:elias',
+      type: 'memory.compacted',
+      payload: {
+        character_id: 'char:elias',
+        up_to_id: a + 1,
+        delta_count: 2,
+        summary: 'Two old notes, summarized.',
+      },
+    });
+    appendDelta(storage, 'A fresh note after the pass.');
+    const pointer = archiveRecapText(storage, 'char:elias');
+    expect(pointer).toContain('Two old notes, summarized.');
+    expect(pointer).toContain('2 original notes');
+    expect(pointer).toContain('1 newer uncondensed');
+    expect(pointer).toContain('memoryquery');
     storage.close();
   });
 

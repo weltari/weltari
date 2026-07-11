@@ -102,6 +102,13 @@ world movement (17); agentic scene (18); embedding retrieval; weather
   genuinely rare — if onboarding should seed core memories, the GM can
   author them directly through its own consent-gated path instead of
   hoping reflection promotes them.
+- **Memory semantics (owner ruling 2026-07-11, post-week-14):** reflection
+  UPDATES via full-replacement core snapshots and personality/goals
+  evolution (deltas are the append-only diary underneath); the archive
+  POINTER (`archiveRecapText`) rides chat + character scene tails so the
+  agent can judge memoryquery dives; topic-split sub-memories are V2;
+  **no memory deletion in V1** — enforced by the append-only log itself.
+  Nothing the GM authors may introduce a deletion path.
 - The Windows dev box notes hold: preview viewport can collapse to 0×0
   (resize, then DOM-sample via the JS tool); launch configs
   `weltari-fake` / `weltari-masking` / `weltari-real`; port 7788 for
