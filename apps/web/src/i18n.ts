@@ -38,6 +38,9 @@ const EN = {
   'feed.notification.answered': 'answered your reply:',
   'nav.feed.activity': 'new feed activity',
   'nav.wiki.activity': 'new wiki entry',
+  'onboarding.greeting':
+    'This world is a blank page. The GM is waiting to dream it up with you.',
+  'onboarding.begin': 'Begin with the GM',
   'proposal.title': 'The GM proposes',
   'proposal.action.create_place': 'a new place',
   'proposal.action.create_character': 'a new character',
