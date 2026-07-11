@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { WeltariEventSchema, type WeltariEvent } from '@weltari/protocol';
 import { CorruptStateError } from '../../errors.js';
+import type { MemoryIndexRepository } from './memory-index.js';
 
 /** A WeltariEvent before the log assigns `id` and `ts` (distributes over the union). */
 export type NewEvent = WeltariEvent extends infer E
@@ -64,6 +65,8 @@ function rowToEvent(raw: unknown): WeltariEvent {
 export function createEventLogRepository(
   db: Database.Database,
   nowIso: () => string,
+  /** Indexes memory deltas inside the append's own transaction (M7 part 1). */
+  memoryIndex?: MemoryIndexRepository,
 ): EventLogRepository {
   const insert = db.prepare(
     'INSERT INTO events (world_id, actor_id, type, payload, ts) VALUES (?, ?, ?, ?, ?)',
@@ -85,7 +88,18 @@ export function createEventLogRepository(
         JSON.stringify(event.payload),
         nowIso(),
       );
-      return rowToEvent(selectById.get(info.lastInsertRowid));
+      const persisted = rowToEvent(selectById.get(info.lastInsertRowid));
+      // The Search Index rides the SAME transaction as its source row: a
+      // kill cannot commit a delta without its index entry (and boot
+      // re-projects the whole table anyway — belt and braces).
+      if (persisted.type === 'memory.delta_committed') {
+        memoryIndex?.add(
+          persisted.id,
+          persisted.payload.character_id,
+          persisted.payload.content,
+        );
+      }
+      return persisted;
     },
     readSince(sinceId: number, limit = 1000): WeltariEvent[] {
       const rows: unknown[] = selectSince.all(sinceId, limit);
