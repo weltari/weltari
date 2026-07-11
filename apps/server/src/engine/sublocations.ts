@@ -208,6 +208,16 @@ export function solveFrontierSquare(
   worldId: string,
   anchor: { x: number; y: number },
 ): MapSquare | undefined {
+  return solveFrontierFrom(occupiedSquaresOf(storage, worldId), anchor);
+}
+
+/** The square-grain occupancy set solveFrontierSquare scores against —
+ * exposed (M7 part 2) so a multi-place apply (cold-boot seeding) can extend
+ * it square by square inside one transaction. */
+export function occupiedSquaresOf(
+  storage: Storage,
+  worldId: string,
+): Set<string> {
   const occupied = new Set<string>();
   for (const s of knownSublocations(storage, worldId)) {
     if (
@@ -218,8 +228,21 @@ export function solveFrontierSquare(
       continue;
     }
     const at = squareOf(s.map_position);
-    occupied.add(`${String(at.col)}:${String(at.row)}`);
+    occupied.add(squareKey(at));
   }
+  return occupied;
+}
+
+/** The `col:row` key occupiedSquaresOf uses. */
+export function squareKey(square: MapSquare): string {
+  return `${String(square.col)}:${String(square.row)}`;
+}
+
+/** The pure core of the frontier solver (same scoring, injected occupancy). */
+export function solveFrontierFrom(
+  occupied: ReadonlySet<string>,
+  anchor: { x: number; y: number },
+): MapSquare | undefined {
   if (occupied.size === 0) return squareOf(anchor);
 
   let best: MapSquare | undefined;
