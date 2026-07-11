@@ -28,6 +28,7 @@ import {
   runSessionquery,
   runWikiquery,
 } from './chat-queries.js';
+import { GM_CHARACTER_ID } from './gm.js';
 import { archiveRecapText, liveProfile } from './memory.js';
 import {
   assembleContext,
@@ -41,8 +42,9 @@ import { knownSublocations } from './sublocations.js';
 
 /** How many recent transcript lines a chat reply sees (short context — chat
  * turns are the cheapest call class; deep recall arrives with the query
- * tools in part 3). */
-const CHAT_TRANSCRIPT_LINES = 24;
+ * tools in part 3). Exported (M7 part 2): the GM conversation reads the
+ * same window. */
+export const CHAT_TRANSCRIPT_LINES = 24;
 
 /**
  * The texting conduct skill (M6 part 3, owner ruling 2026-07-09: startscene
@@ -100,7 +102,7 @@ export function conversationIdFor(
   return `chat:${actorId}:${characterId}`;
 }
 
-interface ConversationState {
+export interface ConversationState {
   /** Messages of the OPEN range (after the last chat.ended), oldest first. */
   openMessages: WeltariEvent[];
   /** All messages ever (the prompt transcript source), oldest first. */
@@ -111,7 +113,8 @@ interface ConversationState {
   lastActivityTs: string;
 }
 
-function conversationState(
+/** Exported (M7 part 2) — the GM conversation engine reads the same fold. */
+export function conversationState(
   storage: Storage,
   conversationId: string,
 ): ConversationState {
@@ -778,6 +781,10 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
       const cutoff = options.idleCutoffIso();
       let ended = 0;
       for (const [conversationId, info] of conversations) {
+        // The GM conversation never idles closed (M7 part 2, Rev 4 §9): the
+        // GM is not a character — no reflection exists for it, and its
+        // thread is the standing settings/authoring channel.
+        if (info.characterId === GM_CHARACTER_ID) continue;
         if (inFlight.has(conversationId)) continue; // still typing
         const state = conversationState(storage, conversationId);
         if (state.openMessages.length === 0) continue;

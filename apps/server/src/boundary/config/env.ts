@@ -24,6 +24,11 @@ const envSchema = z.object({
   WELTARI_FAKE_LLM_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
   /** '1' prints FAULT_POINT:<name> lines the kill harness targets. */
   WELTARI_EMIT_FAULT_POINTS: z.string().optional(),
+  /** M7 part 2 (Rev 4 §9): '0' boots a BLANK world — no fixture seed, only
+   * the GM greeting; the world is built through the cold-boot interview.
+   * Default '1' (the fixture world) keeps every dev/test/harness flow
+   * byte-identical; packaging flips the default at V1 ship (week 19). */
+  WELTARI_FIXTURE_WORLD: z.string().optional(),
   /** OpenRouter model id for all Week-1 calls. Default = the configuration that
    * passed all Week-1 criteria (deterministic cache_control, fast prefill). */
   WELTARI_MODEL: z.string().min(1).default('anthropic/claude-sonnet-4.5'),
@@ -133,6 +138,7 @@ export interface Env {
   fakeLlm: boolean;
   fakeLlmDelayMs: number;
   emitFaultPoints: boolean;
+  fixtureWorld: boolean;
   model: string;
   gmModel: string | undefined;
   providerOrder: readonly string[] | undefined;
@@ -191,6 +197,7 @@ export function readEnv(
       fakeLlm,
       fakeLlmDelayMs: parsed.data.WELTARI_FAKE_LLM_DELAY_MS,
       emitFaultPoints: parsed.data.WELTARI_EMIT_FAULT_POINTS === '1',
+      fixtureWorld: parsed.data.WELTARI_FIXTURE_WORLD !== '0',
       model: parsed.data.WELTARI_MODEL,
       gmModel: parsed.data.WELTARI_GM_MODEL,
       providerOrder:
