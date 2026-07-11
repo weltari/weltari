@@ -16,6 +16,7 @@ import type {
   TurnLine,
 } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
+import { withLiveLock } from '../../engine/characters.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import {
   enqueueCompactionIfDue,
@@ -168,9 +169,12 @@ export function createReflectChatHandler(
       const parsed = parseReflectionToolCall(raw, logger);
       if (parsed.ok) validated.push(parsed.value);
     }
+    // The LIVE lock (M7 part 2, Rev 4 §7): the user's character.lock_set
+    // overlays the seed flag at RUN time — a toggle gates the very next
+    // evolution, no restart needed.
     const memory: ReflectionMemoryOutput = gateReflectionMemory(
       validated,
-      profile,
+      withLiveLock(storage, job.world_id, profile),
       logger,
     );
 

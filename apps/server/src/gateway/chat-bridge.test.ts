@@ -67,6 +67,7 @@ function setup(): Ctx {
   const pushes: { chatId: string; text: string }[] = [];
   const bridge = createChatGatewayBridge({
     storage,
+    sink: createEventSink(storage, eventBus),
     logger,
     profiles: [ELIAS, MARA],
     actorId: 'user:owner',

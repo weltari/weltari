@@ -49,6 +49,8 @@ import {
   DeleteProfileCommandSchema,
   ResolveProposalAcceptedSchema,
   ResolveProposalCommandSchema,
+  SetCharacterLockAcceptedSchema,
+  SetCharacterLockCommandSchema,
   SetConfigFlagAcceptedSchema,
   SetConfigFlagCommandSchema,
   SubwikiEditAcceptedSchema,
@@ -94,6 +96,8 @@ import {
   type DeleteProfileCommand,
   type ResolveProposalAccepted,
   type ResolveProposalCommand,
+  type SetCharacterLockAccepted,
+  type SetCharacterLockCommand,
   type SetConfigFlagAccepted,
   type SetConfigFlagCommand,
   type SubwikiEditAccepted,
@@ -187,6 +191,10 @@ export interface HttpDeps {
   ) => Result<{ flag: string; value: boolean }>;
   /** The GDPR erasure right (M7 part 2, Rev 4 §9 guardrails). */
   deleteProfile: (command: DeleteProfileCommand) => Result<{ removed: number }>;
+  /** The user-facing evolution lock (M7 part 2, Rev 4 §7). */
+  setCharacterLock: (
+    command: SetCharacterLockCommand,
+  ) => Result<{ characterId: string; locked: boolean }>;
   /** The user's own view of the profiling store (view + export). */
   profileView: (worldId: string, actorId: string) => UserProfileView;
   /** The startscene() bridge (Rev 4 §8): ends the chat range, opens a real
@@ -792,6 +800,41 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         accepted: true,
         flag: request.body.flag,
         value: request.body.value,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/set-character-lock',
+    {
+      schema: {
+        body: SetCharacterLockCommandSchema,
+        response: {
+          202: SetCharacterLockAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.setCharacterLock(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'set-character-lock rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: SetCharacterLockAccepted = {
+        accepted: true,
+        character_id: result.value.characterId,
+        locked: result.value.locked,
       };
       return accepted;
     },

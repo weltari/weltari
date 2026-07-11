@@ -18,12 +18,25 @@ import { ok, type Result } from '../errors.js';
 import type { CharacterProfile } from '../engine/context-assembler.js';
 import type { ChatEngine } from '../engine/chat.js';
 import { conversationIdFor } from '../engine/chat.js';
+import type { EventSink } from '../engine/event-sink.js';
+import { GM_CHARACTER_ID } from '../engine/gm.js';
 import { catchAndLog } from '../observability/catch-and-log.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
 
+/** The one-time GM onboarding message (M7 part 2, Rev 4 §13 + criterion e):
+ * fired once per (connector, messenger conversation) binding, ever —
+ * hardcoded text, pushed to the messenger AND recorded as a durable GM line
+ * in Weltari Chat (the messenger is a view; both sides must show it). */
+export const GM_GATEWAY_WELCOME =
+  'GM here — you are connected. This messenger is now a window into Weltari: characters who message you will reach you here, and whatever you send goes straight back into the conversation you are answering. Talk to me any time to adjust what gets pushed.';
+
 export interface ChatGatewayBridgeOptions {
   storage: Storage;
+  /** The binding record + the GM welcome line commit through here (M7
+   * part 2) — durable BEFORE the push, so a crashed push never re-fires
+   * the once-per-binding welcome. */
+  sink: EventSink;
   logger: Logger;
   profiles: readonly CharacterProfile[];
   actorId: string;
@@ -51,7 +64,7 @@ export interface ChatGatewayBridge {
 export function createChatGatewayBridge(
   options: ChatGatewayBridgeOptions,
 ): ChatGatewayBridge {
-  const { storage, logger, profiles, actorId, worldId } = options;
+  const { storage, sink, logger, profiles, actorId, worldId } = options;
 
   function nameOf(characterId: string): string {
     return (
@@ -110,12 +123,75 @@ export function createChatGatewayBridge(
     return storage.gateway.latestConversationId(options.connectorId);
   }
 
+  /** True when this (connector, messenger conversation) pair has bound
+   * before — the once-per-binding fold (idempotent across restarts and
+   * redeliveries: the record is a durable event). */
+  function bindingKnown(chatId: string): boolean {
+    return storage.eventLog
+      .readSince(0, 100000)
+      .some(
+        (event) =>
+          event.type === 'gateway.binding_established' &&
+          event.payload.connector_id === options.connectorId &&
+          event.payload.conversation_id === chatId,
+      );
+  }
+
+  /** The first-ever sight of a messenger conversation (criterion e): record
+   * the binding + the GM welcome line in ONE transaction, then push the
+   * welcome. No await between the fold check and the append — a racing
+   * second inbound cannot double-bind. */
+  function establishBindingIfNew(chatId: string): void {
+    if (bindingKnown(chatId)) return;
+    sink.appendMany([
+      {
+        world_id: worldId,
+        actor_id: 'system:gateway',
+        type: 'gateway.binding_established',
+        payload: {
+          connector_id: options.connectorId,
+          conversation_id: chatId,
+        },
+      },
+      {
+        world_id: worldId,
+        actor_id: GM_CHARACTER_ID,
+        type: 'chat.message_committed',
+        payload: {
+          conversation_id: conversationIdFor(actorId, GM_CHARACTER_ID),
+          character_id: GM_CHARACTER_ID,
+          sender: 'character',
+          text: GM_GATEWAY_WELCOME,
+          message_id:
+            `gm-gateway-welcome:${options.connectorId}:${chatId}`.slice(0, 100),
+        },
+      },
+    ]);
+    catchAndLog(
+      options.push(chatId, GM_GATEWAY_WELCOME).then((sent) => {
+        if (!sent.ok) {
+          logger.warn(
+            { connector_id: options.connectorId },
+            'GM onboarding push failed — the binding is durable, the thread holds the welcome',
+          );
+        }
+      }),
+      logger,
+      'gateway.push',
+    );
+    logger.info(
+      { connector_id: options.connectorId },
+      'gateway binding established — GM onboarding sent (once per binding)',
+    );
+  }
+
   return {
     async route(
-      _chatId: string,
+      chatId: string,
       text: string,
       externalMsgId: string,
     ): Promise<Result<string>> {
+      establishBindingIfNew(chatId);
       const characterId = targetCharacterId();
       const sent = options.sendChat({
         world_id: worldId,
