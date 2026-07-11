@@ -41,7 +41,12 @@ export type FaultPoint =
   | 'mid_memory_commit'
   /** M7 part 1: inside the memory_compaction job — the summary generated,
    * memory.compacted not yet appended (idempotent per character+up_to_id). */
-  | 'mid_compaction';
+  | 'mid_compaction'
+  /** M7 part 2: inside the resolve-proposal apply window — every gate passed,
+   * the atomic append (proposal.resolved + the applied domain events + their
+   * jobs) not yet written. A retried resolve must converge to exactly one
+   * application per proposal_id (the fused re-check refuses the second). */
+  | 'mid_proposal_apply';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;

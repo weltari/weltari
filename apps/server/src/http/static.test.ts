@@ -124,6 +124,10 @@ describe('GET /* (the SPA wildcard route)', () => {
         err(new OperationalError('unknown_comment', 'test stub')),
       subwikiEdit: () =>
         err(new OperationalError('unknown_sublocation', 'test stub')),
+      resolveProposal: async () =>
+        Promise.resolve(
+          err(new OperationalError('unknown_proposal', 'test stub')),
+        ),
       startSceneFromChat: async () =>
         Promise.resolve(
           err(new OperationalError('unknown_character', 'test stub')),

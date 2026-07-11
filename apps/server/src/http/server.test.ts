@@ -240,6 +240,13 @@ describe('HTTP layer (SSE + commands)', () => {
         command.sublocation_id === 'subloc:ghost'
           ? err(new OperationalError('unknown_sublocation', 'no such place'))
           : ok({ sublocationId: command.sublocation_id }),
+      // 'prop-ghost' exercises the 409 path (unknown proposal).
+      resolveProposal: async (command) =>
+        Promise.resolve(
+          command.proposal_id === 'prop-ghost'
+            ? err(new OperationalError('unknown_proposal', 'no such proposal'))
+            : ok({ applied: command.resolution === 'approved' ? 3 : 0 }),
+        ),
       // place 'the park' exercises the unresolved free-text answer shape.
       startSceneFromChat: async (command) =>
         Promise.resolve(

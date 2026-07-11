@@ -15,6 +15,7 @@ import {
 } from '@weltari/protocol';
 import { ok, type Result } from '../errors.js';
 import type { Storage } from '../storage/db.js';
+import type { NewLedgerJob } from '../storage/repositories/ledger.js';
 import { BASE_IMAGE_SIZE, type MaskPoint } from './painter.js';
 
 export function createPaintRegionCommand(
@@ -81,8 +82,18 @@ export function enqueueBackdropPaint(
   worldId: string,
   sublocationId: string,
 ): void {
+  storage.ledger.enqueue(backdropPaintJob(worldId, sublocationId));
+}
+
+/** The same job as a row (M7 part 2): proposal applies enqueue it through
+ * sink.appendManyWithJobs so the backdrop intent rides the apply's own
+ * transaction — one shape, two enqueue paths, identical key. */
+export function backdropPaintJob(
+  worldId: string,
+  sublocationId: string,
+): NewLedgerJob {
   const imageId = `backdrop:${sublocationId}`;
-  storage.ledger.enqueue({
+  return {
     idempotency_key: `painter:${imageId}:initial`,
     world_id: worldId,
     type: 'painter',
@@ -91,7 +102,7 @@ export function enqueueBackdropPaint(
       region: { x: 0, y: 0, width: BASE_IMAGE_SIZE, height: BASE_IMAGE_SIZE },
     },
     serial_group: `painter:${imageId}`,
-  });
+  };
 }
 
 /** The VLM's view of a Flow-B click: a two-square window centered on the

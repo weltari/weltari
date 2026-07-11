@@ -53,6 +53,7 @@ import { createSocialPostHandler } from './ledger/handlers/social-post.js';
 import { createSocialReactionHandler } from './ledger/handlers/social-reaction.js';
 import { createSocialReplyHandler } from './ledger/handlers/social-reply.js';
 import { createFeedReplyCommand } from './engine/feed.js';
+import { createProposalEngine } from './engine/proposals.js';
 import { createSubwikiEditCommand } from './engine/wiki-edit.js';
 import { createCachePruneHandler } from './ledger/handlers/cache-prune.js';
 import { createMemoryCompactionHandler } from './ledger/handlers/memory-compaction.js';
@@ -281,6 +282,17 @@ const chatEngine = createChatEngine({
     catchAndLog(drainLedger(), logger, 'ledger.drain');
   },
   devBus,
+});
+
+// The Proposal pipeline (M7 part 2, Rev 4 §16): the GM proposes, the user
+// resolves — approve applies through the engine atomically, reject leaves
+// zero domain rows (I8).
+const proposalEngine = createProposalEngine({
+  storage,
+  sink,
+  logger,
+  seedProfiles: dmRoster,
+  ...(faultPoint === undefined ? {} : { faultPoint }),
 });
 
 // Group chats (M6 part 4, Rev 4 §8): user-started only; the router routes,
@@ -803,6 +815,14 @@ const app = createHttpServer({
     },
   }),
   subwikiEdit: createSubwikiEditCommand({ storage, sink }),
+  resolveProposal: async (command) => {
+    const result = await proposalEngine.resolve(command);
+    if (result.ok) {
+      // An approved apply may have enqueued backdrop jobs — start them now.
+      catchAndLog(drainLedger(), logger, 'ledger.drain');
+    }
+    return result;
+  },
   startSceneFromChat: async (command) => chatEngine.startSceneFromChat(command),
   startGroupChat: (command) => groupChatEngine.startGroup(command),
   sendGroupMessage: (command) => {

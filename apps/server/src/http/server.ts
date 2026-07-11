@@ -45,6 +45,8 @@ import {
   StartSceneFromChatCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
+  ResolveProposalAcceptedSchema,
+  ResolveProposalCommandSchema,
   SubwikiEditAcceptedSchema,
   SubwikiEditCommandSchema,
   type AdvanceTimeAccepted,
@@ -83,6 +85,8 @@ import {
   type StartSceneFromChatAccepted,
   type StartSceneFromChatCommand,
   type StartTurnCommand,
+  type ResolveProposalAccepted,
+  type ResolveProposalCommand,
   type SubwikiEditAccepted,
   type SubwikiEditCommand,
 } from '@weltari/protocol';
@@ -161,6 +165,12 @@ export interface HttpDeps {
   subwikiEdit: (
     command: SubwikiEditCommand,
   ) => Result<{ sublocationId: string }>;
+  /** The Proposal pipeline (M7 part 2, Rev 4 §16): the approver's decision —
+   * approve applies the diff atomically with proposal.resolved; reject
+   * writes the resolved event alone (zero domain rows, I8). */
+  resolveProposal: (
+    command: ResolveProposalCommand,
+  ) => Promise<Result<{ applied: number }>>;
   /** The startscene() bridge (Rev 4 §8): ends the chat range, opens a real
    * scene with the character; unresolved places ride scene.started. Async
    * since M6 part 3 — the bridge ends a still-open scene first and may wait
@@ -693,6 +703,42 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
       const accepted: SubwikiEditAccepted = {
         accepted: true,
         sublocation_id: result.value.sublocationId,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/resolve-proposal',
+    {
+      schema: {
+        body: ResolveProposalCommandSchema,
+        response: {
+          202: ResolveProposalAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await deps.resolveProposal(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'resolve-proposal rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: ResolveProposalAccepted = {
+        accepted: true,
+        proposal_id: request.body.proposal_id,
+        resolution: request.body.resolution,
+        applied: result.value.applied,
       };
       return accepted;
     },
