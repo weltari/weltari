@@ -148,6 +148,53 @@ export function liveProfile(
 /** Rev 4 §11: "1–3 memory deltas" per reflection — the engine-gate cap. */
 export const MEMORY_DELTA_CAP = 3;
 
+/** Compaction window (Rev 4 §11): the newest raw deltas a pass never touches
+ * — recent memory stays verbatim; only older material is summarized. */
+export const MEMORY_COMPACT_KEEP = 10;
+/** Uncompacted-delta count that trips a compaction pass. Above KEEP so each
+ * pass folds a worthwhile batch instead of firing per reflection. */
+export const MEMORY_COMPACT_TRIGGER = 16;
+
+/**
+ * Is a compaction pass due for this character? Checked after each reflection
+ * commit (event-driven) and once at boot (the healing sweep — a kill between
+ * a reflection and its enqueue merely delays the pass; nothing depends on it
+ * for correctness). Returns the range's natural-key half: the newest delta
+ * id the pass would cover (everything but the newest MEMORY_COMPACT_KEEP).
+ */
+export function compactionDue(
+  storage: Storage,
+  characterId: string,
+): { up_to_id: number } | undefined {
+  const view = archiveView(storage, characterId);
+  if (view.deltas.length < MEMORY_COMPACT_TRIGGER) return undefined;
+  const cutoff = view.deltas.at(-(MEMORY_COMPACT_KEEP + 1));
+  return cutoff === undefined ? undefined : { up_to_id: cutoff.event_id };
+}
+
+/**
+ * Enqueue the compaction pass when due (no-op otherwise). Deliberately OUTSIDE
+ * the reflection's commit transaction: compaction is world-inert maintenance —
+ * a kill between commit and enqueue only delays the pass until the next
+ * reflection or the boot sweep. Duplicate keys are silent no-ops (I3); the
+ * job rides the character's memory mailbox like its feeding reflections.
+ */
+export function enqueueCompactionIfDue(
+  storage: Storage,
+  worldId: string,
+  characterId: string,
+): void {
+  const due = compactionDue(storage, characterId);
+  if (due === undefined) return;
+  storage.ledger.enqueue({
+    idempotency_key: `memory_compaction:${characterId}:${String(due.up_to_id)}`,
+    world_id: worldId,
+    type: 'memory_compaction',
+    payload: { character_id: characterId, up_to_id: due.up_to_id },
+    serial_group: `memory:${worldId}:${characterId}`,
+  });
+}
+
 /**
  * Engine-side normalization for reflection-authored memory text: whitespace
  * collapsed, angle brackets neutralized (core/personality/goals enter the

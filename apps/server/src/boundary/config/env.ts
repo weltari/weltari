@@ -61,6 +61,9 @@ const envSchema = z.object({
    * ruling 2026-07-11: default 4; picked deterministically — no relationship
    * system in V1). Acquaintances beyond the cap still receive the post. */
   WELTARI_SOCIAL_REACTION_CAP: z.coerce.number().int().nonnegative().default(4),
+  /** CACHE retention (M7 part 1, Rev 4 §11): keep the last N cache.appended
+   * entries per character — a view watermark, never a deletion. */
+  WELTARI_CACHE_KEEP: z.coerce.number().int().positive().default(50),
   /** Image pixels live as files here; rows/events hold path + hash (Brief §1). */
   WELTARI_IMAGES_DIR: z.string().min(1).default('data/images'),
   /** Painter tile source. 'stub' (default) = deterministic, free, offline —
@@ -135,6 +138,7 @@ export interface Env {
   groupTurnBudget: number;
   socialPostsPerDay: number;
   socialReactionCap: number;
+  cacheKeep: number;
   imagesDir: string;
   imageBackend: 'stub' | 'openrouter';
   imageModel: string;
@@ -196,6 +200,7 @@ export function readEnv(
       groupTurnBudget: parsed.data.WELTARI_GROUP_TURN_BUDGET,
       socialPostsPerDay: parsed.data.WELTARI_SOCIAL_POSTS_PER_DAY,
       socialReactionCap: parsed.data.WELTARI_SOCIAL_REACTION_CAP,
+      cacheKeep: parsed.data.WELTARI_CACHE_KEEP,
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
       imageBackend: parsed.data.WELTARI_IMAGE_BACKEND,
       imageModel: parsed.data.WELTARI_IMAGE_MODEL,

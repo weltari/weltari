@@ -30,7 +30,10 @@ export type CallKind =
   | 'social_react'
   /** M6 part 5: the comment author's answer to the user's feed reply —
    * chat-class, answer-only (the toolset carries nothing but cache). */
-  | 'social_reply';
+  | 'social_reply'
+  /** M7 part 1 (Rev 4 §11): the compaction pass — summarize the character's
+   * old memory deltas into one record; cold path, world-inert. */
+  | 'compaction';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */
