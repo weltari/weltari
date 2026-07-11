@@ -30,6 +30,10 @@
   --wl-dot-wiki: #5a8fd0;
   --wl-comment-hover: rgba(232, 228, 218, 0.07);
 
+  /* ---- the GM consent card (0.17.0, Rev 4 §16) ---- */
+  --wl-proposal-bg: rgba(90, 143, 208, 0.08);
+  --wl-proposal-border: rgba(90, 143, 208, 0.45);
+
   /* ---- narrator vs character voices ---- */
   --wl-narrator-text: #b9b2a4;
   --wl-character-text: #e8e4da;
@@ -822,6 +826,21 @@ body {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 0.72rem;
   color: var(--wl-text-dim);
+}
+
+/* The profiling view (0.17.0, Rev 4 §9 Job 2): the GM's hypotheses, fetched
+   on demand — never the stream. */
+.wl-config-profile {
+  margin: 0.4rem 0 0.4rem 1.1rem;
+  padding: 0;
+  line-height: 1.5;
+}
+
+.wl-config-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .wl-config-plugins {
@@ -1690,6 +1709,96 @@ body {
   color: var(--wl-text-dim);
   font-size: var(--wl-font-size-ui);
   padding: 0.4rem 0;
+}
+
+/* The GM consent card (0.17.0, Rev 4 §16): a pending proposal inside the GM
+   conversation — Consent / Reject / Chat about this, like a permission
+   prompt. Settles (disappears) when proposal.resolved arrives. */
+.wl-proposal-card {
+  align-self: stretch;
+  max-width: 36rem;
+  border: 1px solid var(--wl-proposal-border);
+  border-radius: var(--wl-radius);
+  background: var(--wl-proposal-bg);
+  padding: 0.7rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.wl-proposal-head {
+  color: var(--wl-dot-wiki);
+  font-size: var(--wl-font-size-ui);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.wl-proposal-diff p {
+  margin: 0.2rem 0;
+  color: var(--wl-text);
+}
+
+.wl-proposal-diff ul {
+  margin: 0.2rem 0 0.2rem 1.1rem;
+  padding: 0;
+}
+
+.wl-proposal-before {
+  color: var(--wl-text-dim);
+  text-decoration: line-through;
+}
+
+.wl-proposal-after {
+  color: var(--wl-text);
+}
+
+.wl-proposal-group {
+  color: var(--wl-text-dim);
+  font-size: var(--wl-font-size-ui);
+  margin-top: 0.4rem;
+}
+
+.wl-proposal-wiki {
+  color: var(--wl-text-dim);
+  font-style: italic;
+}
+
+.wl-proposal-rationale {
+  margin: 0;
+  color: var(--wl-text-dim);
+  font-size: var(--wl-font-size-ui);
+  border-top: 1px solid var(--wl-border);
+  padding-top: 0.45rem;
+}
+
+.wl-proposal-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.wl-proposal-actions button {
+  border-radius: var(--wl-radius);
+  border: 1px solid var(--wl-border);
+  background: var(--wl-panel);
+  color: var(--wl-text);
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+  font-size: var(--wl-font-size-ui);
+}
+
+.wl-proposal-actions .wl-proposal-approve {
+  border-color: var(--wl-ok);
+  color: var(--wl-ok);
+}
+
+.wl-proposal-actions .wl-proposal-reject {
+  border-color: var(--wl-danger);
+  color: var(--wl-danger);
+}
+
+.wl-proposal-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* Group speaker label (0.14.0): names the member inside its bubble. */

@@ -5,18 +5,24 @@ import {
   AdvanceTimeAcceptedSchema,
   ApplyUpdateAcceptedSchema,
   CommandRejectedSchema,
+  DeleteProfileAcceptedSchema,
   EndSceneAcceptedSchema,
   ExitChatAcceptedSchema,
   ExitGroupChatAcceptedSchema,
   FeedReplyAcceptedSchema,
   InterruptTurnAcceptedSchema,
   OpenSceneAcceptedSchema,
+  ResolveProposalAcceptedSchema,
   SendChatMessageAcceptedSchema,
   SendGroupMessageAcceptedSchema,
+  SetCharacterLockAcceptedSchema,
+  SetConfigFlagAcceptedSchema,
   StartGroupChatAcceptedSchema,
   StartSceneFromChatAcceptedSchema,
   StartTurnAcceptedSchema,
   SubwikiEditAcceptedSchema,
+  UserProfileViewSchema,
+  type UserProfileView,
 } from '@weltari/protocol';
 
 /** Fixture identity until multi-actor auth exists (actor_id everywhere, §1.3). */
@@ -24,12 +30,18 @@ export const WORLD_ID = 'w1';
 export const WORLD_NAME = 'The Rainy Inn';
 export const ACTOR_ID = 'user:owner';
 
+/** The GM persona (M7 part 2, Rev 4 §9): a standing conversation in Weltari
+ * Chat — always available, never a character (no lock, no End chat). */
+export const GM_CHARACTER_ID = 'char:gm';
+
 /** The DM-able roster (Weltari Chat, §2.4) — the fixture cast until a
- * character-list surface exists (same constant open-scene already uses). */
+ * character-list surface exists (same constant open-scene already uses).
+ * The GM tops the list: it is the world's standing guide (M7 part 2). */
 export const CHAT_CHARACTERS: readonly {
   character_id: string;
   name: string;
 }[] = [
+  { character_id: GM_CHARACTER_ID, name: 'GM' },
   { character_id: 'char:elias', name: 'Elias' },
   // M6 part 4: the second DM-able fixture character — groups need >= 2.
   { character_id: 'char:mara', name: 'Mara' },
@@ -262,6 +274,82 @@ export async function postSubwikiEdit(
     entry,
   });
   return SubwikiEditAcceptedSchema.safeParse(raw).success;
+}
+
+/** Resolve a GM proposal (0.17.0, Rev 4 §16): approve applies the diff
+ * atomically server-side; reject leaves zero domain rows. The card settles
+ * when proposal.resolved arrives on the stream. */
+export async function postResolveProposal(
+  proposalId: string,
+  resolution: 'approved' | 'rejected',
+): Promise<{ applied: number } | null> {
+  const raw = await post('/v1/commands/resolve-proposal', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    proposal_id: proposalId,
+    resolution,
+  });
+  const parsed = ResolveProposalAcceptedSchema.safeParse(raw);
+  return parsed.success ? { applied: parsed.data.applied } : null;
+}
+
+/** Flip a world flag (0.17.0, Rev 4 §15) — config.flag_set comes back on
+ * the stream and the store fold updates the toggle. */
+export async function postSetConfigFlag(
+  flag: 'profiling_enabled',
+  value: boolean,
+): Promise<boolean> {
+  const raw = await post('/v1/commands/set-config-flag', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    flag,
+    value,
+  });
+  return SetConfigFlagAcceptedSchema.safeParse(raw).success;
+}
+
+/** The user-facing evolution lock (0.17.0, Rev 4 §7): character.lock_set
+ * comes back on the stream; the very next reflection honors it. */
+export async function postSetCharacterLock(
+  characterId: string,
+  locked: boolean,
+): Promise<boolean> {
+  const raw = await post('/v1/commands/set-character-lock', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    character_id: characterId,
+    locked,
+  });
+  return SetCharacterLockAcceptedSchema.safeParse(raw).success;
+}
+
+/** The GDPR erasure right (0.17.0, Rev 4 §9 guardrails): physically removes
+ * the profile rows server-side. */
+export async function postDeleteProfile(): Promise<{
+  removed: number;
+} | null> {
+  const raw = await post('/v1/commands/delete-profile', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+  });
+  const parsed = DeleteProfileAcceptedSchema.safeParse(raw);
+  return parsed.success ? { removed: parsed.data.removed } : null;
+}
+
+/** The profiling store's view (0.17.0): the hypotheses travel only over
+ * this fetch — never the event stream. */
+export async function fetchProfile(): Promise<UserProfileView | null> {
+  const response = await fetch(
+    `/v1/profile?world_id=${encodeURIComponent(WORLD_ID)}&actor_id=${encodeURIComponent(ACTOR_ID)}`,
+  );
+  if (!response.ok) return null;
+  const parsed = UserProfileViewSchema.safeParse(await response.json());
+  return parsed.success ? parsed.data : null;
+}
+
+/** The export download URL (same body as fetchProfile + attachment header). */
+export function profileExportUrl(): string {
+  return `/v1/profile/export?world_id=${encodeURIComponent(WORLD_ID)}&actor_id=${encodeURIComponent(ACTOR_ID)}`;
 }
 
 /** The startscene() bridge, user side (Rev 4 §8): ends the chat and opens a

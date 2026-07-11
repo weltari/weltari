@@ -285,3 +285,90 @@ describe('subwiki.edited projection (0.15.0, manual edits)', () => {
     expect(state.wikiLastEventId).toBe(dotAfterAgent);
   });
 });
+
+describe('the GM consent projection (0.17.0, Rev 4 §16)', () => {
+  function proposalSubmitted(proposalId: string): WeltariEvent {
+    return {
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:gm',
+      ts: TS,
+      type: 'proposal.submitted',
+      payload: {
+        proposal_id: proposalId,
+        rationale: 'The town needs a quiet spot.',
+        proposer: 'char:gm',
+        approvers: ['user:owner'],
+        action: 'create_place',
+        diff: {
+          name: 'The Mossy Court',
+          description: 'A small walled yard.',
+          space: 'public',
+        },
+      },
+    };
+  }
+
+  it('pending = submitted minus resolved', () => {
+    apply(proposalSubmitted('p-a'));
+    apply(proposalSubmitted('p-b'));
+    expect(useSceneStore.getState().pendingProposals).toHaveLength(2);
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'proposal.resolved',
+      payload: { proposal_id: 'p-a', resolution: 'rejected' },
+    });
+    const pending = useSceneStore.getState().pendingProposals;
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.payload.proposal_id).toBe('p-b');
+  });
+
+  it('config.flag_set folds latest-wins; character.lock_set per character; world.seeded latches', () => {
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'config.flag_set',
+      payload: { flag: 'profiling_enabled', value: true },
+    });
+    expect(useSceneStore.getState().profilingEnabled).toBe(true);
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'config.flag_set',
+      payload: { flag: 'profiling_enabled', value: false },
+    });
+    expect(useSceneStore.getState().profilingEnabled).toBe(false);
+
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'character.lock_set',
+      payload: { character_id: 'char:elias', locked: true },
+    });
+    expect(useSceneStore.getState().characterLocks['char:elias']).toBe(true);
+
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:gm',
+      ts: TS,
+      type: 'world.seeded',
+      payload: {
+        world_name: 'Saltmarsh',
+        language: 'en',
+        place_count: 3,
+        character_count: 2,
+      },
+    });
+    expect(useSceneStore.getState().worldSeeded).toBe(true);
+  });
+});

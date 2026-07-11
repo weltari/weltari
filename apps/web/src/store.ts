@@ -157,6 +157,19 @@ export interface FeedNotification {
   ts: string;
 }
 
+/** The §16 uniform consent object as it rides proposal.submitted (0.17.0) —
+ * the card renders straight from the wire payload. */
+export type ProposalPayload = Extract<
+  WeltariEvent,
+  { type: 'proposal.submitted' }
+>['payload'];
+
+export interface PendingProposal {
+  event_id: number;
+  ts: string;
+  payload: ProposalPayload;
+}
+
 export interface SceneStore {
   connected: boolean;
   protocolVersion: string | null;
@@ -245,6 +258,18 @@ export interface SceneStore {
   /** Highest subwiki.updated event id (World Agent writes only — the blue
    * dot announces the world writing, not the user's own edits). */
   wikiLastEventId: number;
+  /** Unresolved proposals in submit order (0.17.0, Rev 4 §16) — the consent
+   * cards in the GM conversation; proposal.resolved removes its card. */
+  pendingProposals: PendingProposal[];
+  /** The profiling_enabled fold (0.17.0, Rev 4 §15) — latest config.flag_set
+   * wins; false until one arrives (consent-first default). */
+  profilingEnabled: boolean;
+  /** character_id → evolution lock (0.17.0, Rev 4 §7) — latest
+   * character.lock_set wins; absent = the seed default (unlocked). */
+  characterLocks: Record<string, boolean>;
+  /** True once world.seeded arrived (0.17.0, Rev 4 §9) — cold boot's
+   * terminal state; the onboarding surface keys off it. */
+  worldSeeded: boolean;
 
   // ---- reducer actions: called ONLY from stream.ts ----
   setConnected(connected: boolean): void;
@@ -744,13 +769,15 @@ function applyOne(
       // A manual user edit (0.15.0, owner ruling 2026-07-11): applied
       // immediately, same latest-wins projection; provenance = the user.
       // No blue dot — the dot announces the WORLD writing, not the user.
+      // 0.17.0: an approved GM proposal applies through the same event with
+      // the GM as actor — the "edited by you" label follows the actor.
       set((state) => ({
         subwikiBySublocation: {
           ...state.subwikiBySublocation,
           [event.payload.sublocation_id]: {
             entry: event.payload.entry,
             sceneId: null,
-            editedByUser: true,
+            editedByUser: event.actor_id.startsWith('user:'),
           },
         },
       }));
@@ -877,17 +904,50 @@ function applyOne(
     case 'character.evolved':
     case 'cache.pruned':
       return;
-    // The GM surface (0.17.0, M7 part 2): proposals project into pendingProposals
-    // below once the consent card lands; the rest is engine-side state —
-    // binding pushes, config folds, profile references (the hypotheses
-    // themselves never ride the log: GDPR).
-    case 'proposal.submitted':
-    case 'proposal.resolved':
+    // The GM consent cards (0.17.0, Rev 4 §16): pending = submitted minus
+    // resolved — a pure fold, so replay rebuilds the open cards exactly.
+    case 'proposal.submitted': {
+      set((state) => ({
+        pendingProposals: [
+          ...state.pendingProposals,
+          { event_id: event.id, ts: event.ts, payload: event.payload },
+        ],
+      }));
+      return;
+    }
+    case 'proposal.resolved': {
+      set((state) => ({
+        pendingProposals: state.pendingProposals.filter(
+          (p) => p.payload.proposal_id !== event.payload.proposal_id,
+        ),
+      }));
+      return;
+    }
+    case 'config.flag_set': {
+      // flag → store field; a new wire flag fails to compile until mapped.
+      const field = { profiling_enabled: 'profilingEnabled' } as const;
+      set({ [field[event.payload.flag]]: event.payload.value });
+      return;
+    }
+    case 'character.lock_set': {
+      set((state) => ({
+        characterLocks: {
+          ...state.characterLocks,
+          [event.payload.character_id]: event.payload.locked,
+        },
+      }));
+      return;
+    }
+    case 'world.seeded': {
+      set({ worldSeeded: true });
+      return;
+    }
+    // Engine-side state (0.17.0): created characters enter the roster fold
+    // server-side; binding pushes and profile references carry no client
+    // surface (the hypotheses never ride the log: GDPR — the Config page
+    // fetches them from GET /v1/profile instead).
     case 'character.created':
-    case 'world.seeded':
     case 'gateway.binding_established':
-    case 'config.flag_set':
-    case 'character.lock_set':
     case 'profile.updated':
     case 'profile.deleted':
       return;
@@ -933,6 +993,10 @@ export const useSceneStore = create<SceneStore>((set) => ({
   feedNotifications: [],
   feedLastEventId: 0,
   wikiLastEventId: 0,
+  pendingProposals: [],
+  profilingEnabled: false,
+  characterLocks: {},
+  worldSeeded: false,
 
   setConnected(connected: boolean): void {
     set({ connected });

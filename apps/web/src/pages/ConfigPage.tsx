@@ -5,8 +5,15 @@
 // stream projection or the validated /v1/plugins list; the full §15 config
 // panels arrive with their backend systems.
 import { useState } from 'react';
-import type { PluginInfo } from '@weltari/protocol';
-import { postApplyUpdate } from '../commands.js';
+import type { PluginInfo, UserProfileView } from '@weltari/protocol';
+import {
+  fetchProfile,
+  postApplyUpdate,
+  postDeleteProfile,
+  postSetConfigFlag,
+  profileExportUrl,
+} from '../commands.js';
+import { t } from '../i18n.js';
 import { useSceneStore } from '../store.js';
 
 /** Plain-language help per refusal code — the honest 409 surface. */
@@ -112,6 +119,138 @@ function UpdateSection(): React.JSX.Element {
   );
 }
 
+/** Engine & System (M7 part 2, Rev 4 §15/§9 Job 2): the profiling toggle +
+ * the GDPR trio — view (fetched on demand, never the stream), export (a
+ * plain download), delete (two-tap confirm, physically erased server-side). */
+function EngineSection(): React.JSX.Element {
+  const profilingEnabled = useSceneStore((s) => s.profilingEnabled);
+  const [view, setView] = useState<UserProfileView | null>(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  function refreshView(): void {
+    fetchProfile()
+      .then((profile) => {
+        setView(profile);
+      })
+      .catch(() => {
+        // CATCH-OK: a failed fetch leaves the panel closed; retry by reopening.
+        setView(null);
+      });
+  }
+
+  return (
+    <section className="wl-config-section" aria-label="engine">
+      <h2>{t('config.engine.title')}</h2>
+      <h3>{t('config.profiling.title')}</h3>
+      <p className="wl-config-note">{t('config.profiling.hint')}</p>
+      <p>
+        <span
+          className="wl-config-badge"
+          data-tone={profilingEnabled ? 'ok' : 'accent'}
+        >
+          {profilingEnabled
+            ? t('config.profiling.on')
+            : t('config.profiling.off')}
+        </span>{' '}
+        <button
+          className="wl-button"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            // Truth is the stream: config.flag_set flips the badge.
+            postSetConfigFlag('profiling_enabled', !profilingEnabled)
+              .catch(() => false)
+              .finally(() => {
+                setBusy(false);
+              });
+          }}
+        >
+          {profilingEnabled
+            ? t('config.profiling.disable')
+            : t('config.profiling.enable')}
+        </button>
+      </p>
+      <p className="wl-config-profile-actions">
+        <button
+          className="wl-button"
+          onClick={() => {
+            if (viewOpen) {
+              setViewOpen(false);
+              return;
+            }
+            refreshView();
+            setViewOpen(true);
+          }}
+        >
+          {viewOpen ? t('config.profile.hide') : t('config.profile.view')}
+        </button>{' '}
+        <a className="wl-button" href={profileExportUrl()} download>
+          {t('config.profile.export')}
+        </a>{' '}
+        {confirmDelete ? (
+          <>
+            <span className="wl-config-note" data-tone="danger">
+              {t('config.profile.deleteConfirm')}
+            </span>{' '}
+            <button
+              className="wl-button"
+              data-tone="danger"
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                postDeleteProfile()
+                  .then(() => {
+                    setConfirmDelete(false);
+                    refreshView();
+                  })
+                  .catch(() => null)
+                  .finally(() => {
+                    setBusy(false);
+                  });
+              }}
+            >
+              {t('config.profile.deleteYes')}
+            </button>{' '}
+            <button
+              className="wl-button"
+              onClick={() => {
+                setConfirmDelete(false);
+              }}
+            >
+              {t('config.profile.deleteNo')}
+            </button>
+          </>
+        ) : (
+          <button
+            className="wl-button"
+            onClick={() => {
+              setConfirmDelete(true);
+            }}
+          >
+            {t('config.profile.delete')}
+          </button>
+        )}
+      </p>
+      {viewOpen ? (
+        view === null || view.entries.length === 0 ? (
+          <p className="wl-config-note">{t('config.profile.empty')}</p>
+        ) : (
+          <ul className="wl-config-profile">
+            {view.entries.map((entry) => (
+              <li key={entry.id}>
+                {entry.body}
+                <span className="wl-config-hash"> · {entry.context_id}</span>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+    </section>
+  );
+}
+
 export function ConfigPage(props: {
   plugins: readonly PluginInfo[];
 }): React.JSX.Element {
@@ -140,6 +279,8 @@ export function ConfigPage(props: {
       </section>
 
       <UpdateSection />
+
+      <EngineSection />
 
       <section className="wl-config-section" aria-label="plugins">
         <h2>Plugins</h2>
