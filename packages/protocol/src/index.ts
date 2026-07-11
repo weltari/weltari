@@ -58,8 +58,18 @@
  * start-group-chat / send-group-message / exit-group-chat commands. The
  * proactive-DM occurrence_iso is a GAME-time boundary from 0.13.0 on (owner
  * ruling 2026-07-10/11: fires only when the world clock advances).
+ * 0.15.0 (M6 part 5, Rev 4 §10/§11/§12, owner rulings 2026-07-11): the Feed —
+ * social.post_committed (game-time cadence, natural key world +
+ * occurrence_iso, acquaintance delivery) / social.reaction_committed (one
+ * skill-triggered decision per picked recipient, cap env-tunable) /
+ * social.reply_posted + social.reply_answered (feed-local comment threads:
+ * the user replies, the comment's author answers — never routed into Chat);
+ * feed-reply command; cache.appended origin gains `social` (latest-per-origin
+ * keeps feed comments from shadowing scene memory). Wiki manual edits —
+ * subwiki.edited event (USER actor provenance, applies immediately; the
+ * Proposal pipeline is deferred) + subwiki-edit command.
  */
-export const PROTOCOL_VERSION = '0.14.0';
+export const PROTOCOL_VERSION = '0.15.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -91,10 +101,15 @@ export {
   SceneEndedEventSchema,
   SceneExpiredEventSchema,
   SceneStartedEventSchema,
+  SocialPostCommittedEventSchema,
+  SocialReactionCommittedEventSchema,
+  SocialReplyAnsweredEventSchema,
+  SocialReplyPostedEventSchema,
   SublocationChangedEventSchema,
   SublocationCreatedEventSchema,
   SublocationMaterializedEventSchema,
   SublocationStubCreatedEventSchema,
+  SubwikiEditedEventSchema,
   SubwikiUpdatedEventSchema,
   TurnCommittedEventSchema,
   TurnStartedEventSchema,
@@ -148,6 +163,8 @@ export {
   ExitGroupChatCommandSchema,
   ExploreAcceptedSchema,
   ExploreCommandSchema,
+  FeedReplyAcceptedSchema,
+  FeedReplyCommandSchema,
   InterruptTurnAcceptedSchema,
   InterruptTurnCommandSchema,
   MapClickAcceptedSchema,
@@ -168,6 +185,8 @@ export {
   StartSceneFromChatCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
+  SubwikiEditAcceptedSchema,
+  SubwikiEditCommandSchema,
   type AdvanceTimeAccepted,
   type AdvanceTimeCommand,
   type ApplyUpdateAccepted,
@@ -181,6 +200,8 @@ export {
   type ExitGroupChatCommand,
   type ExploreAccepted,
   type ExploreCommand,
+  type FeedReplyAccepted,
+  type FeedReplyCommand,
   type InterruptTurnAccepted,
   type InterruptTurnCommand,
   type MapClickAccepted,
@@ -201,4 +222,6 @@ export {
   type StartSceneFromChatCommand,
   type StartTurnAccepted,
   type StartTurnCommand,
+  type SubwikiEditAccepted,
+  type SubwikiEditCommand,
 } from './commands.js';

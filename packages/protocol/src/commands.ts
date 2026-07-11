@@ -440,6 +440,55 @@ export const ExitGroupChatAcceptedSchema = z.strictObject({
 });
 export type ExitGroupChatAccepted = z.infer<typeof ExitGroupChatAcceptedSchema>;
 
+/**
+ * POST /v1/commands/feed-reply — the user replies to a comment on a feed
+ * post (0.15.0, M6 part 5, owner ruling 2026-07-11): the reply lives in a
+ * feed-local thread under that comment (never routed into Weltari Chat).
+ * The reply commits durably at the seam; the comment's author answers
+ * detached, arriving as social.reply_answered. Uncapped — user-triggered
+ * spend. Idempotent per request_id (a duplicate send is a silent 202 no-op).
+ */
+export const FeedReplyCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  post_id: z.string().min(1).max(100),
+  /** The comment (social.reaction_committed reaction_id) being replied to. */
+  reaction_id: z.string().min(1).max(200),
+  text: z.string().min(1).max(2000),
+  /** Client-chosen idempotency token; becomes the reply_id. */
+  request_id: z.string().min(1).max(100),
+});
+export type FeedReplyCommand = z.infer<typeof FeedReplyCommandSchema>;
+
+/** 202 response: the user reply is durable; the answer is generating. */
+export const FeedReplyAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  reply_id: z.string().min(1),
+});
+export type FeedReplyAccepted = z.infer<typeof FeedReplyAcceptedSchema>;
+
+/**
+ * POST /v1/commands/subwiki-edit — the user manually edits a sublocation's
+ * wiki entry from the Wiki page (0.15.0, owner ruling 2026-07-11: applies
+ * immediately — no Proposal round-trip in V1). Appends subwiki.edited with
+ * USER actor provenance; every wiki read from then on sees this entry until
+ * a later write (manual or World Agent) supersedes it, auditable in the log.
+ */
+export const SubwikiEditCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  sublocation_id: z.string().min(1),
+  entry: z.string().min(1).max(4000),
+});
+export type SubwikiEditCommand = z.infer<typeof SubwikiEditCommandSchema>;
+
+/** 202 response: the edit is durable and on the stream. */
+export const SubwikiEditAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  sublocation_id: z.string().min(1),
+});
+export type SubwikiEditAccepted = z.infer<typeof SubwikiEditAcceptedSchema>;
+
 /** 4xx response for a schema-valid command the engine refused (e.g. busy scene). */
 export const CommandRejectedSchema = z.strictObject({
   accepted: z.literal(false),

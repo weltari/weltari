@@ -425,16 +425,18 @@ export const ChatNoticeEventSchema = z.strictObject({
  * store is a PROJECTION of these events (latest-per-origin is a view, never a
  * slot); all structured fields are engine-written — the character authors
  * only the one-liner. Emitted by: the chat engine (origin `chat`, every
- * reply) and the reflection handler (origin `scene`, this slice's stand-in
- * until the C-Module writes in-scene). Consumed by: chat context assembly
- * (latest-per-origin catch-up), dev mode.
+ * reply), the reflection handler (origin `scene`, this slice's stand-in
+ * until the C-Module writes in-scene), and the social handlers (origin
+ * `social` since 0.15.0, Rev 4 §11: a feed comment must never shadow a
+ * scene experience — latest-per-origin keeps the lanes separate). Consumed
+ * by: chat context assembly (latest-per-origin catch-up), dev mode.
  */
 export const CacheAppendedEventSchema = z.strictObject({
   ...eventEnvelope,
   type: z.literal('cache.appended'),
   payload: z.strictObject({
     character_id: z.string().min(1),
-    origin: z.enum(['scene', 'chat']),
+    origin: z.enum(['scene', 'chat', 'social']),
     /** The scene id or conversation id the entry points back into. */
     context_id: z.string().min(1),
     /** Where it happened, when known (scene-origin entries). */
@@ -464,6 +466,125 @@ export const SubwikiUpdatedEventSchema = z.strictObject({
     /** Provenance: the scene whose end-pass wrote this entry. */
     scene_id: z.string().min(1),
     entry: z.string().min(1).max(4000),
+  }),
+});
+
+/**
+ * The user manually edited a sublocation's wiki entry from the Wiki page
+ * (0.15.0, M6 part 5, owner ruling 2026-07-11: edits apply immediately —
+ * the Proposal pipeline is deferred). Durable with USER actor provenance
+ * (`actor_id`), so the audit trail always distinguishes a manual edit from
+ * a World Agent pass; the wiki view folds subwiki.updated AND subwiki.edited
+ * latest-wins — a later World Agent pass may supersede the text, but never
+ * silently (both writes stay in the log). Emitted by: the subwiki-edit
+ * command seam. Consumed by: clients (WikiPage), wiki context assembly.
+ */
+export const SubwikiEditedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('subwiki.edited'),
+  payload: z.strictObject({
+    sublocation_id: z.string().min(1),
+    entry: z.string().min(1).max(4000),
+  }),
+});
+
+/**
+ * A character's feed post became durable (0.15.0, M6 part 5, Rev 4 §12): the
+ * social CRON's eager generation — the post IS the content committed at fire
+ * time, grounded in the poster's CACHE/goals like a proactive DM. Natural
+ * key: (world, occurrence_iso) — one cadence boundary commits at most one
+ * post ever, kill-retry safe; occurrence_iso is a GAME-time boundary (posts
+ * fire only when the world clock advances; hard ceiling 10 per skip with
+ * the freshest window surviving). Delivery rides the acquaintance rule
+ * (owner ruling 2026-07-11: shared scene session OR shared group chat);
+ * `recipient_ids` records it for audit — the user always sees every post
+ * (viewer-only feed). Appended atomically WITH the poster's cache.appended
+ * (origin `social`). Emitted by: the social_post job handler. Consumed by:
+ * clients (FeedPage), verify-consistency.
+ */
+export const SocialPostCommittedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('social.post_committed'),
+  payload: z.strictObject({
+    post_id: z.string().min(1).max(100),
+    /** The cadence boundary that fired this post (natural-key component
+     * alongside world_id) — a GAME-time boundary. */
+    occurrence_iso: z.string().min(1),
+    /** The fictional world clock at fire time (>= occurrence_iso). */
+    game_time: z.string().min(1),
+    character_id: z.string().min(1),
+    body: z.string().min(1).max(1000),
+    /** Acquaintances the post was delivered to (may be empty). */
+    recipient_ids: z.array(z.string().min(1)),
+  }),
+});
+
+/**
+ * A recipient reacted to a feed post (0.15.0, Rev 4 §12): the outcome of ONE
+ * skill-triggered decision — like, or a one-line comment; an explicit
+ * stay_silent decline commits nothing. At most `reaction cap` recipients per
+ * post get the decision (env default 4, deterministic salted pick — no
+ * relationship system in V1). Comments are isolated: characters never react
+ * to each other's comments. Natural key: (post_id, character_id) — one
+ * decision per recipient per post. Appended atomically WITH the reactor's
+ * cache.appended (origin `social` — two-sided memory, Rev 4 §12). Emitted
+ * by: the social_reaction job handler. Consumed by: clients (FeedPage).
+ */
+export const SocialReactionCommittedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('social.reaction_committed'),
+  payload: z.strictObject({
+    post_id: z.string().min(1).max(100),
+    reaction_id: z.string().min(1).max(200),
+    character_id: z.string().min(1),
+    kind: z.enum(['like', 'comment']),
+    /** The one-line comment text — present iff kind is `comment`
+     * (engine-enforced). */
+    body: z.string().min(1).max(300).optional(),
+  }),
+});
+
+/**
+ * The user replied to a comment on a feed post (0.15.0, owner ruling
+ * 2026-07-11): clicking a comment opens the reply box; the reply lives in a
+ * feed-local thread under that comment — never routed into Weltari Chat.
+ * Uncapped (user-triggered spend). The comment's author answers with
+ * social.reply_answered. Emitted by: the feed-reply command seam (actor =
+ * the user). Consumed by: clients (FeedPage threads).
+ */
+export const SocialReplyPostedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('social.reply_posted'),
+  payload: z.strictObject({
+    post_id: z.string().min(1).max(100),
+    /** The comment (social.reaction_committed reaction_id) replied to. */
+    reaction_id: z.string().min(1).max(200),
+    reply_id: z.string().min(1).max(100),
+    body: z.string().min(1).max(2000),
+  }),
+});
+
+/**
+ * The comment's author answered the user's reply (0.15.0): an answer-only
+ * chat-class call — the skill forbids promises the toolset cannot keep (no
+ * startscene here; answering is all the comment thread can do), and the
+ * character writes its CACHE (origin `social`) in the same call. Appended
+ * atomically WITH that cache.appended. Natural key: (in_reply_to) — one
+ * answer per user reply, kill-retry safe. Emitted by: the social_reply job
+ * handler. Consumed by: clients (FeedPage threads, the notification bell).
+ */
+export const SocialReplyAnsweredEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('social.reply_answered'),
+  payload: z.strictObject({
+    post_id: z.string().min(1).max(100),
+    reaction_id: z.string().min(1).max(200),
+    /** This answer's own id. */
+    reply_id: z.string().min(1).max(100),
+    /** The user social.reply_posted reply_id this answers (natural key). */
+    in_reply_to: z.string().min(1).max(100),
+    character_id: z.string().min(1),
+    body: z.string().min(1).max(1000),
   }),
 });
 
@@ -869,6 +990,11 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   ChatGroupEndedEventSchema,
   CacheAppendedEventSchema,
   SubwikiUpdatedEventSchema,
+  SubwikiEditedEventSchema,
+  SocialPostCommittedEventSchema,
+  SocialReactionCommittedEventSchema,
+  SocialReplyPostedEventSchema,
+  SocialReplyAnsweredEventSchema,
   SublocationChangedEventSchema,
   SublocationMaterializedEventSchema,
   SublocationCreatedEventSchema,
