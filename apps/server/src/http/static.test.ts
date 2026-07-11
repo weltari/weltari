@@ -128,6 +128,14 @@ describe('GET /* (the SPA wildcard route)', () => {
         Promise.resolve(
           err(new OperationalError('unknown_proposal', 'test stub')),
         ),
+      setConfigFlag: () =>
+        err(new OperationalError('unknown_flag', 'test stub')),
+      deleteProfile: () => ok({ removed: 0 }),
+      profileView: (_worldId, actorId) => ({
+        actor_id: actorId,
+        profiling_enabled: false,
+        entries: [],
+      }),
       startSceneFromChat: async () =>
         Promise.resolve(
           err(new OperationalError('unknown_character', 'test stub')),

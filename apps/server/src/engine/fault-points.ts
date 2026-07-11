@@ -46,7 +46,12 @@ export type FaultPoint =
    * the atomic append (proposal.resolved + the applied domain events + their
    * jobs) not yet written. A retried resolve must converge to exactly one
    * application per proposal_id (the fused re-check refuses the second). */
-  | 'mid_proposal_apply';
+  | 'mid_proposal_apply'
+  /** M7 part 2: inside the profile_analysis job — hypotheses generated and
+   * gated, the transaction (side-store rows + profile.updated) not yet
+   * written. Idempotent per (actor, context): the retry commits exactly one
+   * hypothesis set per ended scene/chat range. */
+  | 'mid_profile_analysis';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;

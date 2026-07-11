@@ -91,7 +91,9 @@
  * deletable side store outside the log: GDPR). sublocation.materialized
  * gains optional space + proposal_id; subwiki.edited gains optional
  * proposal_id (both additive). Commands: resolve-proposal, set-config-flag,
- * set-character-lock, delete-profile.
+ * set-character-lock, delete-profile. GET /v1/profile (+ /export) wire
+ * shape: UserProfileView (entries + the profiling_enabled fold — the
+ * hypotheses travel only over this surface, never the event stream).
  */
 export const PROTOCOL_VERSION = '0.17.0';
 
@@ -181,6 +183,12 @@ export {
   type PluginInfo,
   type PluginList,
 } from './plugins.js';
+export {
+  ProfileEntrySchema,
+  UserProfileViewSchema,
+  type ProfileEntry,
+  type UserProfileView,
+} from './profile.js';
 export {
   DevEventSchema,
   DevGaugesSchema,

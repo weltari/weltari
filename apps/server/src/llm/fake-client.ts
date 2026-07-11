@@ -53,6 +53,10 @@ const SCRIPT: Record<string, string> = {
     'Storm season so far: the traveler lies about small things, the shrine bell is being silenced by someone, and the workshop roof went up before the rain returned.',
   // The GM conversation turn (M7 part 2, Rev 4 §9): deterministic, in-persona.
   gm: 'Welcome to the table. Tell me what kind of world you want to wake up in, and we will build it together — one honest question at a time.',
+  // The profile-analysis pass (M7 part 2, Rev 4 §9 Job 2): structured JSON —
+  // gate 1 parses it; malformed output is driven by stub clients at the seam.
+  profile_analysis:
+    '{"hypotheses":["The user leans into small mysteries and follows them across scenes — story-quality signal, not time-spent.","The user prefers short, decisive replies over long negotiation."]}',
 };
 
 /**

@@ -45,10 +45,15 @@ import {
   StartSceneFromChatCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
+  DeleteProfileAcceptedSchema,
+  DeleteProfileCommandSchema,
   ResolveProposalAcceptedSchema,
   ResolveProposalCommandSchema,
+  SetConfigFlagAcceptedSchema,
+  SetConfigFlagCommandSchema,
   SubwikiEditAcceptedSchema,
   SubwikiEditCommandSchema,
+  UserProfileViewSchema,
   type AdvanceTimeAccepted,
   type AdvanceTimeCommand,
   type ApplyUpdateAccepted,
@@ -85,10 +90,15 @@ import {
   type StartSceneFromChatAccepted,
   type StartSceneFromChatCommand,
   type StartTurnCommand,
+  type DeleteProfileAccepted,
+  type DeleteProfileCommand,
   type ResolveProposalAccepted,
   type ResolveProposalCommand,
+  type SetConfigFlagAccepted,
+  type SetConfigFlagCommand,
   type SubwikiEditAccepted,
   type SubwikiEditCommand,
+  type UserProfileView,
 } from '@weltari/protocol';
 import { createReadStream } from 'node:fs';
 import { z } from 'zod';
@@ -171,6 +181,14 @@ export interface HttpDeps {
   resolveProposal: (
     command: ResolveProposalCommand,
   ) => Promise<Result<{ applied: number }>>;
+  /** World flags as latest-wins folds (M7 part 2, Rev 4 §15). */
+  setConfigFlag: (
+    command: SetConfigFlagCommand,
+  ) => Result<{ flag: string; value: boolean }>;
+  /** The GDPR erasure right (M7 part 2, Rev 4 §9 guardrails). */
+  deleteProfile: (command: DeleteProfileCommand) => Result<{ removed: number }>;
+  /** The user's own view of the profiling store (view + export). */
+  profileView: (worldId: string, actorId: string) => UserProfileView;
   /** The startscene() bridge (Rev 4 §8): ends the chat range, opens a real
    * scene with the character; unresolved places ride scene.started. Async
    * since M6 part 3 — the bridge ends a still-open scene first and may wait
@@ -741,6 +759,120 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         applied: result.value.applied,
       };
       return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/set-config-flag',
+    {
+      schema: {
+        body: SetConfigFlagCommandSchema,
+        response: {
+          202: SetConfigFlagAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.setConfigFlag(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'set-config-flag rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: SetConfigFlagAccepted = {
+        accepted: true,
+        flag: request.body.flag,
+        value: request.body.value,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/delete-profile',
+    {
+      schema: {
+        body: DeleteProfileCommandSchema,
+        response: {
+          202: DeleteProfileAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.deleteProfile(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'delete-profile rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: DeleteProfileAccepted = {
+        accepted: true,
+        removed: result.value.removed,
+      };
+      return accepted;
+    },
+  );
+
+  // The profiling store's view + export (M7 part 2, Rev 4 §9 guardrails):
+  // the hypotheses travel ONLY over this surface — never the event stream.
+  const profileQuerySchema = z.object({
+    world_id: z.string().min(1),
+    actor_id: z.string().min(1),
+  });
+  app.get(
+    '/v1/profile',
+    {
+      schema: {
+        querystring: profileQuerySchema,
+        response: { 200: UserProfileViewSchema },
+      },
+    },
+    (request, reply) => {
+      reply.code(200);
+      const view: UserProfileView = deps.profileView(
+        request.query.world_id,
+        request.query.actor_id,
+      );
+      return view;
+    },
+  );
+  app.get(
+    '/v1/profile/export',
+    {
+      schema: {
+        querystring: profileQuerySchema,
+        response: { 200: UserProfileViewSchema },
+      },
+    },
+    (request, reply) => {
+      reply.code(200);
+      reply.header(
+        'content-disposition',
+        'attachment; filename="weltari-profile.json"',
+      );
+      const view: UserProfileView = deps.profileView(
+        request.query.world_id,
+        request.query.actor_id,
+      );
+      return view;
     },
   );
 

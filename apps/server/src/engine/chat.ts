@@ -28,6 +28,7 @@ import {
   runSessionquery,
   runWikiquery,
 } from './chat-queries.js';
+import { flagOf } from './config-flags.js';
 import { GM_CHARACTER_ID } from './gm.js';
 import { archiveRecapText, liveProfile } from './memory.js';
 import {
@@ -279,6 +280,31 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         // The character's memory mailbox (M7 part 1, Rev 4 §11).
         serial_group: `memory:${worldId}:${characterId}`,
       });
+      // GM Job 2 (M7 part 2, Rev 4 §9): the profile-analysis pass over the
+      // closed range — consent-gated here AND re-checked in the handler. The
+      // profile subject is the conversation's OWNER (from the stable id
+      // shape `chat:<actor>:<character>`), never the closer: an idle sweep
+      // runs as system:chat but the range is still the user's.
+      const subject = conversationId.slice(
+        'chat:'.length,
+        conversationId.length - (characterId.length + 1),
+      );
+      if (
+        subject.startsWith('user:') &&
+        flagOf(storage, worldId, 'profiling_enabled')
+      ) {
+        storage.ledger.enqueue({
+          idempotency_key: `profile_analysis:${subject}:${conversationId}:${String(rangeEndId)}`,
+          world_id: worldId,
+          type: 'profile_analysis',
+          payload: {
+            user_actor_id: subject,
+            origin: 'chat',
+            context_id: `${conversationId}:${String(rangeEndId)}`,
+          },
+          serial_group: `profile:${worldId}`,
+        });
+      }
     });
     if (ended !== undefined) eventBus.publish(ended);
     options.kickRunner?.();

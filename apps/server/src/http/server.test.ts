@@ -247,6 +247,22 @@ describe('HTTP layer (SSE + commands)', () => {
             ? err(new OperationalError('unknown_proposal', 'no such proposal'))
             : ok({ applied: command.resolution === 'approved' ? 3 : 0 }),
         ),
+      setConfigFlag: (command) =>
+        ok({ flag: command.flag, value: command.value }),
+      deleteProfile: () => ok({ removed: 2 }),
+      profileView: (worldId, actorId) => ({
+        actor_id: actorId,
+        profiling_enabled: worldId === 'w1',
+        entries: [
+          {
+            id: 1,
+            kind: 'hypothesis',
+            body: 'Leans into small mysteries.',
+            context_id: 's1',
+            created_at: '2026-07-11T12:00:00.000Z',
+          },
+        ],
+      }),
       // place 'the park' exercises the unresolved free-text answer shape.
       startSceneFromChat: async (command) =>
         Promise.resolve(
