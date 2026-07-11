@@ -29,9 +29,11 @@ const RESULT_CAP = 3;
 
 /**
  * wikiquery: what is publicly known about a place — the sublocation registry
- * (names + stub descriptions) merged with the SUBWIKI projection (latest
- * subwiki.updated per sublocation wins; Rev 4 §10 tier 2 is a relevance
- * scope, not secrecy, so chat may read it freely).
+ * (names + stub descriptions) merged with the SUBWIKI projection (latest of
+ * subwiki.updated AND subwiki.edited per sublocation wins — M6 part 5: a
+ * manual user edit is wiki truth for every read from the moment it lands;
+ * Rev 4 §10 tier 2 is a relevance scope, not secrecy, so chat may read it
+ * freely).
  */
 export function runWikiquery(
   storage: Storage,
@@ -52,7 +54,10 @@ export function runWikiquery(
   const query = parsed.value.query;
   const latestEntry = new Map<string, string>();
   for (const event of storage.eventLog.readSince(0, 100000)) {
-    if (event.type === 'subwiki.updated' && event.world_id === worldId) {
+    if (
+      (event.type === 'subwiki.updated' || event.type === 'subwiki.edited') &&
+      event.world_id === worldId
+    ) {
       latestEntry.set(event.payload.sublocation_id, event.payload.entry);
     }
   }
