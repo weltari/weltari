@@ -1161,3 +1161,178 @@ describe('group chat family (0.14.0, Rev 4 §8)', () => {
     expect(WeltariEventSchema.safeParse(badReason).success).toBe(false);
   });
 });
+
+describe('social event family (0.15.0, Rev 4 §12, M6 part 5)', () => {
+  it('accepts social.post_committed with recipients and rejects an oversized body or extra key (B5)', () => {
+    const valid: unknown = {
+      ...envelope,
+      actor_id: 'char:elias',
+      type: 'social.post_committed',
+      payload: {
+        post_id: 'post-1',
+        occurrence_iso: '2000-01-02T00:00:00.000Z',
+        game_time: '2000-01-02T08:00:00.000Z',
+        character_id: 'char:elias',
+        body: 'Roof beams up at the workshop before the rain came back.',
+        recipient_ids: ['char:mara'],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const noRecipients: unknown = {
+      ...envelope,
+      actor_id: 'char:elias',
+      type: 'social.post_committed',
+      payload: {
+        post_id: 'post-1',
+        occurrence_iso: '2000-01-02T00:00:00.000Z',
+        game_time: '2000-01-02T08:00:00.000Z',
+        character_id: 'char:elias',
+        body: 'Quiet day.',
+        recipient_ids: [],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(noRecipients).success).toBe(true);
+    for (const payload of [
+      {
+        post_id: 'post-1',
+        occurrence_iso: '2000-01-02T00:00:00.000Z',
+        game_time: '2000-01-02T08:00:00.000Z',
+        character_id: 'char:elias',
+        body: 'x'.repeat(1001),
+        recipient_ids: [],
+      },
+      {
+        post_id: 'post-1',
+        occurrence_iso: '2000-01-02T00:00:00.000Z',
+        game_time: '2000-01-02T08:00:00.000Z',
+        character_id: 'char:elias',
+        body: 'ok',
+        recipient_ids: [],
+        boost: true,
+      },
+    ]) {
+      const bad: unknown = {
+        ...envelope,
+        actor_id: 'char:elias',
+        type: 'social.post_committed',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+
+  it('accepts social.reaction_committed for like and comment, rejects an unknown kind', () => {
+    const like: unknown = {
+      ...envelope,
+      actor_id: 'char:mara',
+      type: 'social.reaction_committed',
+      payload: {
+        post_id: 'post-1',
+        reaction_id: 'post-1:char:mara',
+        character_id: 'char:mara',
+        kind: 'like',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(like).success).toBe(true);
+    const comment: unknown = {
+      ...envelope,
+      actor_id: 'char:mara',
+      type: 'social.reaction_committed',
+      payload: {
+        post_id: 'post-1',
+        reaction_id: 'post-1:char:mara',
+        character_id: 'char:mara',
+        kind: 'comment',
+        body: 'Rain never asks the river first.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(comment).success).toBe(true);
+    const badKind: unknown = {
+      ...envelope,
+      actor_id: 'char:mara',
+      type: 'social.reaction_committed',
+      payload: {
+        post_id: 'post-1',
+        reaction_id: 'r1',
+        character_id: 'char:mara',
+        kind: 'repost',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(badKind).success).toBe(false);
+  });
+
+  it('accepts the reply pair and caps their bodies', () => {
+    const posted: unknown = {
+      ...envelope,
+      type: 'social.reply_posted',
+      payload: {
+        post_id: 'post-1',
+        reaction_id: 'post-1:char:mara',
+        reply_id: 'reply-1',
+        body: 'What did the eels say about it?',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(posted).success).toBe(true);
+    const answered: unknown = {
+      ...envelope,
+      actor_id: 'char:mara',
+      type: 'social.reply_answered',
+      payload: {
+        post_id: 'post-1',
+        reaction_id: 'post-1:char:mara',
+        reply_id: 'answer-1',
+        in_reply_to: 'reply-1',
+        character_id: 'char:mara',
+        body: 'Eels keep their opinions under the water where they belong.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(answered).success).toBe(true);
+    const oversized: unknown = {
+      ...envelope,
+      type: 'social.reply_posted',
+      payload: {
+        post_id: 'post-1',
+        reaction_id: 'r1',
+        reply_id: 'reply-1',
+        body: 'x'.repeat(2001),
+      },
+    };
+    expect(WeltariEventSchema.safeParse(oversized).success).toBe(false);
+  });
+
+  it('accepts cache.appended with origin social (0.15.0)', () => {
+    const entry: unknown = {
+      ...envelope,
+      actor_id: 'char:mara',
+      type: 'cache.appended',
+      payload: {
+        character_id: 'char:mara',
+        origin: 'social',
+        context_id: 'post-1',
+        line: 'Commented on Elias’s roof-beam post.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(entry).success).toBe(true);
+  });
+
+  it('accepts subwiki.edited with user actor provenance and rejects an oversized entry', () => {
+    const valid: unknown = {
+      ...envelope,
+      type: 'subwiki.edited',
+      payload: {
+        sublocation_id: 'subloc:rainy-inn',
+        entry: 'The inn keeps three rooms above the taproom; the stairs creak.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const oversized: unknown = {
+      ...envelope,
+      type: 'subwiki.edited',
+      payload: {
+        sublocation_id: 'subloc:rainy-inn',
+        entry: 'x'.repeat(4001),
+      },
+    };
+    expect(WeltariEventSchema.safeParse(oversized).success).toBe(false);
+  });
+});

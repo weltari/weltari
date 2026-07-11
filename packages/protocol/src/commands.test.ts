@@ -10,6 +10,8 @@ import {
   StartSceneFromChatCommandSchema,
   ExploreAcceptedSchema,
   ExploreCommandSchema,
+  FeedReplyAcceptedSchema,
+  FeedReplyCommandSchema,
   InterruptTurnCommandSchema,
   MapClickCommandSchema,
   MapEditCommandSchema,
@@ -17,6 +19,7 @@ import {
   OpenSceneCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
+  SubwikiEditCommandSchema,
 } from './commands.js';
 import { StreamHelloSchema, StreamSentenceSchema } from './stream.js';
 
@@ -468,5 +471,54 @@ describe('response and stream frames', () => {
     expect(StreamHelloSchema.safeParse(withVersion).success).toBe(true);
     const without: unknown = { protocol_version: '0.8.0', last_event_id: 4 };
     expect(StreamHelloSchema.safeParse(without).success).toBe(true);
+  });
+});
+
+describe('feed-reply + subwiki-edit commands (0.15.0, M6 part 5)', () => {
+  it('feed-reply validates; empty text, oversized text, and extra key rejected (B5)', () => {
+    const ok: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      post_id: 'post-1',
+      reaction_id: 'post-1:char:mara',
+      text: 'What did the eels say about it?',
+      request_id: 'req-1',
+    };
+    expect(FeedReplyCommandSchema.safeParse(ok).success).toBe(true);
+    const base = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      post_id: 'post-1',
+      reaction_id: 'r1',
+      request_id: 'req-1',
+    };
+    for (const bad of [
+      { ...base, text: '' },
+      { ...base, text: 'x'.repeat(2001) },
+      { ...base, text: 'hi', pin: true },
+    ]) {
+      expect(FeedReplyCommandSchema.safeParse(bad).success).toBe(false);
+    }
+    const accepted: unknown = { accepted: true, reply_id: 'req-1' };
+    expect(FeedReplyAcceptedSchema.safeParse(accepted).success).toBe(true);
+  });
+
+  it('subwiki-edit validates; empty and oversized entries rejected', () => {
+    const ok: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      sublocation_id: 'subloc:rainy-inn',
+      entry: 'Three rooms above the taproom; the stairs creak.',
+    };
+    expect(SubwikiEditCommandSchema.safeParse(ok).success).toBe(true);
+    for (const entry of ['', 'x'.repeat(4001)]) {
+      const bad: unknown = {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        sublocation_id: 'subloc:rainy-inn',
+        entry,
+      };
+      expect(SubwikiEditCommandSchema.safeParse(bad).success).toBe(false);
+    }
   });
 });

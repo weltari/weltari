@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "world_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sublocation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entry": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    }
+  },
+  "required": [
+    "world_id",
+    "actor_id",
+    "sublocation_id",
+    "entry"
+  ],
+  "additionalProperties": false
+}

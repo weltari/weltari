@@ -1114,7 +1114,8 @@
               "type": "string",
               "enum": [
                 "scene",
-                "chat"
+                "chat",
+                "social"
               ]
             },
             "context_id": {
@@ -1196,6 +1197,361 @@
             "sublocation_id",
             "scene_id",
             "entry"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "world_id",
+        "actor_id",
+        "ts",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "world_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "type": {
+          "type": "string",
+          "const": "subwiki.edited"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "sublocation_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "entry": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            }
+          },
+          "required": [
+            "sublocation_id",
+            "entry"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "world_id",
+        "actor_id",
+        "ts",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "world_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "type": {
+          "type": "string",
+          "const": "social.post_committed"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "post_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "occurrence_iso": {
+              "type": "string",
+              "minLength": 1
+            },
+            "game_time": {
+              "type": "string",
+              "minLength": 1
+            },
+            "character_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "recipient_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "post_id",
+            "occurrence_iso",
+            "game_time",
+            "character_id",
+            "body",
+            "recipient_ids"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "world_id",
+        "actor_id",
+        "ts",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "world_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "type": {
+          "type": "string",
+          "const": "social.reaction_committed"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "post_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "reaction_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "character_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "like",
+                "comment"
+              ]
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "post_id",
+            "reaction_id",
+            "character_id",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "world_id",
+        "actor_id",
+        "ts",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "world_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "type": {
+          "type": "string",
+          "const": "social.reply_posted"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "post_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "reaction_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "reply_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "post_id",
+            "reaction_id",
+            "reply_id",
+            "body"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "world_id",
+        "actor_id",
+        "ts",
+        "type",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "world_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+        },
+        "type": {
+          "type": "string",
+          "const": "social.reply_answered"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "post_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "reaction_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "reply_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "in_reply_to": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "character_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          },
+          "required": [
+            "post_id",
+            "reaction_id",
+            "reply_id",
+            "in_reply_to",
+            "character_id",
+            "body"
           ],
           "additionalProperties": false
         }
