@@ -28,12 +28,17 @@ export interface MemoryIndexRepository {
 /**
  * LLM-written queries arrive as free text and FTS5 MATCH has its own syntax
  * (quotes, colons, NEAR, parentheses) — raw input would throw on half of
- * real queries. Reduce to word tokens, quote each, OR them: maximal recall,
- * BM25 does the ranking, and hostile syntax is inert inside the quotes.
+ * real queries. Reduce to word tokens, quote each, OR them: BM25 does the
+ * ranking, and hostile syntax is inert inside the quotes. Tokens of ≤3
+ * chars are dropped (the chat-queries matcher's rule — "the …" must never
+ * hit everything); if nothing longer survives, the short tokens are used
+ * as a fallback rather than matching nothing.
  */
 function toMatchExpression(query: string): string | undefined {
   const tokens = query.match(/[\p{L}\p{N}]+/gu) ?? [];
-  const meaningful = tokens.filter((t) => t.length > 1);
+  const long = tokens.filter((t) => t.length > 3);
+  const meaningful =
+    long.length > 0 ? long : tokens.filter((t) => t.length > 1);
   if (meaningful.length === 0) return undefined;
   return meaningful.map((t) => `"${t}"`).join(' OR ');
 }

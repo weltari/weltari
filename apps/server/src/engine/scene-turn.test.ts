@@ -158,6 +158,49 @@ describe('scripted 3-call scene turn', () => {
     if (started.ok) await started.value.completion;
     return ctx;
   }
+
+  it('the scene-side memory escalation: the character runs memoryquery mid-turn and its line visibly uses the delta (M7 part 1, criterion c)', async () => {
+    const ctx = setup();
+    // A delta buried in Elias's archive from an earlier session.
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:elias',
+      type: 'memory.delta_committed',
+      payload: {
+        character_id: 'char:elias',
+        origin: 'scene',
+        context_id: 's-old',
+        content:
+          'The shrine bell stayed silent past midnight again; someone is stopping it deliberately.',
+      },
+    });
+    const started = await ctx.engine.startTurn({
+      ...COMMAND,
+      text: 'What did you notice about the bell? !memoryquery shrine bell midnight',
+    });
+    expect(started.ok).toBe(true);
+    if (started.ok) await started.value.completion;
+
+    const committed = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'turn.committed');
+    const characterStep =
+      committed?.type === 'turn.committed'
+        ? committed.payload.steps.find((s) => s.call === 'character')
+        : undefined;
+    // The character's spoken line VISIBLY uses the recalled delta…
+    expect(characterStep?.text).toContain('stopping it deliberately');
+    // …the character call offered the character_scene toolset…
+    const characterCall = ctx.llmCalls.find((c) => c.kind === 'character');
+    expect(characterCall?.toolset).toBe('character_scene');
+    // …and the query left its dev.tool_call frame (C11).
+    expect(
+      ctx.devFrames.some(
+        (f) => f.type === 'dev.tool_call' && f.tool === 'memoryquery',
+      ),
+    ).toBe(true);
+    ctx.storage.close();
+  });
 });
 
 describe('interrupt-anywhere (criterion c: nothing after the point is durable)', () => {

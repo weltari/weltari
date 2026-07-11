@@ -18,6 +18,7 @@ import {
   EvolveToolSchema,
   GROUP_ROUTER_TOOL_DESCRIPTIONS,
   MemoryDeltaToolSchema,
+  MemoryqueryToolSchema,
   NARRATOR_TOOL_DESCRIPTIONS,
   QuerySublocationsToolSchema,
   ReactToolSchema,
@@ -153,10 +154,21 @@ function narratorToolsFor(call: LlmCall): ToolSet {
  * the narrator's query_sublocations proved in weeks 9/10 — results feed back
  * to the model; the stageable tools (cache/startscene) stay data-only. */
 function chatToolsFor(call: LlmCall): ToolSet {
-  const wikiquery = call.queries?.wikiquery;
-  const sessionquery = call.queries?.sessionquery;
   return {
     ...CHAT_TOOLS,
+    ...queryToolsFor(call),
+  };
+}
+
+/** The read-only query tools a call offers, each wired to its engine
+ * executor (mid-call, multi-step). Shared by the chat toolset and the
+ * character_scene toolset (M7 part 1 — a character's scene turn carries
+ * ONLY these: nothing stageable). */
+function queryToolsFor(call: LlmCall): ToolSet {
+  const wikiquery = call.queries?.wikiquery;
+  const sessionquery = call.queries?.sessionquery;
+  const memoryquery = call.queries?.memoryquery;
+  return {
     ...(wikiquery === undefined
       ? {}
       : {
@@ -173,6 +185,15 @@ function chatToolsFor(call: LlmCall): ToolSet {
             description: CHAT_QUERY_DESCRIPTIONS.sessionquery,
             inputSchema: SessionqueryToolSchema,
             execute: (input): string => sessionquery(input),
+          }),
+        }),
+    ...(memoryquery === undefined
+      ? {}
+      : {
+          memoryquery: tool({
+            description: CHAT_QUERY_DESCRIPTIONS.memoryquery,
+            inputSchema: MemoryqueryToolSchema,
+            execute: (input): string => memoryquery(input),
           }),
         }),
   };
@@ -347,7 +368,18 @@ export function createOpenRouterClient(
                           },
                           toolChoice: 'auto' as const,
                         }
-                      : {}),
+                      : call.toolset === 'character_scene'
+                        ? {
+                            // M7 part 1 (Rev 4 §7/§11): a character's scene
+                            // turn — read-only queries only (memoryquery /
+                            // wikiquery execute mid-call); nothing stageable.
+                            tools: queryToolsFor(call),
+                            toolChoice: 'auto' as const,
+                            ...(call.queries === undefined
+                              ? {}
+                              : { stopWhen: stepCountIs(QUERY_STEP_LIMIT) }),
+                          }
+                        : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable
           // prefix, never user input, so the injection warning does not apply.
@@ -377,12 +409,18 @@ export function createOpenRouterClient(
         // With a gate executor EVERY tool executed mid-call (and staged
         // engine-side), so nothing comes back as data — returning them
         // again would double-stage (M6 part 2).
+        const executedQueries = [
+          'query_sublocations',
+          'wikiquery',
+          'sessionquery',
+          'memoryquery',
+        ];
         const toolCalls: RawToolCall[] =
           call.toolset === undefined || call.gate !== undefined
             ? []
             : (await result.steps)
                 .flatMap((step) => step.toolCalls)
-                .filter((c) => c.toolName !== 'query_sublocations')
+                .filter((c) => !executedQueries.includes(c.toolName))
                 .map((c) => ({
                   tool: c.toolName,
                   input: c.input,

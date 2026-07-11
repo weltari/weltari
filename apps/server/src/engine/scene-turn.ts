@@ -34,6 +34,7 @@ import {
   type TurnLine,
 } from './context-assembler.js';
 import type { EventSink } from './event-sink.js';
+import { runMemoryquery, runWikiquery } from './chat-queries.js';
 import { liveProfile } from './memory.js';
 import {
   buildEliasProfile,
@@ -153,8 +154,9 @@ interface CallPlan {
   kind: TurnStep['call'];
   profile: CharacterProfile;
   instruction: string;
-  /** Narrator calls offer the narrator toolset (Guide B6). */
-  toolset?: 'narrator';
+  /** Narrator calls offer the narrator toolset (Guide B6); character calls
+   * offer character_scene (M7 part 1: read-only queries, nothing stageable). */
+  toolset?: 'narrator' | 'character_scene';
 }
 
 export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
@@ -258,6 +260,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     turn: RunningTurn,
     turnId: string,
     sceneId: string,
+    worldId: string,
     priorSteps: readonly TurnStep[],
     userInput: string | undefined,
   ): Promise<Result<{ step: TurnStep; toolCalls: readonly RawToolCall[] }>> {
@@ -322,38 +325,72 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       },
       ...(plan.toolset === undefined
         ? {}
-        : {
-            toolset: plan.toolset,
-            // The read-only query executor (Rev 4 §6): runs mid-call, feeds
-            // its result back to the model, arms the stage's query-first
-            // flag — and leaves a dev-trail frame like any tool call (C11).
-            queries: {
-              query_sublocations: (input: unknown): string => {
-                devBus.publish({
-                  type: 'dev.tool_call',
-                  turn_id: turnId,
-                  tool: 'query_sublocations',
-                  input_json: JSON.stringify(input),
-                });
-                return turn.stage.querySublocations(input);
+        : plan.toolset === 'character_scene'
+          ? {
+              // The character's scene-side queries (M7 part 1, Rev 4 §7/§11,
+              // owner ruling 2026-07-11): read-only mid-call executors,
+              // nothing stageable — memoryquery deep-dives the character's
+              // OWN deltas; wikiquery covers the query-sublocations-then-
+              // their-wiki flow in one step. Dev-trailed like every query.
+              toolset: plan.toolset,
+              queries: {
+                memoryquery: (input: unknown): string => {
+                  devBus.publish({
+                    type: 'dev.tool_call',
+                    turn_id: turnId,
+                    tool: 'memoryquery',
+                    input_json: JSON.stringify(input),
+                  });
+                  return runMemoryquery(
+                    storage,
+                    plan.profile.character_id,
+                    logger,
+                    input,
+                  );
+                },
+                wikiquery: (input: unknown): string => {
+                  devBus.publish({
+                    type: 'dev.tool_call',
+                    turn_id: turnId,
+                    tool: 'wikiquery',
+                    input_json: JSON.stringify(input),
+                  });
+                  return runWikiquery(storage, worldId, logger, input);
+                },
               },
-            },
-            // The mid-call gate executor (M6 part 2, owner decision
-            // 2026-07-09): both B6 gates run DURING the call and the model
-            // reads the staged-ack or the refusal as its tool result — a
-            // rejected create is no longer trail-only, the Narrator can
-            // self-correct in the same turn. Staging stays in-memory;
-            // durability still only happens at turn.committed below.
-            gate: (raw: RawToolCall): string => {
-              if (turn.interrupted) {
-                return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
-              }
-              const gated = gateOne(raw, turn.stage, turnId);
-              return gated.ok
-                ? stagedAck(gated.value)
-                : `ERROR: ${gated.error.message}`;
-            },
-          }),
+            }
+          : {
+              toolset: plan.toolset,
+              // The read-only query executor (Rev 4 §6): runs mid-call, feeds
+              // its result back to the model, arms the stage's query-first
+              // flag — and leaves a dev-trail frame like any tool call (C11).
+              queries: {
+                query_sublocations: (input: unknown): string => {
+                  devBus.publish({
+                    type: 'dev.tool_call',
+                    turn_id: turnId,
+                    tool: 'query_sublocations',
+                    input_json: JSON.stringify(input),
+                  });
+                  return turn.stage.querySublocations(input);
+                },
+              },
+              // The mid-call gate executor (M6 part 2, owner decision
+              // 2026-07-09): both B6 gates run DURING the call and the model
+              // reads the staged-ack or the refusal as its tool result — a
+              // rejected create is no longer trail-only, the Narrator can
+              // self-correct in the same turn. Staging stays in-memory;
+              // durability still only happens at turn.committed below.
+              gate: (raw: RawToolCall): string => {
+                if (turn.interrupted) {
+                  return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
+                }
+                const gated = gateOne(raw, turn.stage, turnId);
+                return gated.ok
+                  ? stagedAck(gated.value)
+                  : `ERROR: ${gated.error.message}`;
+              },
+            }),
     });
     if (!result.ok) return result;
     splitter.flush();
@@ -470,7 +507,8 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
           kind: 'character',
           profile: elias,
           instruction:
-            'Reply as Elias in 1-3 short sentences of dialogue, true to his voice.',
+            'Reply as Elias in 1-3 short sentences of dialogue, true to his voice. If the conversation touches something from your own past that your core memory does not hold, search your long-term memories with memoryquery before answering; if it touches a place you are not sure about, look it up with wikiquery. The scene already gave you where you are — query only when you genuinely need more.',
+          toolset: 'character_scene',
         },
         {
           kind: 'narration',
@@ -523,8 +561,12 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
             turn,
             turnId,
             command.scene_id,
+            command.world_id,
             steps,
-            index === 0 && firstTurnText !== '' ? firstTurnText : undefined,
+            // Every call of the turn hears the player's line (M7 part 1: the
+            // character needs it to decide a memory/wiki query; it enters
+            // each prompt only inside the player-wrapped external block, B14).
+            firstTurnText !== '' ? firstTurnText : undefined,
           );
           // The interrupt already closed the envelope — everything from here
           // on (text and tool calls alike) finishes into the void (B6).
