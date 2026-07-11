@@ -30,7 +30,10 @@ export type FaultPoint =
   /** M6 part 4: inside the invitation expiry sweep — the invitation is due,
    * the scene.expired + cache.appended pair not yet appended (a kill heals
    * at the boot sweep; the fused re-check keeps the pair single). */
-  | 'mid_invitation_expiry';
+  | 'mid_invitation_expiry'
+  /** M6 part 5: inside the social_post job — the post generated, the
+   * post + poster-CACHE + reaction-job transaction not yet appended. */
+  | 'mid_social_post';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;

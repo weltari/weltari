@@ -37,6 +37,13 @@ const SCRIPT: Record<string, string> = {
   chat: 'Storm has the roads to itself tonight. The common room is quiet for once — just me, the ledger, and that cracked bell upstairs refusing to ring. What do you need?',
   reflect_chat:
     'The traveler keeps texting about the weather when they mean something else. Patience. They will say it eventually — probably about the ferry.',
+  // The Feed (M6 part 5, Rev 4 §12): the scripted post — deterministic,
+  // in-character, grounded in the fixture world (the criterion-(a) shape).
+  social_post:
+    'Roof beams up over the workshop before the rain found its way back in. The cracked bell watched the whole job and said nothing, as usual.',
+  // The reaction call's TEXT is never surfaced (the decision is the react
+  // tool call); a comment's body rides the tool input below.
+  social_react: 'Scrolling the feed over a cold cup of tea.',
 };
 
 /**
@@ -263,7 +270,10 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                     {
                       tool: 'cache',
                       input: {
-                        line: 'Texted with the traveler; quiet stormy night at the inn.',
+                        line:
+                          call.kind === 'social_post'
+                            ? 'Posted about the workshop roof on the feed.'
+                            : 'Texted with the traveler; quiet stormy night at the inn.',
                       },
                     },
                     // `!staysilent` scripts the explicit decline (M6 part 4):
@@ -297,7 +307,40 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                       ];
                     })(),
                   ]
-                : [],
+                : call.toolset === 'social_react'
+                  ? // The Feed reaction decision (M6 part 5, Rev 4 §12):
+                    // default = a one-line comment (the most demonstrable
+                    // outcome); `!like` scripts a bare like, `!staysilent`
+                    // the explicit decline, `!badreact` a gate-1 subject
+                    // (comment without body). The CACHE line rides every
+                    // non-declined decision.
+                    ((): RawToolCall[] => {
+                      if (call.prompt.includes('!staysilent')) {
+                        return [{ tool: 'stay_silent', input: {} }];
+                      }
+                      if (call.prompt.includes('!badreact')) {
+                        return [{ tool: 'react', input: { kind: 'comment' } }];
+                      }
+                      const react: RawToolCall = call.prompt.includes('!like')
+                        ? { tool: 'react', input: { kind: 'like' } }
+                        : {
+                            tool: 'react',
+                            input: {
+                              kind: 'comment',
+                              body: 'Rain never asks first — good beams beat fast beams.',
+                            },
+                          };
+                      return [
+                        react,
+                        {
+                          tool: 'cache',
+                          input: {
+                            line: 'Reacted to a post on the feed; small news travels fast.',
+                          },
+                        },
+                      ];
+                    })()
+                  : [],
       });
     },
   };

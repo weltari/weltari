@@ -6,7 +6,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openStorage, type Storage } from '../storage/db.js';
-import { acquaintancesOf, SOCIAL_POST_SKIP_CAP } from './social.js';
+import {
+  acquaintancesOf,
+  pickReactionCandidates,
+  SOCIAL_POST_SKIP_CAP,
+} from './social.js';
 
 function open(): Storage {
   const dir = mkdtempSync(join(tmpdir(), 'weltari-social-'));
@@ -93,5 +97,37 @@ describe('acquaintancesOf (the delivery rule fold)', () => {
 describe('SOCIAL_POST_SKIP_CAP', () => {
   it('is the Rev 4 §12 ceiling of 10 posts per skip', () => {
     expect(SOCIAL_POST_SKIP_CAP).toBe(10);
+  });
+});
+
+describe('pickReactionCandidates (the deterministic cap pick)', () => {
+  const recipients = ['char:a', 'char:b', 'char:c', 'char:d', 'char:e'];
+
+  it('is deterministic per salt, capped, and a subset of the recipients', () => {
+    const first = pickReactionCandidates(recipients, 3, 'occ-1');
+    expect(first).toHaveLength(3);
+    expect(pickReactionCandidates(recipients, 3, 'occ-1')).toEqual(first);
+    for (const id of first) expect(recipients).toContain(id);
+  });
+
+  it('different salts rotate through different subsets (no fixed favorites)', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      for (const id of pickReactionCandidates(
+        recipients,
+        2,
+        `occ-${String(i)}`,
+      )) {
+        seen.add(id);
+      }
+    }
+    expect(seen.size).toBe(recipients.length);
+  });
+
+  it('cap 0 picks nobody; a cap past the pool returns everyone', () => {
+    expect(pickReactionCandidates(recipients, 0, 's')).toEqual([]);
+    expect(pickReactionCandidates(recipients, 99, 's')).toHaveLength(
+      recipients.length,
+    );
   });
 });

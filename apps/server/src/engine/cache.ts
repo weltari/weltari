@@ -7,8 +7,8 @@
 import type { Storage } from '../storage/db.js';
 
 export interface CacheEntry {
-  origin: 'scene' | 'chat';
-  /** The scene id or conversation id the entry points back into. */
+  origin: 'scene' | 'chat' | 'social';
+  /** The scene id, conversation id, or post id the entry points back into. */
   context_id: string;
   sublocation_id?: string;
   line: string;
@@ -36,12 +36,14 @@ export function capCacheLine(text: string): string | undefined {
 export interface CacheView {
   scene?: CacheEntry;
   chat?: CacheEntry;
+  social?: CacheEntry;
 }
 
 /**
  * The latest-per-origin view (Rev 4 §11) — the cross-context catch-up read:
- * a DM injects the latest SCENE line and the latest CHAT line, so a chat
- * recap can never shadow a scene experience. Entries are per-character and
+ * a DM injects the latest SCENE line, the latest CHAT line and the latest
+ * SOCIAL line as separate lanes, so a chat recap or a feed comment (M6 part
+ * 5) can never shadow a scene experience. Entries are per-character and
  * private; each character reads only its own.
  */
 export function latestPerOrigin(
@@ -50,6 +52,7 @@ export function latestPerOrigin(
 ): CacheView {
   let scene: CacheEntry | undefined;
   let chat: CacheEntry | undefined;
+  let social: CacheEntry | undefined;
   for (const event of storage.eventLog.readSince(0, 100000)) {
     if (
       event.type !== 'cache.appended' ||
@@ -67,11 +70,13 @@ export function latestPerOrigin(
       ts: event.ts,
     };
     if (entry.origin === 'scene') scene = entry;
-    else chat = entry;
+    else if (entry.origin === 'chat') chat = entry;
+    else social = entry;
   }
   return {
     ...(scene === undefined ? {} : { scene }),
     ...(chat === undefined ? {} : { chat }),
+    ...(social === undefined ? {} : { social }),
   };
 }
 
@@ -92,6 +97,9 @@ export function cacheRecapText(view: CacheView): string {
   }
   if (view.chat !== undefined) {
     lines.push(`Last chat note: ${view.chat.line}`);
+  }
+  if (view.social !== undefined) {
+    lines.push(`Last feed note: ${view.social.line}`);
   }
   return lines.join('\n');
 }

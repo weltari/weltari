@@ -191,6 +191,39 @@ export const CHAT_TOOL_DESCRIPTIONS: Record<ChatToolName, string> = {
 };
 
 /**
+ * react — one recipient's reaction decision on a feed post (M6 part 5,
+ * Rev 4 §12): like, or a one-line comment. Data-only like every chat tool —
+ * the social_reaction handler gates and appends; the engine enforces
+ * "body present iff comment". Declining is the existing stay_silent.
+ */
+export const ReactToolSchema = z.strictObject({
+  kind: z.enum(['like', 'comment']),
+  /** The one-line comment text — required for kind `comment`, forbidden
+   * for `like` (the engine-state gate enforces it). */
+  body: z.string().min(1).max(300).optional(),
+});
+export type ReactToolInput = z.infer<typeof ReactToolSchema>;
+
+export const SOCIAL_REACT_TOOL_NAMES = [
+  'react',
+  'stay_silent',
+  'cache',
+] as const;
+export type SocialReactToolName = (typeof SOCIAL_REACT_TOOL_NAMES)[number];
+
+/** Static descriptions for the social-react toolset (stable strings). */
+export const SOCIAL_REACT_TOOL_DESCRIPTIONS: Record<
+  SocialReactToolName,
+  string
+> = {
+  react:
+    'React to the post you just read: kind "like" (a simple like, no text) or kind "comment" with body = ONE short line in your own voice. React at most once. Comments are public to the poster\'s acquaintances and do not thread — nobody can reply to your comment except the User.',
+  stay_silent:
+    'Choose not to react to this post. Use it when you would realistically scroll past — entirely your choice. reason (optional): one short private line on why.',
+  cache: CHAT_TOOL_DESCRIPTIONS.cache,
+};
+
+/**
  * The Group-chat Narrator toolset (M6 part 4, Rev 4 §8): routes turns ONLY —
  * it NEVER narrates (any text it produces is dropped un-surfaced); the
  * engine enforces the turn budget on top. Data-only, like every chat tool.
@@ -414,6 +447,67 @@ export function parseChatToolCall(
     default:
       return err(
         new OperationalError('unknown_tool', `no such chat tool: ${raw.tool}`),
+      );
+  }
+}
+
+/** A social-react tool call that passed gate 1. Gate 2 (state) still applies. */
+export type ValidatedSocialToolCall =
+  | { tool: 'react'; input: ReactToolInput }
+  | { tool: 'cache'; input: CacheToolInput }
+  | { tool: 'stay_silent'; input: StaySilentToolInput };
+
+/**
+ * Gate 1 for the social-react toolset (M6 part 5): shape-validate one raw
+ * call from a reaction decision. Same contract — reject as a value, zero rows.
+ */
+export function parseSocialToolCall(
+  raw: RawToolCall,
+  logger: Logger,
+): Result<ValidatedSocialToolCall> {
+  switch (raw.tool) {
+    case 'react': {
+      const input = validateAt(
+        'llm',
+        'tool:react',
+        ReactToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'react', input: input.value } }
+        : input;
+    }
+    case 'cache': {
+      const input = validateAt(
+        'llm',
+        'tool:cache',
+        CacheToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'cache', input: input.value } }
+        : input;
+    }
+    case 'stay_silent': {
+      const input = validateAt(
+        'llm',
+        'tool:stay_silent',
+        StaySilentToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'stay_silent', input: input.value } }
+        : input;
+    }
+    default:
+      return err(
+        new OperationalError(
+          'unknown_tool',
+          `no such social tool: ${raw.tool}`,
+        ),
       );
   }
 }

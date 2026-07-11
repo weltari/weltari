@@ -30,6 +30,7 @@ import {
   pendingInvitationWorlds,
 } from './engine/invitation.js';
 import { OUTREACH_FREEZE_CAP } from './engine/outreach.js';
+import { SOCIAL_POST_SKIP_CAP } from './engine/social.js';
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { squareOf } from './engine/sublocations.js';
 import { createTurnEngine } from './engine/scene-turn.js';
@@ -46,6 +47,8 @@ import { createMapEditHandler } from './ledger/handlers/map-edit.js';
 import { createMaterializeHandler } from './ledger/handlers/materialize.js';
 import { createPainterHandler } from './ledger/handlers/painter.js';
 import { createProactiveDmHandler } from './ledger/handlers/proactive-dm.js';
+import { createSocialPostHandler } from './ledger/handlers/social-post.js';
+import { createSocialReactionHandler } from './ledger/handlers/social-reaction.js';
 import { createReflectChatHandler } from './ledger/handlers/reflect-chat.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
 import { createUpdateApplyHandler } from './ledger/handlers/update-apply.js';
@@ -421,6 +424,22 @@ const runner = createRunner({
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
+    social_post: createSocialPostHandler({
+      storage,
+      sink,
+      llm,
+      profiles: dmRoster,
+      reactionCap: env.socialReactionCap,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
+    social_reaction: createSocialReactionHandler({
+      storage,
+      sink,
+      llm,
+      profiles: dmRoster,
+      logger,
+    }),
     world_agent: createWorldAgentHandler({
       storage,
       sink,
@@ -667,6 +686,31 @@ const app = createHttpServer({
             // other's outreach (the backoff re-reads the log), never
             // double-send in a race.
             serial_group: `proactive_dm:${command.world_id}`,
+          });
+        }
+        if (due.length > 0) catchAndLog(drainLedger(), logger, 'ledger.drain');
+      }
+      // The Feed rides the SAME advance (M6 part 5, Rev 4 §12): posts are
+      // game-day cadence boundaries in (from, to], idempotent per
+      // occurrence, hard ceiling 10 per skip — the FRESHEST window survives
+      // (older skipped posts are simply never generated).
+      if (env.socialPostsPerDay > 0) {
+        const cadenceMinutes = 1440 / env.socialPostsPerDay;
+        const due = intervalOccurrencesBetween(
+          fromGameTime,
+          advanced.value.worldTime,
+          cadenceMinutes,
+        ).slice(-SOCIAL_POST_SKIP_CAP);
+        for (const occurrenceIso of due) {
+          storage.ledger.enqueue({
+            idempotency_key: `social_post:${command.world_id}:${occurrenceIso}`,
+            world_id: command.world_id,
+            type: 'social_post',
+            payload: { occurrence_iso: occurrenceIso },
+            // Posts serialize per world: scheduled-game-timestamp order
+            // holds, and each fire's presence/acquaintance folds see the
+            // previous fire's events.
+            serial_group: `social_post:${command.world_id}`,
           });
         }
         if (due.length > 0) catchAndLog(drainLedger(), logger, 'ledger.drain');

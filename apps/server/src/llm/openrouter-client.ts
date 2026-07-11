@@ -18,8 +18,10 @@ import {
   GROUP_ROUTER_TOOL_DESCRIPTIONS,
   NARRATOR_TOOL_DESCRIPTIONS,
   QuerySublocationsToolSchema,
+  ReactToolSchema,
   RouteToolSchema,
   SessionqueryToolSchema,
+  SOCIAL_REACT_TOOL_DESCRIPTIONS,
   StartSceneToolSchema,
   StaySilentToolSchema,
   SwitchArtToolSchema,
@@ -64,6 +66,23 @@ const CHAT_TOOLS: ToolSet = {
   stay_silent: tool({
     description: CHAT_TOOL_DESCRIPTIONS.stay_silent,
     inputSchema: StaySilentToolSchema,
+  }),
+};
+
+/** The social-react toolset (M6 part 5, Rev 4 §12): one reaction decision —
+ * data-only; the social_reaction handler gates and appends. */
+const SOCIAL_REACT_TOOLS: ToolSet = {
+  react: tool({
+    description: SOCIAL_REACT_TOOL_DESCRIPTIONS.react,
+    inputSchema: ReactToolSchema,
+  }),
+  stay_silent: tool({
+    description: SOCIAL_REACT_TOOL_DESCRIPTIONS.stay_silent,
+    inputSchema: StaySilentToolSchema,
+  }),
+  cache: tool({
+    description: SOCIAL_REACT_TOOL_DESCRIPTIONS.cache,
+    inputSchema: CacheToolSchema,
   }),
 };
 
@@ -280,7 +299,14 @@ export function createOpenRouterClient(
                     },
                     toolChoice: 'auto' as const,
                   }
-                : {}),
+                : call.toolset === 'social_react'
+                  ? {
+                      // M6 part 5: one reaction decision (Rev 4 §12) —
+                      // data-only; the social_reaction handler runs the gates.
+                      tools: SOCIAL_REACT_TOOLS,
+                      toolChoice: 'auto' as const,
+                    }
+                  : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable
           // prefix, never user input, so the injection warning does not apply.

@@ -21,7 +21,13 @@ export type CallKind =
   | 'reflect_chat'
   /** M6 part 4: one Group-chat Narrator routing decision (Rev 4 §8) —
    * router-class, tiny prompt, NO narration ever. */
-  | 'group_route';
+  | 'group_route'
+  /** M6 part 5: a character's feed post (Rev 4 §12) — chat-class, eager
+   * generation at the cadence fire. */
+  | 'social_post'
+  /** M6 part 5: one recipient's reaction decision on a feed post —
+   * chat-class; like / one-line comment / stay_silent. */
+  | 'social_react';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */
@@ -41,7 +47,7 @@ export interface LlmCall {
    * executed by the SDK). Returned calls are RAW — the caller must run both
    * B6 gates.
    */
-  toolset?: 'narrator' | 'chat' | 'group_router';
+  toolset?: 'narrator' | 'chat' | 'group_router' | 'social_react';
   /**
    * Engine-owned read-only query executors offered alongside the toolset
    * (M6 part 1, Rev 4 §6). The client runs these DURING the call and feeds
