@@ -33,7 +33,15 @@ export type FaultPoint =
   | 'mid_invitation_expiry'
   /** M6 part 5: inside the social_post job — the post generated, the
    * post + poster-CACHE + reaction-job transaction not yet appended. */
-  | 'mid_social_post';
+  | 'mid_social_post'
+  /** M7 part 1: inside the memory-commit window of BOTH reflection handlers —
+   * deltas/core/evolution generated and gated, the atomic append (committed
+   * event + CACHE + memory events) not yet written. Retry must converge to
+   * exactly one delta set per (character, scene/range). */
+  | 'mid_memory_commit'
+  /** M7 part 1: inside the memory_compaction job — the summary generated,
+   * memory.compacted not yet appended (idempotent per character+up_to_id). */
+  | 'mid_compaction';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;

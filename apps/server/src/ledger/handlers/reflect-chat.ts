@@ -13,7 +13,16 @@ import type {
 } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
-import { liveProfile } from '../../engine/memory.js';
+import {
+  gateReflectionMemory,
+  liveProfile,
+  memoryEventsFrom,
+  type ReflectionMemoryOutput,
+} from '../../engine/memory.js';
+import {
+  parseReflectionToolCall,
+  type ValidatedReflectionToolCall,
+} from '../../llm/tools.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
 import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
@@ -138,12 +147,28 @@ export function createReflectChatHandler(
       kind: 'reflect_chat',
       characterId: character_id,
       system: context.stablePrefix,
-      prompt: `${context.dynamicTail}\n\n## Instruction\nThe chat above has ended. Reflect on it in 2-4 sentences from your own point of view: what you learned about the other person, what you intend to do. First person, private thoughts — nobody else reads this.`,
+      prompt: `${context.dynamicTail}\n\n## Instruction\nThe chat above has ended. Reflect on it in 2-4 sentences from your own point of view: what you learned about the other person, what you intend to do. First person, private thoughts — nobody else reads this.\nThen curate your long-term memory (M7): call memory_delta 1-3 times — one lasting, self-contained note each. If this conversation changed what you must always remember, also call update_core with your FULL new core list. If it genuinely changed who you are, you may call evolve — rare and earned.`,
       onTextDelta: (): void => undefined, // reflections do not stream to clients
+      toolset: 'reflection',
     });
     if (!result.ok) throw result.error; // operational -> runner retries (C7)
 
+    // B6 gate 1 (shape) then gate 2 (caps, locked flag) over the memory
+    // outputs — rejected calls drop with a trail entry, zero rows (I8).
+    const validated: ValidatedReflectionToolCall[] = [];
+    for (const raw of result.value.toolCalls) {
+      const parsed = parseReflectionToolCall(raw, logger);
+      if (parsed.ok) validated.push(parsed.value);
+    }
+    const memory: ReflectionMemoryOutput = gateReflectionMemory(
+      validated,
+      profile,
+      logger,
+    );
+
     await faultPoint('mid_reflect_chat');
+    // The new memory-commit window (M7 part 1, criterion d).
+    await faultPoint('mid_memory_commit');
     // Fused lease-overlap re-check: NO await between this check and the
     // append (executions interleave only at await points) — the loser of an
     // overlap no-ops here, one duplicate generation, zero duplicate events.
@@ -154,16 +179,26 @@ export function createReflectChatHandler(
       );
       return;
     }
-    sink.append({
-      world_id: job.world_id,
-      actor_id: character_id,
-      type: 'reflect_chat.committed',
-      payload: {
-        conversation_id,
-        character_id,
-        range_end_id,
-        summary: result.value.text,
+    // The memory outputs ride the SAME transaction as reflect_chat.committed
+    // (M7 part 1, Rev 4 §11): replay rebuilds the identical memory state.
+    sink.appendMany([
+      {
+        world_id: job.world_id,
+        actor_id: character_id,
+        type: 'reflect_chat.committed',
+        payload: {
+          conversation_id,
+          character_id,
+          range_end_id,
+          summary: result.value.text,
+        },
       },
-    });
+      ...memoryEventsFrom(memory, {
+        world_id: job.world_id,
+        character_id,
+        origin: 'chat',
+        context_id: conversation_id,
+      }),
+    ]);
   };
 }

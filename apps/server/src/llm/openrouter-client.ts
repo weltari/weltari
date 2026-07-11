@@ -15,16 +15,20 @@ import {
   CreateSublocationToolSchema,
   EndSceneToolSchema,
   EndSubsessionToolSchema,
+  EvolveToolSchema,
   GROUP_ROUTER_TOOL_DESCRIPTIONS,
+  MemoryDeltaToolSchema,
   NARRATOR_TOOL_DESCRIPTIONS,
   QuerySublocationsToolSchema,
   ReactToolSchema,
+  REFLECTION_TOOL_DESCRIPTIONS,
   RouteToolSchema,
   SessionqueryToolSchema,
   SOCIAL_REACT_TOOL_DESCRIPTIONS,
   StartSceneToolSchema,
   StaySilentToolSchema,
   SwitchArtToolSchema,
+  UpdateCoreToolSchema,
   WikiqueryToolSchema,
   type RawToolCall,
 } from './tools.js';
@@ -320,7 +324,30 @@ export function createOpenRouterClient(
                         },
                         toolChoice: 'auto' as const,
                       }
-                    : {}),
+                    : call.toolset === 'reflection'
+                      ? {
+                          // M7 part 1 (Rev 4 §11): the memory outputs —
+                          // data-only; the reflection handlers run both B6
+                          // gates and commit atomically.
+                          tools: {
+                            memory_delta: tool({
+                              description:
+                                REFLECTION_TOOL_DESCRIPTIONS.memory_delta,
+                              inputSchema: MemoryDeltaToolSchema,
+                            }),
+                            update_core: tool({
+                              description:
+                                REFLECTION_TOOL_DESCRIPTIONS.update_core,
+                              inputSchema: UpdateCoreToolSchema,
+                            }),
+                            evolve: tool({
+                              description: REFLECTION_TOOL_DESCRIPTIONS.evolve,
+                              inputSchema: EvolveToolSchema,
+                            }),
+                          },
+                          toolChoice: 'auto' as const,
+                        }
+                      : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable
           // prefix, never user input, so the injection warning does not apply.

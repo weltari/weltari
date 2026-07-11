@@ -8,7 +8,10 @@
 // The fold is deterministic from the log, so the assembled stable prefix
 // stays byte-identical between calls until a reflection-class job commits a
 // memory event (I5: the core changes only BETWEEN calls, never within one).
+import type { Logger } from '../observability/logger.js';
+import type { ValidatedReflectionToolCall } from '../llm/tools.js';
 import type { Storage } from '../storage/db.js';
+import type { NewEvent } from '../storage/repositories/event-log.js';
 import type { CharacterProfile } from './context-assembler.js';
 
 export interface MemoryDelta {
@@ -140,4 +143,180 @@ export function liveProfile(
     personality: state.personality ?? profile.personality,
     goals: state.goals ?? profile.goals,
   };
+}
+
+/** Rev 4 §11: "1–3 memory deltas" per reflection — the engine-gate cap. */
+export const MEMORY_DELTA_CAP = 3;
+
+/**
+ * Engine-side normalization for reflection-authored memory text: whitespace
+ * collapsed, angle brackets neutralized (core/personality/goals enter the
+ * STABLE PREFIX un-wrapped — B14 hygiene: curated memory must not be able to
+ * fake an <external> wrapper or a prompt heading), hard length cap. Returns
+ * undefined for an effectively empty line.
+ */
+export function sanitizeMemoryText(
+  text: string,
+  max: number,
+): string | undefined {
+  const line = text
+    .trim()
+    .replaceAll(/\s+/g, ' ')
+    .replaceAll('<', '‹')
+    .replaceAll('>', '›');
+  if (line.length === 0) return undefined;
+  return line.length <= max ? line : `${line.slice(0, max - 1)}…`;
+}
+
+export interface ReflectionMemoryOutput {
+  /** ≤ MEMORY_DELTA_CAP sanitized delta notes, in call order. */
+  deltas: readonly string[];
+  /** The sanitized full core snapshot — at most one per reflection. */
+  core?: readonly string[];
+  /** Evolution — absent for locked characters or empty calls. */
+  evolution?: { personality?: string; goals?: readonly string[] };
+}
+
+/**
+ * Gate 2 for the reflection memory outputs (M7 part 1, B6): shape-valid
+ * calls checked against character state — the delta cap, one core snapshot
+ * (last wins), the per-character `locked` flag (a locked character's evolve
+ * is refused whole — zero rows, I8), and the at-least-one-field rule for
+ * evolve. Rejections log and drop the call; everything accepted is
+ * sanitized for prefix hygiene.
+ */
+export function gateReflectionMemory(
+  calls: readonly ValidatedReflectionToolCall[],
+  profile: Pick<CharacterProfile, 'character_id' | 'locked'>,
+  logger: Logger,
+): ReflectionMemoryOutput {
+  const deltas: string[] = [];
+  let core: readonly string[] | undefined;
+  let evolution: ReflectionMemoryOutput['evolution'];
+  for (const call of calls) {
+    if (call.tool === 'memory_delta') {
+      const content = sanitizeMemoryText(call.input.content, 1000);
+      if (content === undefined) continue;
+      if (deltas.length >= MEMORY_DELTA_CAP) {
+        logger.warn(
+          { character_id: profile.character_id },
+          `reflection produced more than ${String(MEMORY_DELTA_CAP)} memory deltas — extras dropped (Rev 4 §11 cap)`,
+        );
+        continue;
+      }
+      deltas.push(content);
+    } else if (call.tool === 'update_core') {
+      const lines = call.input.core
+        .map((l) => sanitizeMemoryText(l, 300))
+        .filter((l): l is string => l !== undefined);
+      if (lines.length === 0) continue;
+      if (core !== undefined) {
+        logger.warn(
+          { character_id: profile.character_id },
+          'reflection called update_core twice — the last snapshot wins',
+        );
+      }
+      core = lines;
+    } else {
+      if (profile.locked === true) {
+        logger.warn(
+          { character_id: profile.character_id },
+          'evolve refused: this character is locked (owner ruling 2026-07-11) — personality/goals untouched',
+        );
+        continue;
+      }
+      const personality =
+        call.input.personality === undefined
+          ? undefined
+          : sanitizeMemoryText(call.input.personality, 1000);
+      const goals = call.input.goals
+        ?.map((g) => sanitizeMemoryText(g, 300))
+        .filter((g): g is string => g !== undefined);
+      if (
+        personality === undefined &&
+        (goals === undefined || goals.length === 0)
+      ) {
+        logger.warn(
+          { character_id: profile.character_id },
+          'evolve refused: neither personality nor goals present',
+        );
+        continue;
+      }
+      evolution = {
+        ...(personality === undefined ? {} : { personality }),
+        ...(goals === undefined || goals.length === 0 ? {} : { goals }),
+      };
+    }
+  }
+  return {
+    deltas,
+    ...(core === undefined ? {} : { core }),
+    ...(evolution === undefined ? {} : { evolution }),
+  };
+}
+
+/**
+ * The gated memory outputs as durable events (M7 part 1): appended by the
+ * reflection handlers ATOMICALLY with their committed events, through the
+ * character's memory mailbox (the enqueue sites set serial_group
+ * `memory:<world>:<character>`).
+ */
+export function memoryEventsFrom(
+  output: ReflectionMemoryOutput,
+  meta: {
+    world_id: string;
+    character_id: string;
+    origin: 'scene' | 'chat';
+    context_id: string;
+  },
+): NewEvent[] {
+  const base = {
+    world_id: meta.world_id,
+    actor_id: meta.character_id,
+  };
+  return [
+    ...output.deltas.map((content): NewEvent => ({
+      ...base,
+      type: 'memory.delta_committed',
+      payload: {
+        character_id: meta.character_id,
+        origin: meta.origin,
+        context_id: meta.context_id,
+        content,
+      },
+    })),
+    ...(output.core === undefined
+      ? []
+      : [
+          {
+            ...base,
+            type: 'memory.core_updated' as const,
+            payload: {
+              character_id: meta.character_id,
+              core: [...output.core],
+              origin: meta.origin,
+              context_id: meta.context_id,
+            },
+          },
+        ]),
+    ...(output.evolution === undefined
+      ? []
+      : [
+          {
+            ...base,
+            type: 'character.evolved' as const,
+            payload: {
+              character_id: meta.character_id,
+              ...(output.evolution.personality === undefined
+                ? {}
+                : { personality: output.evolution.personality }),
+              ...(output.evolution.goals === undefined
+                ? {}
+                : { goals: [...output.evolution.goals] }),
+              origin: meta.origin,
+              context_id: meta.context_id,
+            },
+          },
+        ]),
+  ];
 }

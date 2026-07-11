@@ -13,7 +13,16 @@ import type {
 } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
-import { liveProfile } from '../../engine/memory.js';
+import {
+  gateReflectionMemory,
+  liveProfile,
+  memoryEventsFrom,
+  type ReflectionMemoryOutput,
+} from '../../engine/memory.js';
+import {
+  parseReflectionToolCall,
+  type ValidatedReflectionToolCall,
+} from '../../llm/tools.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
 import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
@@ -99,12 +108,30 @@ export function createReflectionHandler(
       kind: 'reflection',
       characterId: character_id,
       system: context.stablePrefix,
-      prompt: `${context.dynamicTail}\n\n## Instruction\nReflect on this scene in 2-4 sentences from your own point of view: what you learned, what you intend to do. First person, private thoughts.`,
+      prompt: `${context.dynamicTail}\n\n## Instruction\nReflect on this scene in 2-4 sentences from your own point of view: what you learned, what you intend to do. First person, private thoughts.\nThen curate your long-term memory (M7): call memory_delta 1-3 times — one lasting, self-contained note each. If this scene changed what you must always remember, also call update_core with your FULL new core list. If it genuinely changed who you are, you may call evolve — rare and earned.`,
       onTextDelta: (): void => undefined, // reflections do not stream to clients
+      toolset: 'reflection',
     });
     if (!result.ok) throw result.error; // operational -> runner retries (C7)
 
+    // B6 gate 1 (shape) then gate 2 (caps, locked flag) over the memory
+    // outputs — rejected calls drop with a trail entry, zero rows (I8).
+    const validated: ValidatedReflectionToolCall[] = [];
+    for (const raw of result.value.toolCalls) {
+      const parsed = parseReflectionToolCall(raw, logger);
+      if (parsed.ok) validated.push(parsed.value);
+    }
+    const memory: ReflectionMemoryOutput = gateReflectionMemory(
+      validated,
+      profile,
+      logger,
+    );
+
     await faultPoint('mid_reflection');
+    // The new memory-commit window (M7 part 1, criterion d): a kill here —
+    // after generation and gating, before the atomic append — must converge
+    // to exactly one delta set per (character, scene) on retry.
+    await faultPoint('mid_memory_commit');
     // Last-instant idempotency re-check, with NO await between it and the
     // append: a slow generation can outlive its lease, the sweep reclaims the
     // "dead" job, and a second execution overlaps this one (the week-7
@@ -132,6 +159,9 @@ export function createReflectionHandler(
     // — character-authored, engine-wrapped, and chat catch-up reads it as the
     // latest scene experience.
     const cacheLine = capCacheLine(result.value.text);
+    // The memory outputs ride the SAME transaction as reflection.committed
+    // (M7 part 1, Rev 4 §11): replay rebuilds the identical memory state,
+    // and the FTS index entry commits with each delta row (storage-side).
     sink.appendMany([
       {
         world_id: job.world_id,
@@ -154,6 +184,12 @@ export function createReflectionHandler(
               },
             },
           ]),
+      ...memoryEventsFrom(memory, {
+        world_id: job.world_id,
+        character_id,
+        origin: 'scene',
+        context_id: scene_id,
+      }),
     ]);
   };
 }

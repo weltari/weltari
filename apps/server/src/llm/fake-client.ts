@@ -354,7 +354,78 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                           },
                         },
                       ]
-                    : [],
+                    : call.toolset === 'reflection'
+                      ? // The memory outputs (M7 part 1, Rev 4 §11): every
+                        // scripted reflection commits deltas at $0. Markers
+                        // (typed in scene/chat, riding the transcript into
+                        // the reflection prompt) script the rest:
+                        //   !memcore   → an update_core snapshot
+                        //   !evolve    → an evolve call (gate-2 locked subject)
+                        //   !overcap   → 4 deltas (gate-2 cap subject)
+                        //   !badmemory → a malformed delta (gate-1 subject)
+                        //   !evolveempty → evolve with no fields (gate-2)
+                        ((): RawToolCall[] => {
+                          const calls: RawToolCall[] = [];
+                          if (call.prompt.includes('!badmemory')) {
+                            calls.push({ tool: 'memory_delta', input: {} });
+                          }
+                          const deltas =
+                            call.kind === 'reflection'
+                              ? [
+                                  'The traveler lies about small matters — the ferry story did not hold.',
+                                  'The shrine bell stayed silent past midnight again; someone is stopping it deliberately.',
+                                ]
+                              : [
+                                  'The traveler keeps texting about the weather when they mean something else — patience.',
+                                ];
+                          for (const content of deltas) {
+                            calls.push({
+                              tool: 'memory_delta',
+                              input: { content },
+                            });
+                          }
+                          if (call.prompt.includes('!overcap')) {
+                            for (const n of ['three', 'four', 'five']) {
+                              calls.push({
+                                tool: 'memory_delta',
+                                input: {
+                                  content: `Overcap filler note ${n} — the gate must drop past the third.`,
+                                },
+                              });
+                            }
+                          }
+                          if (call.prompt.includes('!memcore')) {
+                            calls.push({
+                              tool: 'update_core',
+                              input: {
+                                core: [
+                                  'The shrine bell is silenced by a person, not the weather.',
+                                  'The traveler cannot be trusted on small facts.',
+                                ],
+                              },
+                            });
+                          }
+                          if (call.prompt.includes('!evolveempty')) {
+                            calls.push({ tool: 'evolve', input: {} });
+                          }
+                          if (
+                            call.prompt.includes('!evolve') &&
+                            !call.prompt.includes('!evolveempty')
+                          ) {
+                            calls.push({
+                              tool: 'evolve',
+                              input: {
+                                personality:
+                                  'Warmer now, but still counts things.',
+                                goals: [
+                                  'Find who silences the bell — tonight.',
+                                ],
+                              },
+                            });
+                          }
+                          return calls;
+                        })()
+                      : [],
       });
     },
   };

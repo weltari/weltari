@@ -269,6 +269,8 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
           character_id: characterId,
           range_end_id: rangeEndId,
         },
+        // The character's memory mailbox (M7 part 1, Rev 4 §11).
+        serial_group: `memory:${worldId}:${characterId}`,
       });
     });
     if (ended !== undefined) eventBus.publish(ended);

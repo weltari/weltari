@@ -144,6 +144,9 @@ export function appendSceneEndWithFanOut(
       world_id: request.world_id,
       type: 'reflection',
       payload: { scene_id: request.scene_id, character_id: characterId },
+      // The character's memory mailbox (M7 part 1, Rev 4 §11): every job
+      // that writes this character's memory serializes here.
+      serial_group: `memory:${request.world_id}:${characterId}`,
     });
     if (job !== null) jobsEnqueued += 1;
   }
