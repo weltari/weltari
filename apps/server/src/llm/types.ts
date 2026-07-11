@@ -27,7 +27,10 @@ export type CallKind =
   | 'social_post'
   /** M6 part 5: one recipient's reaction decision on a feed post —
    * chat-class; like / one-line comment / stay_silent. */
-  | 'social_react';
+  | 'social_react'
+  /** M6 part 5: the comment author's answer to the user's feed reply —
+   * chat-class, answer-only (the toolset carries nothing but cache). */
+  | 'social_reply';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */
@@ -47,7 +50,8 @@ export interface LlmCall {
    * executed by the SDK). Returned calls are RAW — the caller must run both
    * B6 gates.
    */
-  toolset?: 'narrator' | 'chat' | 'group_router' | 'social_react';
+  toolset?:
+    'narrator' | 'chat' | 'group_router' | 'social_react' | 'social_reply';
   /**
    * Engine-owned read-only query executors offered alongside the toolset
    * (M6 part 1, Rev 4 §6). The client runs these DURING the call and feeds

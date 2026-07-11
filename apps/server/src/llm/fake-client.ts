@@ -44,6 +44,9 @@ const SCRIPT: Record<string, string> = {
   // The reaction call's TEXT is never surfaced (the decision is the react
   // tool call); a comment's body rides the tool input below.
   social_react: 'Scrolling the feed over a cold cup of tea.',
+  // The comment author's answer to the user's reply (answer-only thread).
+  social_reply:
+    'Ha — the river said the same thing, only wetter. Ask me again when the beams have held through one real storm.',
 };
 
 /**
@@ -340,7 +343,18 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                         },
                       ];
                     })()
-                  : [],
+                  : call.toolset === 'social_reply'
+                    ? // Answer-only (M6 part 5): the mandatory CACHE line
+                      // rides every scripted comment answer.
+                      [
+                        {
+                          tool: 'cache',
+                          input: {
+                            line: 'Answered the traveler under my feed comment.',
+                          },
+                        },
+                      ]
+                    : [],
       });
     },
   };

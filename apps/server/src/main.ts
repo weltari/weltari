@@ -49,6 +49,9 @@ import { createPainterHandler } from './ledger/handlers/painter.js';
 import { createProactiveDmHandler } from './ledger/handlers/proactive-dm.js';
 import { createSocialPostHandler } from './ledger/handlers/social-post.js';
 import { createSocialReactionHandler } from './ledger/handlers/social-reaction.js';
+import { createSocialReplyHandler } from './ledger/handlers/social-reply.js';
+import { createFeedReplyCommand } from './engine/feed.js';
+import { createSubwikiEditCommand } from './engine/wiki-edit.js';
 import { createReflectChatHandler } from './ledger/handlers/reflect-chat.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
 import { createUpdateApplyHandler } from './ledger/handlers/update-apply.js';
@@ -440,6 +443,13 @@ const runner = createRunner({
       profiles: dmRoster,
       logger,
     }),
+    social_reply: createSocialReplyHandler({
+      storage,
+      sink,
+      llm,
+      profiles: dmRoster,
+      logger,
+    }),
     world_agent: createWorldAgentHandler({
       storage,
       sink,
@@ -752,6 +762,14 @@ const app = createHttpServer({
     return result;
   },
   exitChat: (command) => chatEngine.exitChat(command),
+  feedReply: createFeedReplyCommand({
+    storage,
+    sink,
+    kick: (): void => {
+      catchAndLog(drainLedger(), logger, 'ledger.drain');
+    },
+  }),
+  subwikiEdit: createSubwikiEditCommand({ storage, sink }),
   startSceneFromChat: async (command) => chatEngine.startSceneFromChat(command),
   startGroupChat: (command) => groupChatEngine.startGroup(command),
   sendGroupMessage: (command) => {
