@@ -52,6 +52,15 @@ const envSchema = z.object({
    * may route per user turn — the engine cuts it off, preventing infinite
    * character ping-pong. */
   WELTARI_GROUP_TURN_BUDGET: z.coerce.number().int().positive().default(3),
+  /** Feed posts per GAME day (M6 part 5, Rev 4 §12; owner ruling 2026-07-11:
+   * default 2, user-tunable; 0 = feed off). Rides the world clock like the
+   * proactive DMs — a paused world posts nothing; a skip enqueues at most
+   * the 10-post ceiling with the freshest window surviving. */
+  WELTARI_SOCIAL_POSTS_PER_DAY: z.coerce.number().nonnegative().default(2),
+  /** Max recipients who get the ONE reaction decision per feed post (owner
+   * ruling 2026-07-11: default 4; picked deterministically — no relationship
+   * system in V1). Acquaintances beyond the cap still receive the post. */
+  WELTARI_SOCIAL_REACTION_CAP: z.coerce.number().int().nonnegative().default(4),
   /** Image pixels live as files here; rows/events hold path + hash (Brief §1). */
   WELTARI_IMAGES_DIR: z.string().min(1).default('data/images'),
   /** Painter tile source. 'stub' (default) = deterministic, free, offline —
@@ -124,6 +133,8 @@ export interface Env {
   chatIdleMinutes: number;
   cronDmGameMinutes: number;
   groupTurnBudget: number;
+  socialPostsPerDay: number;
+  socialReactionCap: number;
   imagesDir: string;
   imageBackend: 'stub' | 'openrouter';
   imageModel: string;
@@ -183,6 +194,8 @@ export function readEnv(
       chatIdleMinutes: parsed.data.WELTARI_CHAT_IDLE_MINUTES,
       cronDmGameMinutes: parsed.data.WELTARI_CRON_DM_GAME_MINUTES,
       groupTurnBudget: parsed.data.WELTARI_GROUP_TURN_BUDGET,
+      socialPostsPerDay: parsed.data.WELTARI_SOCIAL_POSTS_PER_DAY,
+      socialReactionCap: parsed.data.WELTARI_SOCIAL_REACTION_CAP,
       imagesDir: parsed.data.WELTARI_IMAGES_DIR,
       imageBackend: parsed.data.WELTARI_IMAGE_BACKEND,
       imageModel: parsed.data.WELTARI_IMAGE_MODEL,

@@ -13,6 +13,30 @@ describe('readEnv (B-env boundary)', () => {
     }
   });
 
+  it('feed knobs default per the owner rulings (2 posts/game day, reaction cap 4; 0 turns the feed off)', () => {
+    const defaults = readEnv({ WELTARI_FAKE_LLM: '1' });
+    expect(defaults.ok).toBe(true);
+    if (defaults.ok) {
+      expect(defaults.env.socialPostsPerDay).toBe(2);
+      expect(defaults.env.socialReactionCap).toBe(4);
+    }
+    const off = readEnv({
+      WELTARI_FAKE_LLM: '1',
+      WELTARI_SOCIAL_POSTS_PER_DAY: '0',
+      WELTARI_SOCIAL_REACTION_CAP: '0',
+    });
+    expect(off.ok).toBe(true);
+    if (off.ok) {
+      expect(off.env.socialPostsPerDay).toBe(0);
+      expect(off.env.socialReactionCap).toBe(0);
+    }
+    const junk = readEnv({
+      WELTARI_FAKE_LLM: '1',
+      WELTARI_SOCIAL_POSTS_PER_DAY: '-1',
+    });
+    expect(junk.ok).toBe(false);
+  });
+
   it('reports the offending key NAME on malformed values — never the value', () => {
     const result = readEnv({
       WELTARI_FAKE_LLM: '1',
