@@ -33,7 +33,10 @@ export function createModelRegistry(
         providerOrder: config.providerOrder,
         // narrator/narration write prose; character replies are shorter.
         temperature: kind === 'character' ? 0.9 : 0.8,
-        maxOutputTokens: 600,
+        // The GM's seed form is BIG (places + characters + rationale in one
+        // tool call) — 600 truncated the JSON mid-generation on the week-15
+        // real run and every field after the cut arrived undefined.
+        maxOutputTokens: kind === 'gm' ? 2000 : 600,
       };
     },
   };
