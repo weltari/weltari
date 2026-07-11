@@ -18,6 +18,10 @@ import {
   createLedgerRepository,
   type LedgerRepository,
 } from './repositories/ledger.js';
+import {
+  createMemoryIndexRepository,
+  type MemoryIndexRepository,
+} from './repositories/memory-index.js';
 
 export interface StorageOptions {
   /** Path to the SQLite file; ':memory:' allowed in tests. */
@@ -32,6 +36,8 @@ export interface Storage {
   readonly eventLog: EventLogRepository;
   readonly ledger: LedgerRepository;
   readonly gateway: GatewayRepository;
+  /** The Search Index over memory deltas (Rev 4 §4.2 — V1: SQLite FTS5). */
+  readonly memoryIndex: MemoryIndexRepository;
   /**
    * The WriteGate: every multi-statement durable write goes through here so it
    * commits or vanishes atomically (crash-only design, Brief §2.4). better-sqlite3
@@ -109,6 +115,27 @@ function applyMigrations(db: Database.Database, migrationsDir: string): void {
   }
 }
 
+/**
+ * The FTS5 boot probe (M7 part 1, Rev 4 §4.2): the Search Index requires an
+ * FTS5-enabled SQLite build. Probe with a real CREATE (definitive — compile
+ * options can lie about a stripped build) BEFORE migrations run, so a missing
+ * FTS5 fails loud with an actionable message instead of a cryptic migration
+ * error. Never a silent degrade.
+ */
+function assertFts5(db: Database.Database): void {
+  try {
+    db.exec(
+      'CREATE VIRTUAL TABLE temp.weltari_fts5_probe USING fts5(probe); DROP TABLE temp.weltari_fts5_probe;',
+    );
+  } catch (cause) {
+    throw new BugError(
+      'fts5_missing',
+      'this better-sqlite3 build has no FTS5 — the memory Search Index requires it (Rev 4 §4.2). Reinstall dependencies (npm ci) or rebuild better-sqlite3 with FTS5 enabled.',
+      { cause },
+    );
+  }
+}
+
 export function openStorage(options: StorageOptions): Storage {
   const db = new Database(options.dbPath);
   db.pragma('journal_mode = WAL');
@@ -116,17 +143,25 @@ export function openStorage(options: StorageOptions): Storage {
   db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
 
+  assertFts5(db);
   applyMigrations(db, options.migrationsDir ?? DEFAULT_MIGRATIONS_DIR);
 
   const nowIso = options.nowIso ?? ((): string => new Date().toISOString());
-  const eventLog = createEventLogRepository(db, nowIso);
+  const memoryIndex = createMemoryIndexRepository(db);
+  const eventLog = createEventLogRepository(db, nowIso, memoryIndex);
   const ledger = createLedgerRepository(db, nowIso);
   const gateway = createGatewayRepository(db, nowIso);
+  // Projection discipline: the FTS index is derived state — re-project it
+  // from the log every boot, so a kill between an append and nothing (the
+  // index write shares the append's transaction) or a hand-deleted DB file
+  // sibling can never leave stale search results.
+  memoryIndex.rebuild();
 
   return {
     eventLog,
     ledger,
     gateway,
+    memoryIndex,
     transact<T>(fn: () => T): T {
       const run = db.transaction(fn);
       return run();
