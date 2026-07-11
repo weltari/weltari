@@ -7,6 +7,10 @@
 // re-check (docs/ledger.md) — the week-7 painter bug class stays fixed here.
 import { z } from 'zod';
 import { CorruptStateError, BugError } from '../../errors.js';
+import {
+  CACHE_KEEP_DEFAULT,
+  enqueueCachePruneIfDue,
+} from '../../engine/cache.js';
 import type {
   CharacterProfile,
   TurnLine,
@@ -14,6 +18,7 @@ import type {
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import {
+  enqueueCompactionIfDue,
   gateReflectionMemory,
   liveProfile,
   memoryEventsFrom,
@@ -42,6 +47,8 @@ export interface ReflectChatHandlerOptions {
   profiles: readonly CharacterProfile[];
   logger: Logger;
   faultPoint?: FaultPointHook;
+  /** CACHE retention limit (Rev 4 §11, env WELTARI_CACHE_KEEP; default 50). */
+  cacheKeep?: number;
 }
 
 /** The closed range's transcript: this conversation's messages up to and
@@ -87,6 +94,7 @@ export function createReflectChatHandler(
 ): JobHandler {
   const { storage, sink, llm, profiles, logger } = options;
   const faultPoint = options.faultPoint ?? ((): void => undefined);
+  const cacheKeep = options.cacheKeep ?? CACHE_KEEP_DEFAULT;
 
   return async (job): Promise<void> => {
     const payload = payloadSchema.safeParse(job.payload);
@@ -200,5 +208,9 @@ export function createReflectChatHandler(
         context_id: conversation_id,
       }),
     ]);
+    // Memory maintenance (M7 part 1): both checks are world-inert — a kill
+    // here only delays the pass until the next reflection or the boot sweep.
+    enqueueCompactionIfDue(storage, job.world_id, character_id);
+    enqueueCachePruneIfDue(storage, job.world_id, character_id, cacheKeep);
   };
 }

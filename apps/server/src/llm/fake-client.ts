@@ -47,6 +47,10 @@ const SCRIPT: Record<string, string> = {
   // The comment author's answer to the user's reply (answer-only thread).
   social_reply:
     'Ha — the river said the same thing, only wetter. Ask me again when the beams have held through one real storm.',
+  // The memory compaction pass (M7 part 1, Rev 4 §11): the scripted summary
+  // standing in for the covered delta range — deterministic, $0.
+  compaction:
+    'Storm season so far: the traveler lies about small things, the shrine bell is being silenced by someone, and the workshop roof went up before the rain returned.',
 };
 
 /**

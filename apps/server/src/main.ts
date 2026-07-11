@@ -22,6 +22,8 @@ import {
   FIXTURE_WORLD_ID,
 } from './engine/fixture/rainy-inn.js';
 import { createChatEngine } from './engine/chat.js';
+import { enqueueCachePruneIfDue } from './engine/cache.js';
+import { enqueueCompactionIfDue } from './engine/memory.js';
 import { createExploreCommand } from './engine/explore.js';
 import { createMapClickCommand } from './engine/map-click.js';
 import { createMapEditCommand } from './engine/map-edit.js';
@@ -52,6 +54,8 @@ import { createSocialReactionHandler } from './ledger/handlers/social-reaction.j
 import { createSocialReplyHandler } from './ledger/handlers/social-reply.js';
 import { createFeedReplyCommand } from './engine/feed.js';
 import { createSubwikiEditCommand } from './engine/wiki-edit.js';
+import { createCachePruneHandler } from './ledger/handlers/cache-prune.js';
+import { createMemoryCompactionHandler } from './ledger/handlers/memory-compaction.js';
 import { createReflectChatHandler } from './ledger/handlers/reflect-chat.js';
 import { createReflectionHandler } from './ledger/handlers/reflection.js';
 import { createUpdateApplyHandler } from './ledger/handlers/update-apply.js';
@@ -408,6 +412,7 @@ const runner = createRunner({
       llm,
       profiles: [elias],
       logger,
+      cacheKeep: env.cacheKeep,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
     reflect_chat: createReflectChatHandler({
@@ -416,7 +421,21 @@ const runner = createRunner({
       llm,
       profiles: dmRoster,
       logger,
+      cacheKeep: env.cacheKeep,
       ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
+    memory_compaction: createMemoryCompactionHandler({
+      storage,
+      sink,
+      llm,
+      profiles: dmRoster,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
+    cache_prune: createCachePruneHandler({
+      storage,
+      sink,
+      logger,
     }),
     proactive_dm: createProactiveDmHandler({
       storage,
@@ -611,6 +630,20 @@ for (const pendingWorld of pendingInvitationWorlds(storage)) {
     invitationExpiry.expireDue(pendingWorld),
     logger,
     'invitation.expire.boot',
+  );
+}
+
+// Memory maintenance boot sweep (M7 part 1, Rev 4 §11): heal any compaction
+// or CACHE-retention pass a kill delayed — the event-driven checks (after
+// each reflection / CACHE growth) are the fast path, this is the recovery
+// path. World-inert, duplicate keys no-op (I3).
+for (const rosterProfile of dmRoster) {
+  enqueueCompactionIfDue(storage, FIXTURE_WORLD_ID, rosterProfile.character_id);
+  enqueueCachePruneIfDue(
+    storage,
+    FIXTURE_WORLD_ID,
+    rosterProfile.character_id,
+    env.cacheKeep,
   );
 }
 
