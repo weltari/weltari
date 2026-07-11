@@ -130,6 +130,8 @@ describe('GET /* (the SPA wildcard route)', () => {
         ),
       setConfigFlag: () =>
         err(new OperationalError('unknown_flag', 'test stub')),
+      setCharacterLock: () =>
+        err(new OperationalError('unknown_character', 'test stub')),
       deleteProfile: () => ok({ removed: 0 }),
       profileView: (_worldId, actorId) => ({
         actor_id: actorId,

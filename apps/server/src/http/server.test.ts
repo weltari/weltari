@@ -249,6 +249,14 @@ describe('HTTP layer (SSE + commands)', () => {
         ),
       setConfigFlag: (command) =>
         ok({ flag: command.flag, value: command.value }),
+      // 'char:ghost' exercises the 409 path (unknown character).
+      setCharacterLock: (command) =>
+        command.character_id === 'char:ghost'
+          ? err(new OperationalError('unknown_character', 'no such character'))
+          : ok({
+              characterId: command.character_id,
+              locked: command.locked,
+            }),
       deleteProfile: () => ok({ removed: 2 }),
       profileView: (worldId, actorId) => ({
         actor_id: actorId,

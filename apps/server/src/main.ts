@@ -61,7 +61,10 @@ import {
 } from './engine/profile-gdpr.js';
 import { GM_CHARACTER_ID } from './engine/gm.js';
 import { createProposalEngine } from './engine/proposals.js';
-import { characterProfilesOf } from './engine/characters.js';
+import {
+  characterProfilesOf,
+  createSetCharacterLockCommand,
+} from './engine/characters.js';
 import { createSubwikiEditCommand } from './engine/wiki-edit.js';
 import { createCachePruneHandler } from './ledger/handlers/cache-prune.js';
 import { createMemoryCompactionHandler } from './ledger/handlers/memory-compaction.js';
@@ -386,6 +389,7 @@ const telegramConnector =
     : createTelegramConnector({ token: env.telegramBotToken, logger });
 const gatewayBridge = createChatGatewayBridge({
   storage,
+  sink,
   logger,
   profiles: dmRoster,
   actorId: 'user:owner',
@@ -895,6 +899,11 @@ const app = createHttpServer({
   setConfigFlag: createSetConfigFlagCommand({ sink }),
   deleteProfile: createDeleteProfileCommand({ storage, eventBus }),
   profileView: (worldId, actorId) => profileView(storage, worldId, actorId),
+  setCharacterLock: createSetCharacterLockCommand({
+    storage,
+    sink,
+    seedProfiles,
+  }),
   startSceneFromChat: async (command) => chatEngine.startSceneFromChat(command),
   startGroupChat: (command) => groupChatEngine.startGroup(command),
   sendGroupMessage: (command) => {
