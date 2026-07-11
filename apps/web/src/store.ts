@@ -860,6 +860,10 @@ function applyOne(
     // outreach record is bookkeeping, and a frozen thread shows NOTHING in
     // Weltari Chat (owner ruling 2026-07-10: the unread bubble suffices —
     // the "waiting for you" notice is the part-4 gateway push).
+    // The memory store (0.16.0, M7 part 1) is engine-side state too: deltas,
+    // core snapshots, evolution, compaction records and CACHE watermarks
+    // feed prompts and memoryquery — no client surface in V1 (a memory
+    // viewer arrives with the GM/config work).
     case 'reflection.committed':
     case 'world_agent.committed':
     case 'map_edit.requested':
@@ -867,6 +871,11 @@ function applyOne(
     case 'cache.appended':
     case 'chat.outreach_recorded':
     case 'chat.thread_frozen':
+    case 'memory.delta_committed':
+    case 'memory.core_updated':
+    case 'memory.compacted':
+    case 'character.evolved':
+    case 'cache.pruned':
       return;
   }
 }
