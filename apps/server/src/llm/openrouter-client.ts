@@ -306,7 +306,21 @@ export function createOpenRouterClient(
                       tools: SOCIAL_REACT_TOOLS,
                       toolChoice: 'auto' as const,
                     }
-                  : {}),
+                  : call.toolset === 'social_reply'
+                    ? {
+                        // M6 part 5: answer-only — the character can do
+                        // nothing here but answer and write its CACHE, so
+                        // the toolset carries nothing else (owner ruling
+                        // 2026-07-11: no tools = no promises to break).
+                        tools: {
+                          cache: tool({
+                            description: CHAT_TOOL_DESCRIPTIONS.cache,
+                            inputSchema: CacheToolSchema,
+                          }),
+                        },
+                        toolChoice: 'auto' as const,
+                      }
+                    : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable
           // prefix, never user input, so the injection warning does not apply.

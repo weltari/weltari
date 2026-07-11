@@ -232,6 +232,14 @@ describe('HTTP layer (SSE + commands)', () => {
               ended: true,
               jobKey: 'reflect_chat:c1:9',
             }),
+      feedReply: (command) =>
+        command.reaction_id === 'r:ghost'
+          ? err(new OperationalError('unknown_comment', 'no such comment'))
+          : ok({ replyId: command.request_id }),
+      subwikiEdit: (command) =>
+        command.sublocation_id === 'subloc:ghost'
+          ? err(new OperationalError('unknown_sublocation', 'no such place'))
+          : ok({ sublocationId: command.sublocation_id }),
       // place 'the park' exercises the unresolved free-text answer shape.
       startSceneFromChat: async (command) =>
         Promise.resolve(

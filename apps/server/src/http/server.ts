@@ -19,6 +19,8 @@ import {
   ExitChatCommandSchema,
   ExploreAcceptedSchema,
   ExploreCommandSchema,
+  FeedReplyAcceptedSchema,
+  FeedReplyCommandSchema,
   InterruptTurnAcceptedSchema,
   InterruptTurnCommandSchema,
   MapClickAcceptedSchema,
@@ -43,6 +45,8 @@ import {
   StartSceneFromChatCommandSchema,
   StartTurnAcceptedSchema,
   StartTurnCommandSchema,
+  SubwikiEditAcceptedSchema,
+  SubwikiEditCommandSchema,
   type AdvanceTimeAccepted,
   type AdvanceTimeCommand,
   type ApplyUpdateAccepted,
@@ -54,6 +58,8 @@ import {
   type ExitChatCommand,
   type ExploreAccepted,
   type ExploreCommand,
+  type FeedReplyAccepted,
+  type FeedReplyCommand,
   type InterruptTurnAccepted,
   type InterruptTurnCommand,
   type MapClickAccepted,
@@ -77,6 +83,8 @@ import {
   type StartSceneFromChatAccepted,
   type StartSceneFromChatCommand,
   type StartTurnCommand,
+  type SubwikiEditAccepted,
+  type SubwikiEditCommand,
 } from '@weltari/protocol';
 import { createReadStream } from 'node:fs';
 import { z } from 'zod';
@@ -144,6 +152,15 @@ export interface HttpDeps {
   exitChat: (
     command: ExitChatCommand,
   ) => Result<{ conversationId: string; ended: boolean; jobKey?: string }>;
+  /** The feed-reply seam (M6 part 5, Rev 4 §12): the user's reply to a feed
+   * comment commits at the seam; the comment author's answer generates
+   * detached and arrives as social.reply_answered. */
+  feedReply: (command: FeedReplyCommand) => Result<{ replyId: string }>;
+  /** The manual wiki edit seam (M6 part 5, owner ruling 2026-07-11): applies
+   * immediately — subwiki.edited with USER actor provenance. */
+  subwikiEdit: (
+    command: SubwikiEditCommand,
+  ) => Result<{ sublocationId: string }>;
   /** The startscene() bridge (Rev 4 §8): ends the chat range, opens a real
    * scene with the character; unresolved places ride scene.started. Async
    * since M6 part 3 — the bridge ends a still-open scene first and may wait
@@ -614,6 +631,68 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         message_id: result.value.messageId,
         replying: result.value.replying,
         presence: result.value.presence,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/feed-reply',
+    {
+      schema: {
+        body: FeedReplyCommandSchema,
+        response: {
+          202: FeedReplyAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.feedReply(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'feed-reply rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: FeedReplyAccepted = {
+        accepted: true,
+        reply_id: result.value.replyId,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/subwiki-edit',
+    {
+      schema: {
+        body: SubwikiEditCommandSchema,
+        response: {
+          202: SubwikiEditAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.subwikiEdit(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'subwiki-edit rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: SubwikiEditAccepted = {
+        accepted: true,
+        sublocation_id: result.value.sublocationId,
       };
       return accepted;
     },
