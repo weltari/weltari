@@ -257,7 +257,7 @@ describe('social_post job handler', () => {
     const ctx = setup();
     await expect(
       ctx.handler({ ...fire(), payload: { wrong: true } }),
-    ).rejects.toThrowError(/payload does not match/);
+    ).rejects.toThrow(/payload does not match/);
   });
 
   it('the social context speaks feed, not chat: kind social_post, the conduct skill in the prefix', async () => {
