@@ -447,6 +447,134 @@ export const CacheAppendedEventSchema = z.strictObject({
 });
 
 /**
+ * One memory delta became durable (0.16.0, M7 part 1, Rev 4 §11): a single
+ * curated recall note appended to the character's memory archive by a
+ * reflection-class job — the ONLY writers (scene reflection and reflect_chat,
+ * both riding the character's serial group; B6 double-gated: the model's
+ * structured output passes the schema gate, then the engine gate caps deltas
+ * at 3 per reflection). Deltas are append-only forever (Rev 4 §11: any bad
+ * pass can be re-run — repair for free); the Search Index (SQLite FTS5) over
+ * them is a projection keyed by this event's log id, rebuilt at boot.
+ * Participation-gating is by construction: a delta belongs to exactly one
+ * character, and memoryquery searches only that character's own rows.
+ * Emitted by: reflection / reflect_chat handlers, atomically with their
+ * committed events. Consumed by: the Search Index projection, memoryquery,
+ * dev mode.
+ */
+export const MemoryDeltaCommittedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('memory.delta_committed'),
+  payload: z.strictObject({
+    character_id: z.string().min(1),
+    /** Which trigger class curated it (Rev 4 §17 session_or_conv_id). */
+    origin: z.enum(['scene', 'chat']),
+    /** The scene id or conversation id the delta was reflected from. */
+    context_id: z.string().min(1),
+    /** The character's own recall note — first person, self-contained. */
+    content: z.string().min(1).max(1000),
+  }),
+});
+
+/**
+ * The character's durable memory core changed (0.16.0, M7 part 1, Rev 4 §11):
+ * a FULL SNAPSHOT of the durable core lines — latest event per character wins
+ * (a snapshot, unlike deltas, so replay is a trivial fold and a bad update is
+ * fully superseded by the next). The fixture/config memory core is the SEED
+ * and never changes; every prompt injects seed + this latest snapshot in the
+ * stable prefix (byte-stable between calls — the core changes only when a
+ * reflection-class job commits this event, never within a call: I5 holds).
+ * Emitted by: reflection / reflect_chat handlers (B6 double-gated, capped).
+ * Consumed by: context assembly (the always-injected tier), dev mode.
+ */
+export const MemoryCoreUpdatedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('memory.core_updated'),
+  payload: z.strictObject({
+    character_id: z.string().min(1),
+    /** The full durable core after this update (engine-capped). */
+    core: z.array(z.string().min(1).max(300)).min(1).max(12),
+    /** Provenance: which reflection wrote it. */
+    origin: z.enum(['scene', 'chat']),
+    context_id: z.string().min(1),
+  }),
+});
+
+/**
+ * Reflection evolved the character (0.16.0, M7 part 1, Rev 4 §7/§11, owner
+ * ruling 2026-07-11: ships with the memory store, behind the per-character
+ * `locked` flag): a personality rewrite and/or a full goals snapshot. The
+ * engine gate refuses the whole call for a locked character (locked fields
+ * untouched — I8: zero rows) and refuses an empty evolution (at least one
+ * field must be present). Latest event per character wins per field.
+ * Emitted by: reflection / reflect_chat handlers via the character's serial
+ * group. Consumed by: context assembly (live personality/goals), dev mode.
+ */
+export const CharacterEvolvedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('character.evolved'),
+  payload: z.strictObject({
+    character_id: z.string().min(1),
+    /** The evolved personality text (full replacement). */
+    personality: z.string().min(1).max(1000).optional(),
+    /** The evolved goals (full snapshot, like the personality). */
+    goals: z.array(z.string().min(1).max(300)).min(1).max(8).optional(),
+    /** Provenance: which reflection evolved it. */
+    origin: z.enum(['scene', 'chat']),
+    context_id: z.string().min(1),
+  }),
+});
+
+/**
+ * A compaction pass summarized the character's old memory deltas (0.16.0,
+ * M7 part 1, Rev 4 §11): CUMULATIVE — this record covers every delta whose
+ * log id is <= up_to_id; the read path prefers the latest compaction (highest
+ * up_to_id) and lays raw deltas newer than it on top. Deltas are NEVER
+ * removed (the log is append-only): a bad pass is repaired by re-running the
+ * job for the same range, whose new record supersedes the old one in the
+ * fold — repair for free, no deletion anywhere. Idempotent per (character,
+ * up_to_id) — the job's natural key; kill-retry commits at most one record
+ * per range. Emitted by: the memory_compaction ledger job (world-inert —
+ * enqueued when the raw-delta count outgrows the window, atomically with the
+ * reflection that tipped it). Consumed by: memory reads, memoryquery framing,
+ * dev mode.
+ */
+export const MemoryCompactedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('memory.compacted'),
+  payload: z.strictObject({
+    character_id: z.string().min(1),
+    /** Log id of the newest memory.delta_committed this record covers. */
+    up_to_id: z.int().positive(),
+    /** How many deltas the pass folded in (audit). */
+    delta_count: z.int().positive(),
+    /** The summary standing in for the covered range (B6-gated). */
+    summary: z.string().min(1).max(4000),
+  }),
+});
+
+/**
+ * CACHE retention advanced (0.16.0, M7 part 1, Rev 4 §11: "keep the last N
+ * entries per character"). The event log is append-only, so pruning is a
+ * WATERMARK, not a deletion: every CACHE view ignores cache.appended events
+ * with id <= watermark_id for this character — replay rebuilds the identical
+ * pruned view. Safe by construction: reflection reads session history, never
+ * CACHE history, so retention has zero correctness impact. Idempotent per
+ * (character, watermark_id). Emitted by: the cache_prune ledger job.
+ * Consumed by: the CACHE views, dev mode.
+ */
+export const CachePrunedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('cache.pruned'),
+  payload: z.strictObject({
+    character_id: z.string().min(1),
+    /** cache.appended events at or below this log id leave every view. */
+    watermark_id: z.int().positive(),
+    /** Entries still visible after this prune (audit). */
+    kept: z.int().nonnegative(),
+  }),
+});
+
+/**
  * A sublocation's wiki entry was written or extended (M6 part 2, Rev 4 §10):
  * the World Agent's scene-end pass covers every NARRATOR-CREATED sublocation
  * that participated in the scene (owner rule, week 9: created = gets a wiki;
@@ -989,6 +1117,11 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   ChatGroupMessageCommittedEventSchema,
   ChatGroupEndedEventSchema,
   CacheAppendedEventSchema,
+  CachePrunedEventSchema,
+  MemoryDeltaCommittedEventSchema,
+  MemoryCoreUpdatedEventSchema,
+  MemoryCompactedEventSchema,
+  CharacterEvolvedEventSchema,
   SubwikiUpdatedEventSchema,
   SubwikiEditedEventSchema,
   SocialPostCommittedEventSchema,

@@ -1336,3 +1336,158 @@ describe('social event family (0.15.0, Rev 4 §12, M6 part 5)', () => {
     expect(WeltariEventSchema.safeParse(oversized).success).toBe(false);
   });
 });
+
+describe('memory event family (0.16.0, M7 part 1, Rev 4 §11)', () => {
+  it('accepts memory.delta_committed for both origins', () => {
+    for (const origin of ['scene', 'chat']) {
+      const delta: unknown = {
+        ...envelope,
+        type: 'memory.delta_committed',
+        payload: {
+          character_id: 'char:elias',
+          origin,
+          context_id: origin === 'scene' ? 's1' : 'c1',
+          content:
+            'The traveler lied about the ferry — small lies, but a pattern.',
+        },
+      };
+      expect(WeltariEventSchema.safeParse(delta).success).toBe(true);
+    }
+  });
+
+  it('rejects a delta with empty content, oversized content, an unknown origin, or an extra key (B5/B7)', () => {
+    const base = {
+      character_id: 'char:elias',
+      origin: 'scene',
+      context_id: 's1',
+    };
+    for (const payload of [
+      { ...base, content: '' },
+      { ...base, content: 'x'.repeat(1001) },
+      { ...base, origin: 'dream', content: 'x' },
+      { ...base, content: 'x', admin: true },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'memory.delta_committed',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts memory.core_updated and enforces the snapshot caps (1-12 lines, 300 chars each)', () => {
+    const valid: unknown = {
+      ...envelope,
+      type: 'memory.core_updated',
+      payload: {
+        character_id: 'char:elias',
+        core: ['The shrine bell is silenced by a person, not the weather.'],
+        origin: 'scene',
+        context_id: 's1',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const base = {
+      character_id: 'char:elias',
+      origin: 'chat',
+      context_id: 'c1',
+    };
+    for (const payload of [
+      { ...base, core: [] },
+      { ...base, core: Array.from({ length: 13 }, () => 'line') },
+      { ...base, core: ['x'.repeat(301)] },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'memory.core_updated',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts character.evolved with personality, goals, or both (the at-least-one rule is the engine gate)', () => {
+    const base = {
+      character_id: 'char:elias',
+      origin: 'scene',
+      context_id: 's1',
+    };
+    for (const payload of [
+      { ...base, personality: 'Warmer now, but still counts things.' },
+      { ...base, goals: ['Find who silences the bell.'] },
+      {
+        ...base,
+        personality: 'Warmer now.',
+        goals: ['Find who silences the bell.'],
+      },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'character.evolved',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    }
+    const oversizedGoals: unknown = {
+      ...envelope,
+      type: 'character.evolved',
+      payload: {
+        ...base,
+        goals: Array.from({ length: 9 }, () => 'goal'),
+      },
+    };
+    expect(WeltariEventSchema.safeParse(oversizedGoals).success).toBe(false);
+  });
+
+  it('accepts memory.compacted and requires positive range fields', () => {
+    const valid: unknown = {
+      ...envelope,
+      type: 'memory.compacted',
+      payload: {
+        character_id: 'char:elias',
+        up_to_id: 120,
+        delta_count: 14,
+        summary:
+          'Weeks of storm-season notes: the traveler, the bell, the ferry.',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    for (const payload of [
+      { character_id: 'char:elias', up_to_id: 0, delta_count: 1, summary: 's' },
+      { character_id: 'char:elias', up_to_id: 1, delta_count: 0, summary: 's' },
+      {
+        character_id: 'char:elias',
+        up_to_id: 1,
+        delta_count: 1,
+        summary: 'x'.repeat(4001),
+      },
+    ]) {
+      const event: unknown = { ...envelope, type: 'memory.compacted', payload };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts cache.pruned (watermark semantics) and rejects a negative kept count', () => {
+    const valid: unknown = {
+      ...envelope,
+      type: 'cache.pruned',
+      payload: {
+        character_id: 'char:elias',
+        watermark_id: 87,
+        kept: 50,
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const negative: unknown = {
+      ...envelope,
+      type: 'cache.pruned',
+      payload: {
+        character_id: 'char:elias',
+        watermark_id: 87,
+        kept: -1,
+      },
+    };
+    expect(WeltariEventSchema.safeParse(negative).success).toBe(false);
+  });
+});

@@ -68,12 +68,24 @@
  * keeps feed comments from shadowing scene memory). Wiki manual edits —
  * subwiki.edited event (USER actor provenance, applies immediately; the
  * Proposal pipeline is deferred) + subwiki-edit command.
+ * 0.16.0 (M7 part 1, Rev 4 §11/§4.2/§7, owner rulings 2026-07-11): the real
+ * memory store — memory.delta_committed (append-only archive deltas, the
+ * FTS5 Search Index projection's source) / memory.core_updated (full durable
+ * core snapshot; prompts inject seed + latest — I5 holds) /
+ * character.evolved (personality/goals evolution behind the per-character
+ * locked flag) / memory.compacted (cumulative summary over old deltas;
+ * re-runs supersede — repair for free, the log stays append-only) /
+ * cache.pruned (retention as a view watermark, never a deletion). All five
+ * emitted only by reflection-class/maintenance ledger jobs through the
+ * character's serial group.
  */
-export const PROTOCOL_VERSION = '0.15.0';
+export const PROTOCOL_VERSION = '0.16.0';
 
 export {
   ArtSwitchedEventSchema,
   CacheAppendedEventSchema,
+  CachePrunedEventSchema,
+  CharacterEvolvedEventSchema,
   CharacterJoinedEventSchema,
   ChatEndedEventSchema,
   ChatMessageCommittedEventSchema,
@@ -95,6 +107,9 @@ export {
   JobParkedEventSchema,
   MapClickResolvedEventSchema,
   MapEditRequestedEventSchema,
+  MemoryCompactedEventSchema,
+  MemoryCoreUpdatedEventSchema,
+  MemoryDeltaCommittedEventSchema,
   PainterCompletedEventSchema,
   PluginRejectedEventSchema,
   ReflectionCommittedEventSchema,
