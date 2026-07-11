@@ -124,6 +124,13 @@ export interface SubmitProposalRequest {
 }
 
 export interface ProposalEngine {
+  /**
+   * The DRY-RUN half of submit (M7 part 2): shape the request through the
+   * wire union + run gate 2, returning the payload WITHOUT appending — the
+   * GM engine commits its reply and the prepared proposals in one
+   * transaction (the card can never exist without the line that offered it).
+   */
+  prepare(request: SubmitProposalRequest): Result<{ payload: ProposalPayload }>;
   /** Gate-2 check + append proposal.submitted. The diff arrives gate-1
    * validated (the caller parsed the tool call); this seam re-shapes it into
    * the typed payload and refuses references the world state disowns. */
@@ -415,39 +422,47 @@ export function createProposalEngine(
     }
   }
 
+  function prepare(
+    request: SubmitProposalRequest,
+  ): Result<{ payload: ProposalPayload }> {
+    const proposalId = `prop-${randomUUID().slice(0, 8)}`;
+    // Re-shape the gate-1-validated diff into the typed payload through
+    // the wire schema itself — the one place the union's action↔diff
+    // pairing is enforced (B5: our own format, strict; B3: via validateAt).
+    const candidate: unknown = {
+      proposal_id: proposalId,
+      rationale: request.rationale,
+      proposer: request.proposer,
+      approvers: request.approvers,
+      action: request.action,
+      diff: request.diff,
+    };
+    const shaped = validateAt(
+      'llm',
+      'proposal:payload',
+      ProposalSubmittedEventSchema.shape.payload,
+      candidate,
+      options.logger,
+    );
+    if (!shaped.ok) return shaped;
+    const gated = gate(request.world_id, shaped.value);
+    if (!gated.ok) return gated;
+    return ok({ payload: shaped.value });
+  }
+
   return {
+    prepare,
+
     submit(request: SubmitProposalRequest): Result<{ proposalId: string }> {
-      const proposalId = `prop-${randomUUID().slice(0, 8)}`;
-      // Re-shape the gate-1-validated diff into the typed payload through
-      // the wire schema itself — the one place the union's action↔diff
-      // pairing is enforced (B5: our own format, strict).
-      const candidate: unknown = {
-        proposal_id: proposalId,
-        rationale: request.rationale,
-        proposer: request.proposer,
-        approvers: request.approvers,
-        action: request.action,
-        diff: request.diff,
-      };
-      // The one payload gate (B3): the SAME union bytes the wire enforces —
-      // the action↔diff pairing above all — through validateAt.
-      const shaped = validateAt(
-        'llm',
-        'proposal:payload',
-        ProposalSubmittedEventSchema.shape.payload,
-        candidate,
-        options.logger,
-      );
-      if (!shaped.ok) return shaped;
-      const gated = gate(request.world_id, shaped.value);
-      if (!gated.ok) return gated;
+      const prepared = prepare(request);
+      if (!prepared.ok) return prepared;
       sink.append({
         world_id: request.world_id,
         actor_id: request.proposer,
         type: 'proposal.submitted',
-        payload: shaped.value,
+        payload: prepared.value.payload,
       });
-      return ok({ proposalId });
+      return ok({ proposalId: prepared.value.payload.proposal_id });
     },
 
     async resolve(

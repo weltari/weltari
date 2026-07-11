@@ -53,8 +53,10 @@ import { createSocialPostHandler } from './ledger/handlers/social-post.js';
 import { createSocialReactionHandler } from './ledger/handlers/social-reaction.js';
 import { createSocialReplyHandler } from './ledger/handlers/social-reply.js';
 import { createFeedReplyCommand } from './engine/feed.js';
+import { createGmChatEngine, gmGreetingEvent } from './engine/gm-chat.js';
 import { GM_CHARACTER_ID } from './engine/gm.js';
 import { createProposalEngine } from './engine/proposals.js';
+import { characterProfilesOf } from './engine/characters.js';
 import { createSubwikiEditCommand } from './engine/wiki-edit.js';
 import { createCachePruneHandler } from './ledger/handlers/cache-prune.js';
 import { createMemoryCompactionHandler } from './ledger/handlers/memory-compaction.js';
@@ -129,10 +131,16 @@ const stopGauges = startGauges({
 const elias = buildEliasProfile(env.prefixTokens);
 const mara = buildMaraProfile();
 const narrator = buildNarratorProfile(env.prefixTokens);
-// The DM-able roster (M6 part 4: groups need >= 2 members). Mara is
-// chat-side only — the scene cast stays Elias, so prefix-size runs and the
-// harness scenes are untouched.
-const dmRoster = [elias, mara];
+// The seed profiles (M7 part 2): the fixture pair on a fixture world; a
+// cold-boot world starts with NO seed characters — its people arrive via
+// approved seed/create proposals and fold in through the registry below.
+const seedProfiles = env.fixtureWorld ? [elias, mara] : [];
+// The DM-able roster: seeds ∪ every character.created (built at boot — a
+// character created THIS session becomes DM-able on the next boot; the live
+// getter arrives with week 18's make_character). Mara is chat-side only —
+// the scene cast stays Elias, so prefix-size runs and the harness scenes
+// are untouched.
+const dmRoster = characterProfilesOf(storage, FIXTURE_WORLD_ID, seedProfiles);
 const knownCharacters = [
   { character_id: elias.character_id, name: elias.name },
 ];
@@ -142,33 +150,46 @@ const knownCharacters = [
 // three explored squares and the client's Hang around has somewhere to land.
 // No scene auto-opens anymore: a fresh world shows the splash (wireframe 03)
 // and every scene opens through the open-scene command.
+// M7 part 2 (Rev 4 §9): WELTARI_FIXTURE_WORLD=0 skips the fixture entirely —
+// a truly blank world whose only durable row is the GM's greeting; the
+// world is built through the GM interview + one approved seed_world card.
 if (storage.eventLog.lastId() === 0) {
-  for (const sublocation of FIXTURE_SUBLOCATIONS) {
-    sink.append({
-      world_id: FIXTURE_WORLD_ID,
-      actor_id: 'system:engine',
-      type: 'sublocation.materialized',
-      payload: {
-        sublocation_id: sublocation.sublocation_id,
-        name: sublocation.name,
-        description: sublocation.description,
-        square: squareOf(sublocation.map_position),
-        map_position: sublocation.map_position,
-      },
-    });
+  if (env.fixtureWorld) {
+    for (const sublocation of FIXTURE_SUBLOCATIONS) {
+      sink.append({
+        world_id: FIXTURE_WORLD_ID,
+        actor_id: 'system:engine',
+        type: 'sublocation.materialized',
+        payload: {
+          sublocation_id: sublocation.sublocation_id,
+          name: sublocation.name,
+          description: sublocation.description,
+          square: squareOf(sublocation.map_position),
+          map_position: sublocation.map_position,
+        },
+      });
+    }
+    logger.info({ world_id: FIXTURE_WORLD_ID }, 'seeded fixture world');
+  } else {
+    sink.append(gmGreetingEvent(FIXTURE_WORLD_ID));
+    logger.info(
+      { world_id: FIXTURE_WORLD_ID },
+      'blank world — the GM greeting awaits (cold boot, Rev 4 §9)',
+    );
   }
-  logger.info({ world_id: FIXTURE_WORLD_ID }, 'seeded fixture world');
 }
 // The fixture trio paints like any materialized square (M5). Boot-time, not
 // seed-time, ON PURPOSE: the enqueue dedupes forever on its square key, so
 // this is a no-op every boot after the first — and it heals pre-M5 dev DBs
 // whose trio predates eager painting.
-for (const sublocation of FIXTURE_SUBLOCATIONS) {
-  enqueueSquarePaint(
-    storage,
-    FIXTURE_WORLD_ID,
-    squareOf(sublocation.map_position),
-  );
+if (env.fixtureWorld) {
+  for (const sublocation of FIXTURE_SUBLOCATIONS) {
+    enqueueSquarePaint(
+      storage,
+      FIXTURE_WORLD_ID,
+      squareOf(sublocation.map_position),
+    );
+  }
 }
 
 const registry = createModelRegistry({
@@ -299,6 +320,19 @@ const proposalEngine = createProposalEngine({
   logger,
   seedProfiles: dmRoster,
   ...(faultPoint === undefined ? {} : { faultPoint }),
+});
+
+// The GM conversation (M7 part 2, Rev 4 §9): the interview + authoring
+// channel — GM lines ride Weltari Chat's own events; every authoring wish
+// becomes a proposal card committed atomically with the reply.
+const gmChatEngine = createGmChatEngine({
+  storage,
+  sink,
+  llm,
+  logger,
+  proposals: proposalEngine,
+  modelConfigured: env.fakeLlm || env.openrouterApiKey !== undefined,
+  devBus,
 });
 
 // Group chats (M6 part 4, Rev 4 §8): user-started only; the router routes,
@@ -805,14 +839,30 @@ const app = createHttpServer({
   }),
   applyUpdate,
   sendChatMessage: (command) => {
-    const result = chatEngine.sendMessage(command);
+    // The GM answers its own conversation (M7 part 2) — same wire, its own
+    // runtime: gm toolset, no CACHE, no reflection, always available.
+    const result =
+      command.character_id === GM_CHARACTER_ID
+        ? gmChatEngine.sendMessage(command)
+        : chatEngine.sendMessage(command);
     if (result.ok) {
       // The reply generates detached — a failure logs, never crashes (A8).
       catchAndLog(result.value.completion, logger, 'chat-reply');
     }
     return result;
   },
-  exitChat: (command) => chatEngine.exitChat(command),
+  exitChat: (command) =>
+    command.character_id === GM_CHARACTER_ID
+      ? // The GM thread never closes (no reflection exists for it) — a
+        // silent no-op like an already-empty conversation.
+        {
+          ok: true,
+          value: {
+            conversationId: `chat:${command.actor_id}:${GM_CHARACTER_ID}`,
+            ended: false,
+          },
+        }
+      : chatEngine.exitChat(command),
   feedReply: createFeedReplyCommand({
     storage,
     sink,
