@@ -31,10 +31,16 @@ export interface GatewayHostOptions {
   logger: Logger;
   connectors: readonly RegisteredConnector[];
   /**
-   * Engine seam: run one turn for inbound text, resolve with the committed
-   * turn's rendered transcript (the echo body). err = turn voided/refused.
+   * Engine seam: route dedup'd, capped inbound text and resolve with the
+   * reply body to send back. M6 part 4: the external message id rides along
+   * (the chat bridge reuses it as the send's idempotency token — a
+   * redelivery that somehow passed the dedup still cannot twin the line).
    */
-  runTurn: (conversationId: string, text: string) => Promise<Result<string>>;
+  runTurn: (
+    conversationId: string,
+    text: string,
+    externalMsgId: string,
+  ) => Promise<Result<string>>;
 }
 
 export interface GatewayHost {
@@ -79,7 +85,11 @@ export function createGatewayHost(options: GatewayHostOptions): GatewayHost {
       return;
     }
 
-    const turn = await runTurn(message.conversation_id, text);
+    const turn = await runTurn(
+      message.conversation_id,
+      text,
+      message.external_msg_id,
+    );
     if (!turn.ok) {
       logger.warn(
         { connector_id: connector.id, code: turn.error.code },
