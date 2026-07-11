@@ -128,6 +128,26 @@ export function createGroupChatEngine(
     return profiles.find((p) => p.character_id === characterId);
   }
 
+  /** Deterministic member resolution (the name→id resolver pattern): real
+   * routers reliably return "mara" for `char:mara` (week-12 real-backend
+   * finding). Exact id wins; else the `char:` prefix; else a UNIQUE
+   * case-insensitive match on id tail or profile name — ambiguity resolves
+   * to nothing and the round yields (never a guess). */
+  function resolveMember(
+    routed: string,
+    memberIds: readonly string[],
+  ): string | undefined {
+    if (memberIds.includes(routed)) return routed;
+    const lower = routed.toLowerCase();
+    const prefixed = `char:${lower}`;
+    if (memberIds.includes(prefixed)) return prefixed;
+    const matches = memberIds.filter((id) => {
+      const name = profileFor(id)?.name.toLowerCase() ?? '';
+      return id.toLowerCase().endsWith(`:${lower}`) || name.includes(lower);
+    });
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+
   function transcript(conversationId: string): TurnLine[] {
     const state = groupState(storage, conversationId);
     return state.messages.slice(-GROUP_TRANSCRIPT_LINES).flatMap((event) =>
@@ -208,7 +228,7 @@ export function createGroupChatEngine(
         characterId: 'group_router',
         system:
           'You are the router of a group chat. You route turns and NOTHING else: you never write dialogue, never narrate, never speak. Decide who would naturally speak next, or end the round. Reply ONLY with a tool call.',
-        prompt: `Members: ${memberIds.join(', ')}\nAvailability: ${availability}\nCharacter turns already routed this round: ${String(turnsUsed)}\n\n## Transcript\n${lines}\n\n## Instruction\nEither call route with the member who would naturally speak next, or call endsubsession if the conversation reached a resting point.`,
+        prompt: `Members: ${memberIds.join(', ')} (use these EXACT ids in route calls)\nAvailability: ${availability}\nCharacter turns already routed this round: ${String(turnsUsed)}\n\n## Transcript\n${lines}\n\n## Instruction\nEither call route with the member who would naturally speak next (next_character_id = one of the exact ids above), or call endsubsession if the conversation reached a resting point.`,
         onTextDelta: (): void => undefined, // router text is DROPPED (no narration)
         toolset: 'group_router',
       });
@@ -363,7 +383,8 @@ export function createGroupChatEngine(
           );
           return;
         }
-        const routedId = decision.id;
+        const routedId =
+          resolveMember(decision.id, state.memberIds) ?? decision.id;
         const profile = profileFor(routedId);
         if (
           profile === undefined ||

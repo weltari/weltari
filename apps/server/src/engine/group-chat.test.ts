@@ -216,3 +216,31 @@ describe('group chats (criterion b)', () => {
     ctx.storage.close();
   });
 });
+
+describe('member resolution (the week-12 real-backend finding)', () => {
+  it('a router returning "mara" resolves to char:mara; ambiguity yields', async () => {
+    const ctx = setup(1);
+    const started = ctx.engine.startGroup({ ...START, request_id: 'g-res-1' });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    // The real DeepSeek router routed the bare short name — the resolver
+    // must land it on the exact member id.
+    await sendAndAwait(
+      ctx,
+      started.value.conversationId,
+      'Go on then. !route mara',
+      'm-res-1',
+    );
+    const characterLines = ctx.storage.eventLog
+      .readSince(0)
+      .flatMap((e) =>
+        e.type === 'chat.group_message_committed' &&
+        e.payload.sender === 'character'
+          ? [e.payload]
+          : [],
+      );
+    expect(characterLines).toHaveLength(1);
+    expect(characterLines[0]?.character_id).toBe('char:mara');
+    ctx.storage.close();
+  });
+});
