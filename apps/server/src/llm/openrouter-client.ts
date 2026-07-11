@@ -16,10 +16,15 @@ import {
   EndSceneToolSchema,
   EndSubsessionToolSchema,
   EvolveToolSchema,
+  GM_TOOL_DESCRIPTIONS,
   GROUP_ROUTER_TOOL_DESCRIPTIONS,
   MemoryDeltaToolSchema,
   MemoryqueryToolSchema,
   NARRATOR_TOOL_DESCRIPTIONS,
+  ProposeCharacterToolSchema,
+  ProposePlaceToolSchema,
+  ProposeWikiEditToolSchema,
+  ProposeWorldSeedToolSchema,
   QuerySublocationsToolSchema,
   ReactToolSchema,
   REFLECTION_TOOL_DESCRIPTIONS,
@@ -379,7 +384,42 @@ export function createOpenRouterClient(
                               ? {}
                               : { stopWhen: stepCountIs(QUERY_STEP_LIMIT) }),
                           }
-                        : {}),
+                        : call.toolset === 'gm'
+                          ? {
+                              // M7 part 2 (Rev 4 §9/§16): the GM's authoring
+                              // tools — every one a data-only PROPOSAL (the
+                              // GM engine gates and submits, the user's
+                              // approval applies); wikiquery executes
+                              // mid-call like chat's.
+                              tools: {
+                                propose_place: tool({
+                                  description:
+                                    GM_TOOL_DESCRIPTIONS.propose_place,
+                                  inputSchema: ProposePlaceToolSchema,
+                                }),
+                                propose_character: tool({
+                                  description:
+                                    GM_TOOL_DESCRIPTIONS.propose_character,
+                                  inputSchema: ProposeCharacterToolSchema,
+                                }),
+                                propose_wiki_edit: tool({
+                                  description:
+                                    GM_TOOL_DESCRIPTIONS.propose_wiki_edit,
+                                  inputSchema: ProposeWikiEditToolSchema,
+                                }),
+                                propose_world_seed: tool({
+                                  description:
+                                    GM_TOOL_DESCRIPTIONS.propose_world_seed,
+                                  inputSchema: ProposeWorldSeedToolSchema,
+                                }),
+                                ...queryToolsFor(call),
+                              },
+                              toolChoice: 'auto' as const,
+                              ...(call.queries === undefined
+                                ? {}
+                                : { stopWhen: stepCountIs(QUERY_STEP_LIMIT) }),
+                            }
+                          : {}),
           // Our system message MUST live in messages[] to carry the
           // cache_control breakpoint; its content is the engine-owned stable
           // prefix, never user input, so the injection warning does not apply.

@@ -485,6 +485,20 @@ export const GM_TOOL_DESCRIPTIONS: Record<GmToolName, string> = {
     'Submit the completed world-creation form ONCE, when the interview has covered everything: world_name, language (what the user chose), chapter_seed (optional: the opening story situation), places (2-8; every place you deliberately name — at least one public AND one private), characters (1-6). The user reviews the whole world as one card; approval creates all of it at once. Do not call this while anything essential is still unasked.',
 };
 
+/** Per-tool shape recaps for the GM correction loop (M7 part 2): a gate-1
+ * refusal quotes the exact expected shape so the model can fix its call —
+ * the week-15 real run showed a generic "did not match" is not enough. */
+export const GM_TOOL_SCHEMA_HINTS: Record<GmToolName, string> = {
+  propose_place:
+    'propose_place needs: name, description, space ("public" or "private", lowercase), rationale; wiki_entry optional.',
+  propose_character:
+    'propose_character needs: name, personality, goals (array of 1-8 short strings), rationale; core and skills optional string arrays.',
+  propose_wiki_edit:
+    'propose_wiki_edit needs: sublocation_id (the real id from wikiquery), entry, rationale.',
+  propose_world_seed:
+    'propose_world_seed needs ALL of: world_name; language; places (array of 2-8 objects, EACH {name, description, space: "public"|"private" lowercase}); characters (array of 1-6 objects, EACH {name, personality, goals: array of short strings}); rationale. chapter_seed optional. ONE call carrying the whole form.',
+};
+
 /** A GM tool call that passed gate 1. The proposal engine's gate 2 (world
  * state) still applies at submit. */
 export type ValidatedGmToolCall =

@@ -16,7 +16,11 @@ import type { SendChatMessageCommand } from '@weltari/protocol';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
 import type { DevBus } from '../http/bus.js';
-import { parseGmToolCall, type ValidatedGmToolCall } from '../llm/tools.js';
+import {
+  GM_TOOL_SCHEMA_HINTS,
+  parseGmToolCall,
+  type ValidatedGmToolCall,
+} from '../llm/tools.js';
 import type { LlmClient } from '../llm/types.js';
 import type { NewEvent } from '../storage/repositories/event-log.js';
 import type { Storage } from '../storage/db.js';
@@ -215,12 +219,17 @@ export function createGmChatEngine(options: GmChatEngineOptions): GmChatEngine {
             return;
           }
           text = result.value.text.trim();
-          if (text === '') {
+          if (text === '' && result.value.toolCalls.length === 0) {
             logger.warn(
               { conversation_id: conversationId },
               'GM reply came back empty — skipped',
             );
             return;
+          }
+          if (text === '') {
+            // A tool-call-only reply (DeepSeek does this, week-15 real run):
+            // the card IS the message — a hardcoded line carries it.
+            text = 'Here is my proposal — look it over; your call.';
           }
           // Gate 1 (shape) per call, then a DRY-RUN of gate 2 via the
           // proposal engine's prepare: the reply and its cards commit in one
@@ -255,7 +264,10 @@ export function createGmChatEngine(options: GmChatEngineOptions): GmChatEngine {
                 { conversation_id: conversationId, tool: raw.tool, attempt },
                 'GM tool call rejected at gate 1',
               );
-              refusal = `Your ${raw.tool} call did not match the tool schema — every field must match exactly.`;
+              const hints: Record<string, string | undefined> =
+                GM_TOOL_SCHEMA_HINTS;
+              const hint = hints[raw.tool];
+              refusal = `Your ${raw.tool} call did not match the tool schema.${hint === undefined ? '' : ` ${hint}`} Make ONE corrected call with every required field.`;
               continue;
             }
             const prepared = proposals.prepare(
