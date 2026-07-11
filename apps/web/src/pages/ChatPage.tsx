@@ -7,15 +7,24 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   CHAT_CHARACTERS,
+  GM_CHARACTER_ID,
   postExitChat,
   postExitGroupChat,
   postSendChatMessage,
   postSendGroupMessage,
+  postSetCharacterLock,
   postStartGroupChat,
   postStartSceneFromChat,
 } from '../commands.js';
+import { ProposalCard } from '../components/ProposalCard.js';
 import { t } from '../i18n.js';
 import { useSceneStore, type ChatThread, type GroupThread } from '../store.js';
+
+/** V1 groups everyone DM-able EXCEPT the GM — it is the meta-guide, not a
+ * group member (Rev 4 §9). */
+const GROUPABLE = CHAT_CHARACTERS.filter(
+  (c) => c.character_id !== GM_CHARACTER_ID,
+);
 
 interface ChatPageProps {
   /** Hand a startscene() 202 to the shell: navigate to the Scene route (the
@@ -76,7 +85,15 @@ export function ChatPage({
     CHAT_CHARACTERS[0];
   const thread =
     selected === undefined ? undefined : threads[selected.character_id];
-  const inScene = useIsInScene(selected?.character_id ?? '');
+  const isGm = selected?.character_id === GM_CHARACTER_ID;
+  const inScene = useIsInScene(selected?.character_id ?? '') && !isGm;
+  // The consent cards (0.17.0, Rev 4 §16) live in the GM conversation.
+  const pendingProposals = useSceneStore((s) => s.pendingProposals);
+  const characterLocks = useSceneStore((s) => s.characterLocks);
+  const locked =
+    selected === undefined
+      ? false
+      : (characterLocks[selected.character_id] ?? false);
 
   const [draft, setDraft] = useState('');
   const [typing, setTyping] = useState(false);
@@ -98,9 +115,10 @@ export function ChatPage({
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const typingTimerRef = useRef<number | null>(null);
+  const proposalCount = isGm ? pendingProposals.length : 0;
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messageCount, typing]);
+  }, [messageCount, typing, proposalCount]);
 
   if (selected === undefined) {
     return <div className="wl-chat-page">No characters to chat with yet.</div>;
@@ -209,12 +227,13 @@ export function ChatPage({
         <button
           type="button"
           className="wl-chat-action"
-          disabled={busy || CHAT_CHARACTERS.length < 2}
+          disabled={busy || GROUPABLE.length < 2}
           onClick={() => {
-            // User-started only (Rev 4 §8) — V1 groups everyone DM-able.
+            // User-started only (Rev 4 §8) — V1 groups everyone DM-able
+            // except the GM.
             postStartGroupChat(
-              CHAT_CHARACTERS.map((c) => c.character_id),
-              CHAT_CHARACTERS.map((c) => c.name).join(' & '),
+              GROUPABLE.map((c) => c.character_id),
+              GROUPABLE.map((c) => c.name).join(' & '),
             )
               .then((started) => {
                 if (started !== null)
@@ -240,11 +259,15 @@ export function ChatPage({
                 className="wl-chat-presence"
                 data-state={inScene ? 'in_scene' : 'available'}
               >
-                {inScene ? 'offline — in a scene' : 'online'}
+                {isGm
+                  ? t('chat.gmAlways')
+                  : inScene
+                    ? 'offline — in a scene'
+                    : 'online'}
               </span>
             </div>
             <div className="wl-chat-head-actions">
-              {devMode ? (
+              {devMode && !isGm ? (
                 <button
                   type="button"
                   className="wl-chat-action"
@@ -256,18 +279,40 @@ export function ChatPage({
                   Meet in a scene (dev)
                 </button>
               ) : null}
-              <button
-                type="button"
-                className="wl-chat-action"
-                disabled={busy}
-                onClick={() => {
-                  postExitChat(selected.character_id).catch(() => {
-                    // CATCH-OK: a failed exit changes nothing; truth is the stream.
-                  });
-                }}
-              >
-                End chat
-              </button>
+              {isGm ? null : (
+                <button
+                  type="button"
+                  className="wl-chat-action"
+                  disabled={busy}
+                  title={locked ? t('chat.locked.hint') : undefined}
+                  data-locked={locked}
+                  onClick={() => {
+                    // The evolution lock (0.17.0, Rev 4 §7): the truth is
+                    // the stream — character.lock_set flips the fold.
+                    postSetCharacterLock(selected.character_id, !locked).catch(
+                      () => {
+                        // CATCH-OK: a failed toggle changes nothing.
+                      },
+                    );
+                  }}
+                >
+                  {locked ? t('chat.unlock') : t('chat.lock')}
+                </button>
+              )}
+              {isGm ? null : (
+                <button
+                  type="button"
+                  className="wl-chat-action"
+                  disabled={busy}
+                  onClick={() => {
+                    postExitChat(selected.character_id).catch(() => {
+                      // CATCH-OK: a failed exit changes nothing; truth is the stream.
+                    });
+                  }}
+                >
+                  End chat
+                </button>
+              )}
             </div>
           </header>
 
@@ -299,6 +344,19 @@ export function ChatPage({
                 {message.text}
               </div>
             ))}
+            {isGm
+              ? pendingProposals.map((proposal) => (
+                  <ProposalCard
+                    key={proposal.payload.proposal_id}
+                    proposal={proposal}
+                    onDiscuss={(discussDraft) => {
+                      // The card stays PENDING while you talk it over —
+                      // only Consent/Reject settle it (owner UX ruling).
+                      setDraft(discussDraft);
+                    }}
+                  />
+                ))
+              : null}
             {thread !== undefined && thread.lastEnded !== null ? (
               <div className="wl-chat-divider">
                 — chat ended ({thread.lastEnded.reason}) —
