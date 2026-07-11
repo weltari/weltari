@@ -80,6 +80,20 @@ const POINTS = [
   // pass fires; convergence = the retried job commits at least one record,
   // and per-range uniqueness is verify-consistency's 4l sweep.
   'mid_compaction',
+  // M7 part 2 (the Proposal pipeline, Rev 4 §16): the GM proposes a place
+  // through its own conversation (!proposeplace), and the user's APPROVE is
+  // killed inside the apply window — every gate passed, the atomic append
+  // (proposal.resolved + applied rows + backdrop job) not yet written;
+  // convergence = the killed resolve half-applied NOTHING and a fresh
+  // resolve applies EXACTLY once (natural key proposal_id; 4m sweeps the
+  // resolution↔rows pairing).
+  'mid_proposal_apply',
+  // M7 part 2 (GM Job 2): profiling ON, a one-line chat range closes and
+  // enqueues the analysis; the job is killed AFTER generation + gating,
+  // BEFORE the side-store rows + profile.updated transaction; convergence =
+  // the retried job commits EXACTLY one hypothesis set (the fake scripts
+  // two) for the (actor, context).
+  'mid_profile_analysis',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -305,6 +319,57 @@ function dbCountReflectChat(conversationId, rangeEndId) {
     );
   db.close();
   return row.n;
+}
+
+/** Proposal convergence (M7 part 2): the card's resolutions + applied rows. */
+function dbProposalState(proposalId) {
+  const db = new Database(dbPath);
+  const like = `%"proposal_id":"${proposalId}"%`;
+  const resolutions = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'proposal.resolved' AND payload LIKE ?`,
+    )
+    .get(like).n;
+  const materialized = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'sublocation.materialized' AND payload LIKE ?`,
+    )
+    .get(like).n;
+  db.close();
+  return { resolutions, materialized };
+}
+
+/** The GM card for one harness place name (the reply commits detached —
+ * cycles poll until the card lands). */
+function dbProposalIdByPlace(name) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT payload FROM events
+       WHERE type = 'proposal.submitted' AND payload LIKE ?
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(`%"name":"${name}"%`);
+  db.close();
+  return row ? JSON.parse(row.payload).proposal_id : null;
+}
+
+/** Profiling convergence (M7 part 2): side-store rows + the count event. */
+function dbProfileState(contextId) {
+  const db = new Database(dbPath);
+  const rows = db
+    .prepare(`SELECT COUNT(*) AS n FROM user_profile WHERE context_id = ?`)
+    .get(contextId).n;
+  const updated = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'profile.updated' AND payload LIKE ?`,
+    )
+    .get(`%"context_id":"${contextId}"%`).n;
+  db.close();
+  return { rows, updated };
 }
 
 /** Feed convergence (M6 part 5): posts committed after a log head. */
@@ -708,6 +773,14 @@ let pendingMemoryScene = null;
 // convergence = at least one memory.compacted above the cycle's log head
 // (per-range uniqueness is verify-consistency's 4l sweep).
 let pendingCompaction = null;
+// M7 part 2 proposal cycles: the approve killed inside the apply window;
+// convergence = zero half-applied rows and a fresh resolve applies once.
+let pendingProposal = null;
+let proposalSeq = 0;
+// M7 part 2 profiling cycles: the analysis killed before its transaction;
+// convergence = exactly one hypothesis set per (actor, context).
+let pendingProfile = null;
+let profileSeq = 0;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -1011,6 +1084,70 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       'mid_compaction convergence ok: the pass committed its record after restart',
     );
     pendingCompaction = null;
+  }
+
+  // M7 part 2: a kill at mid_proposal_apply must CONVERGE — the killed
+  // resolve was synchronous, so either it committed whole before the kill
+  // or NOTHING happened (never a torn apply); a fresh resolve applies the
+  // card exactly once.
+  if (pendingProposal !== null) {
+    const before = dbProposalState(pendingProposal);
+    if (before.resolutions === 0 && before.materialized > 0) {
+      child.kill('SIGKILL');
+      fail(
+        `torn proposal apply: ${pendingProposal} has rows without a resolution`,
+      );
+    }
+    if (before.resolutions === 0) {
+      const res = await post('/v1/commands/resolve-proposal', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        proposal_id: pendingProposal,
+        resolution: 'approved',
+      });
+      if (res.status !== 202) {
+        child.kill('SIGKILL');
+        fail(`resolve-proposal retry returned ${res.status}`);
+      }
+    }
+    const state = dbProposalState(pendingProposal);
+    if (state.resolutions !== 1 || state.materialized !== 1) {
+      child.kill('SIGKILL');
+      fail(
+        `proposal ${pendingProposal} did not converge: ${state.resolutions} resolutions, ${state.materialized} rows`,
+      );
+    }
+    console.log(
+      'mid_proposal_apply convergence ok: the card applied exactly once after restart',
+    );
+    pendingProposal = null;
+  }
+
+  // M7 part 2: a kill at mid_profile_analysis must CONVERGE — the leased
+  // job retries and commits exactly one hypothesis set for the context.
+  if (pendingProfile !== null) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const state = dbProfileState(pendingProfile);
+      if (state.rows === 2 && state.updated === 1) break;
+      if (state.rows > 2 || state.updated > 1) {
+        child.kill('SIGKILL');
+        fail(
+          `duplicate profile analysis for ${pendingProfile}: ${state.rows} rows, ${state.updated} updates`,
+        );
+      }
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          `lost profile analysis: ${pendingProfile} never converged (${state.rows} rows, ${state.updated} updates)`,
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      'mid_profile_analysis convergence ok: one hypothesis set committed after restart',
+    );
+    pendingProfile = null;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -1384,6 +1521,86 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       needNewScene = true;
       await killAt;
       pendingCompaction = sinceId;
+      break;
+    }
+    case 'mid_proposal_apply': {
+      proposalSeq += 1;
+      const placeName = `harness court ${proposalSeq}`;
+      // The GM proposes through its own conversation: the fake scripts a
+      // create_place card off !proposeplace; the reply + card commit
+      // detached, so poll the log for the card.
+      const gmRes = await post('/v1/commands/send-chat-message', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:gm',
+        text: `Harness authoring ${proposalSeq}: !proposeplace harness-court-${proposalSeq}`,
+        request_id: `harness-gm-${proposalSeq}`,
+      });
+      if (gmRes.status !== 202)
+        fail(`send-chat-message (GM) returned ${gmRes.status}`);
+      const cardDeadline = Date.now() + 15000;
+      let proposalId = dbProposalIdByPlace(placeName);
+      while (proposalId === null) {
+        if (Date.now() > cardDeadline)
+          fail('mid_proposal_apply: the GM card never committed');
+        await sleep(250);
+        proposalId = dbProposalIdByPlace(placeName);
+      }
+      const killAt = waitForLine(
+        child,
+        'FAULT_POINT:mid_proposal_apply',
+        25000,
+      );
+      // The approve holds at the fault line — fire and forget (the SIGKILL
+      // severs the socket; the retry is the convergence check's business).
+      post('/v1/commands/resolve-proposal', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        proposal_id: proposalId,
+        resolution: 'approved',
+      }).catch(() => {});
+      await killAt;
+      pendingProposal = proposalId;
+      break;
+    }
+    case 'mid_profile_analysis': {
+      profileSeq += 1;
+      // Consent first (idempotent event append): profiling ON.
+      const flagRes = await post('/v1/commands/set-config-flag', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        flag: 'profiling_enabled',
+        value: true,
+      });
+      if (flagRes.status !== 202)
+        fail(`set-config-flag returned ${flagRes.status}`);
+      // A one-message range while Elias is in_scene closes deterministically
+      // (the mid_reflect_chat shape) and enqueues the analysis job.
+      const sendRes = await post('/v1/commands/send-chat-message', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:elias',
+        text: `Harness profiling ${profileSeq}: the storm again, always the storm.`,
+        request_id: `harness-profile-${profileSeq}`,
+      });
+      if (sendRes.status !== 202)
+        fail(`send-chat-message returned ${sendRes.status}`);
+      const killAt = waitForLine(
+        child,
+        'FAULT_POINT:mid_profile_analysis',
+        25000,
+      );
+      const exitRes = await post('/v1/commands/exit-chat', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:elias',
+      });
+      if (exitRes.status !== 202) fail(`exit-chat returned ${exitRes.status}`);
+      const exitBody = await exitRes.json();
+      if (exitBody.ended !== true) fail('exit-chat closed nothing');
+      const rangeEndId = Number(exitBody.job_key.split(':').at(-1));
+      await killAt;
+      pendingProfile = `${exitBody.conversation_id}:${rangeEndId}`;
       break;
     }
     case 'mid_update': {

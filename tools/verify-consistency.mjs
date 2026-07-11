@@ -513,16 +513,23 @@ if (imagesDir) {
 //     repairs); the FTS Search Index exactly mirrors the delta events; a
 //     CACHE watermark always points below itself.
 {
-  const reflectedScene = new Set();
-  const reflectedChat = new Set();
+  // Counted, not set-membership (M7 part 2 fix): a chat CONVERSATION closes
+  // many ranges over its life and each range reflects once — the delta cap
+  // is 3 PER REFLECTION, so the allowance scales with the committed
+  // reflections for the context (delta events carry the conversation id,
+  // not the range id).
+  const reflectedScene = new Map();
+  const reflectedChat = new Map();
   const deltaGroups = new Map();
   const compactionRanges = new Map();
   for (const event of events) {
     const payload = JSON.parse(event.payload);
     if (event.type === 'reflection.committed') {
-      reflectedScene.add(`${payload.character_id}|${payload.scene_id}`);
+      const key = `${payload.character_id}|${payload.scene_id}`;
+      reflectedScene.set(key, (reflectedScene.get(key) ?? 0) + 1);
     } else if (event.type === 'reflect_chat.committed') {
-      reflectedChat.add(`${payload.character_id}|${payload.conversation_id}`);
+      const key = `${payload.character_id}|${payload.conversation_id}`;
+      reflectedChat.set(key, (reflectedChat.get(key) ?? 0) + 1);
     } else if (event.type === 'memory.delta_committed') {
       const key = `${payload.character_id}|${payload.origin}|${payload.context_id}`;
       deltaGroups.set(key, (deltaGroups.get(key) ?? 0) + 1);
@@ -544,18 +551,17 @@ if (imagesDir) {
   }
   for (const [key, count] of deltaGroups) {
     const [characterId, origin, contextId] = key.split('|');
-    if (count > 3) {
-      failures.push(
-        `memory deltas for ${key}: ${count} committed — the 3-per-reflection cap escaped the gate`,
-      );
-    }
-    const reflected =
+    const reflections =
       origin === 'scene'
-        ? reflectedScene.has(`${characterId}|${contextId}`)
-        : reflectedChat.has(`${characterId}|${contextId}`);
-    if (!reflected) {
+        ? (reflectedScene.get(`${characterId}|${contextId}`) ?? 0)
+        : (reflectedChat.get(`${characterId}|${contextId}`) ?? 0);
+    if (reflections === 0) {
       failures.push(
         `memory deltas for ${key}: no committed reflection for the context (torn transaction)`,
+      );
+    } else if (count > 3 * reflections) {
+      failures.push(
+        `memory deltas for ${key}: ${count} committed across ${reflections} reflections — the 3-per-reflection cap escaped the gate`,
       );
     }
   }
@@ -580,6 +586,145 @@ if (imagesDir) {
     failures.push(
       `memory Search Index out of sync: ${ftsIds.length} FTS rows vs ${deltaEventIds.length} delta events`,
     );
+  }
+}
+
+// 4m. The Proposal pipeline + GM surface (M7 part 2, Rev 4 §16/§9): every
+//     proposal resolves at most once and only if it exists; a REJECTED
+//     proposal has ZERO domain rows carrying its id (I8); an APPROVED
+//     create_place/seed_world proposal's applied rows exist and match the
+//     diff exactly (atomic apply); at most one world.seeded per world; at
+//     most one gateway binding per (connector, conversation) pair.
+{
+  const proposals = new Map();
+  const resolutions = new Map();
+  const appliedByProposal = new Map();
+  const seededWorlds = new Map();
+  const bindings = new Map();
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'proposal.submitted') {
+      proposals.set(payload.proposal_id, payload);
+    } else if (event.type === 'proposal.resolved') {
+      resolutions.set(
+        payload.proposal_id,
+        (resolutions.get(payload.proposal_id) ?? []).concat(payload.resolution),
+      );
+    } else if (
+      (event.type === 'sublocation.materialized' ||
+        event.type === 'subwiki.edited' ||
+        event.type === 'character.created' ||
+        event.type === 'world.seeded') &&
+      payload.proposal_id !== undefined
+    ) {
+      const applied = appliedByProposal.get(payload.proposal_id) ?? [];
+      applied.push(event.type);
+      appliedByProposal.set(payload.proposal_id, applied);
+    }
+    if (event.type === 'world.seeded') {
+      seededWorlds.set(
+        event.world_id,
+        (seededWorlds.get(event.world_id) ?? 0) + 1,
+      );
+    }
+    if (event.type === 'gateway.binding_established') {
+      const key = `${payload.connector_id}|${payload.conversation_id}`;
+      bindings.set(key, (bindings.get(key) ?? 0) + 1);
+    }
+  }
+  for (const [proposalId, list] of resolutions) {
+    if (!proposals.has(proposalId)) {
+      failures.push(`proposal.resolved ${proposalId}: no such proposal`);
+      continue;
+    }
+    if (list.length > 1) {
+      failures.push(
+        `proposal ${proposalId} resolved ${list.length} times (once ever)`,
+      );
+    }
+    const applied = appliedByProposal.get(proposalId) ?? [];
+    const resolution = list[0];
+    if (resolution === 'rejected' && applied.length > 0) {
+      failures.push(
+        `REJECTED proposal ${proposalId} has ${applied.length} applied rows (I8: zero)`,
+      );
+    }
+    if (resolution === 'approved') {
+      const payload = proposals.get(proposalId);
+      const rows = (type) => applied.filter((t) => t === type).length;
+      if (payload.action === 'create_place') {
+        if (rows('sublocation.materialized') !== 1) {
+          failures.push(
+            `approved create_place ${proposalId}: ${rows('sublocation.materialized')} materialized rows (want 1)`,
+          );
+        }
+      } else if (payload.action === 'seed_world') {
+        if (rows('sublocation.materialized') !== payload.diff.places.length) {
+          failures.push(
+            `approved seed_world ${proposalId}: ${rows('sublocation.materialized')} materialized rows (want ${payload.diff.places.length})`,
+          );
+        }
+        if (rows('character.created') !== payload.diff.characters.length) {
+          failures.push(
+            `approved seed_world ${proposalId}: ${rows('character.created')} character rows (want ${payload.diff.characters.length})`,
+          );
+        }
+        if (rows('world.seeded') !== 1) {
+          failures.push(
+            `approved seed_world ${proposalId}: ${rows('world.seeded')} world.seeded (want 1)`,
+          );
+        }
+      }
+    }
+  }
+  // Applied rows may never exist WITHOUT an approving resolution.
+  for (const [proposalId, applied] of appliedByProposal) {
+    const list = resolutions.get(proposalId) ?? [];
+    if (!list.includes('approved')) {
+      failures.push(
+        `${applied.length} applied rows for ${proposalId} without an approval (torn apply)`,
+      );
+    }
+  }
+  for (const [worldId, count] of seededWorlds) {
+    if (count > 1)
+      failures.push(`world ${worldId} seeded ${count} times (once ever)`);
+  }
+  for (const [key, count] of bindings) {
+    if (count > 1) {
+      failures.push(
+        `gateway binding ${key} established ${count} times (once per binding)`,
+      );
+    }
+  }
+  // Profiling (Rev 4 §9 Job 2): each analysis context commits at most one
+  // profile.updated; its side-store rows exist unless a LATER
+  // profile.deleted erased the actor's store (the sanctioned mutation).
+  const profileRows = db.prepare(
+    'SELECT COUNT(*) AS n FROM user_profile WHERE actor_id = ? AND context_id = ?',
+  );
+  const updatedByContext = new Map();
+  const deletedAfter = new Map();
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'profile.updated') {
+      const key = `${payload.user_actor_id}|${payload.context_id}`;
+      updatedByContext.set(key, (updatedByContext.get(key) ?? 0) + 1);
+    } else if (event.type === 'profile.deleted') {
+      deletedAfter.set(payload.user_actor_id, event.id);
+    }
+  }
+  for (const [key, count] of updatedByContext) {
+    if (count > 1) {
+      failures.push(`profile.updated ${key}: ${count} passes for one context`);
+    }
+    const [actorId, contextId] = key.split('|');
+    const rows = profileRows.get(actorId, contextId).n;
+    if (rows === 0 && !deletedAfter.has(actorId)) {
+      failures.push(
+        `profile.updated ${key}: zero side-store rows and no profile.deleted (torn transaction)`,
+      );
+    }
   }
 }
 
