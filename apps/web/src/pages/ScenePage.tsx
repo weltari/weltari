@@ -11,6 +11,7 @@ import { NarrationBox } from '../components/NarrationBox.js';
 import { ReaderPane } from '../components/ReaderPane.js';
 import { SceneControls, type SceneMode } from '../components/SceneControls.js';
 import { SceneCover, type CoverState } from '../components/SceneCover.js';
+import { OnboardingSplash } from '../components/OnboardingSplash.js';
 import { SceneSplash } from '../components/SceneSplash.js';
 import { SceneStage } from '../components/SceneStage.js';
 import { SoftClose } from '../components/SoftClose.js';
@@ -56,6 +57,15 @@ export function ScenePage(props: {
   }
   const showSplash = sceneId === null || (sceneEnd !== null && !endedLive);
 
+  // Cold boot (M7 part 2, Rev 4 §9): a BLANK world — no world.seeded yet AND
+  // no known places at all (a fixture dev world materializes its trio, so it
+  // never trips this) — shows the onboarding entry instead of the play
+  // splash. The designed page arrives with the Figma build
+  // (docs/onboarding-ui.md); this skeleton hands the user to the GM chat.
+  const worldSeeded = useSceneStore((s) => s.worldSeeded);
+  const knownCount = useSceneStore((s) => s.knownSublocations.length);
+  const coldBoot = !worldSeeded && knownCount === 0;
+
   // The live turn graduates into the transcript once the reader caught up
   // AND the turn committed (interrupted turns graduate immediately — the
   // truncated commit IS what was read).
@@ -73,16 +83,20 @@ export function ScenePage(props: {
       <main className="wl-main">
         <div className="wl-stage-column">
           <div className="wl-splash-stage">
-            <SceneSplash
-              covering={props.cover !== null}
-              onHistory={() => {
-                setHistoryOpen(true);
-              }}
-              onOpenMap={props.onOpenMapPage}
-              onHangAround={(title, sublocationId) => {
-                props.onOpenScene(title, { sublocationId });
-              }}
-            />
+            {coldBoot ? (
+              <OnboardingSplash />
+            ) : (
+              <SceneSplash
+                covering={props.cover !== null}
+                onHistory={() => {
+                  setHistoryOpen(true);
+                }}
+                onOpenMap={props.onOpenMapPage}
+                onHangAround={(title, sublocationId) => {
+                  props.onOpenScene(title, { sublocationId });
+                }}
+              />
+            )}
             <SceneCover cover={props.cover} />
           </div>
         </div>

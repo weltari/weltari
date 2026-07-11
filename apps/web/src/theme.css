@@ -34,6 +34,10 @@
   --wl-proposal-bg: rgba(90, 143, 208, 0.08);
   --wl-proposal-border: rgba(90, 143, 208, 0.45);
 
+  /* ---- cold-boot onboarding (0.17.0, Rev 4 §9 — skeleton; the designed
+         page arrives with the Figma build, docs/onboarding-ui.md) ---- */
+  --wl-onboarding-art-size: 9rem;
+
   /* ---- narrator vs character voices ---- */
   --wl-narrator-text: #b9b2a4;
   --wl-character-text: #e8e4da;
@@ -1709,6 +1713,45 @@ body {
   color: var(--wl-text-dim);
   font-size: var(--wl-font-size-ui);
   padding: 0.4rem 0;
+}
+
+/* Cold-boot onboarding SKELETON (0.17.0, Rev 4 §9): centered stage naming
+   the moment and handing the user to the GM chat. The Figma-designed page
+   replaces the markup but should keep the data-slot names
+   (docs/onboarding-ui.md). */
+.wl-onboarding {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1rem;
+  text-align: center;
+}
+
+.wl-onboarding-art {
+  width: var(--wl-onboarding-art-size);
+  height: var(--wl-onboarding-art-size);
+  border-radius: 50%;
+  border: 1px solid var(--wl-proposal-border);
+  background: var(--wl-proposal-bg);
+  color: var(--wl-dot-wiki);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.wl-onboarding-bubble {
+  max-width: 26rem;
+  padding: 0.7rem 1rem;
+  border-radius: var(--wl-radius);
+  border: 1px solid var(--wl-border);
+  background: var(--wl-panel);
+  color: var(--wl-text);
+  line-height: 1.5;
 }
 
 /* The GM consent card (0.17.0, Rev 4 §16): a pending proposal inside the GM
