@@ -10,6 +10,7 @@ import type {
   WeltariEvent,
 } from '@weltari/protocol';
 import { z } from 'zod';
+import { flagOf } from './config-flags.js';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { EventBus } from '../http/bus.js';
 import { addMinutesIso } from '../ledger/scheduler.js';
@@ -158,6 +159,28 @@ export function appendSceneEndWithFanOut(
     serial_group: `world_agent:${request.world_id}`,
   });
   if (worldAgent !== null) jobsEnqueued += 1;
+  // GM Job 2 (M7 part 2, Rev 4 §9): the profile-analysis pass over this
+  // ended scene — consent-gated at the enqueue (the flag fold) AND re-checked
+  // in the handler; only user-ended scenes profile the user (a system actor
+  // closing an expired invitation says nothing about them).
+  if (
+    request.actor_id.startsWith('user:') &&
+    flagOf(storage, request.world_id, 'profiling_enabled')
+  ) {
+    const analysis = storage.ledger.enqueue({
+      idempotency_key: `profile_analysis:${request.actor_id}:${request.scene_id}`,
+      world_id: request.world_id,
+      type: 'profile_analysis',
+      payload: {
+        user_actor_id: request.actor_id,
+        origin: 'scene',
+        context_id: request.scene_id,
+      },
+      // The GM's ledger lane (Rev 4 §4.3: the store's sole writer).
+      serial_group: `profile:${request.world_id}`,
+    });
+    if (analysis !== null) jobsEnqueued += 1;
+  }
   return { event, jobsEnqueued };
 }
 

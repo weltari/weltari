@@ -22,6 +22,10 @@ import {
   createMemoryIndexRepository,
   type MemoryIndexRepository,
 } from './repositories/memory-index.js';
+import {
+  createUserProfileRepository,
+  type UserProfileRepository,
+} from './repositories/user-profile.js';
 
 export interface StorageOptions {
   /** Path to the SQLite file; ':memory:' allowed in tests. */
@@ -38,6 +42,9 @@ export interface Storage {
   readonly gateway: GatewayRepository;
   /** The Search Index over memory deltas (Rev 4 §4.2 — V1: SQLite FTS5). */
   readonly memoryIndex: MemoryIndexRepository;
+  /** The GM's profiling side store (M7 part 2, Rev 4 §9 Job 2) — NOT a
+   * projection: personal data, truly erasable (GDPR). */
+  readonly userProfile: UserProfileRepository;
   /**
    * The WriteGate: every multi-statement durable write goes through here so it
    * commits or vanishes atomically (crash-only design, Brief §2.4). better-sqlite3
@@ -151,6 +158,7 @@ export function openStorage(options: StorageOptions): Storage {
   const eventLog = createEventLogRepository(db, nowIso, memoryIndex);
   const ledger = createLedgerRepository(db, nowIso);
   const gateway = createGatewayRepository(db, nowIso);
+  const userProfile = createUserProfileRepository(db, nowIso);
   // Projection discipline: the FTS index is derived state — re-project it
   // from the log every boot, so a kill between an append and nothing (the
   // index write shares the append's transaction) or a hand-deleted DB file
@@ -162,6 +170,7 @@ export function openStorage(options: StorageOptions): Storage {
     ledger,
     gateway,
     memoryIndex,
+    userProfile,
     transact<T>(fn: () => T): T {
       const run = db.transaction(fn);
       return run();

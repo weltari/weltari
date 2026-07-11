@@ -37,7 +37,11 @@ export type CallKind =
   /** M7 part 2 (Rev 4 §9): a GM conversation turn — interview, authoring
    * negotiation, settings talk. Chat-class; per-role override via
    * WELTARI_GM_MODEL (the registry's per-character key char:gm). */
-  | 'gm';
+  | 'gm'
+  /** M7 part 2 (Rev 4 §9 Job 2): the GM's profile-analysis pass over an
+   * ended scene/chat — structured hypotheses for the deletable side store.
+   * Routes like `gm` (same characterId key). */
+  | 'profile_analysis';
 
 export interface LlmCall {
   /** Which of the scripted calls this is — routes via the ModelRegistry. */

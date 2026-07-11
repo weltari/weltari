@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "actor_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profiling_enabled": {
+      "type": "boolean"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hypothesis",
+              "engagement"
+            ]
+          },
+          "body": {
+            "type": "string"
+          },
+          "context_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "body",
+          "context_id",
+          "created_at"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "actor_id",
+    "profiling_enabled",
+    "entries"
+  ],
+  "additionalProperties": false
+}

@@ -53,7 +53,12 @@ import { createSocialPostHandler } from './ledger/handlers/social-post.js';
 import { createSocialReactionHandler } from './ledger/handlers/social-reaction.js';
 import { createSocialReplyHandler } from './ledger/handlers/social-reply.js';
 import { createFeedReplyCommand } from './engine/feed.js';
+import { createSetConfigFlagCommand } from './engine/config-flags.js';
 import { createGmChatEngine, gmGreetingEvent } from './engine/gm-chat.js';
+import {
+  createDeleteProfileCommand,
+  profileView,
+} from './engine/profile-gdpr.js';
 import { GM_CHARACTER_ID } from './engine/gm.js';
 import { createProposalEngine } from './engine/proposals.js';
 import { characterProfilesOf } from './engine/characters.js';
@@ -69,6 +74,7 @@ import {
   createWorldCronCodeHandler,
   createWorldCronLlmHandler,
 } from './ledger/handlers/world-cron.js';
+import { createProfileAnalysisHandler } from './ledger/handlers/profile-analysis.js';
 import { createRunner } from './ledger/runner.js';
 import {
   createScheduler,
@@ -489,6 +495,13 @@ const runner = createRunner({
       sink,
       logger,
     }),
+    profile_analysis: createProfileAnalysisHandler({
+      storage,
+      eventBus,
+      llm,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
     proactive_dm: createProactiveDmHandler({
       storage,
       sink,
@@ -879,6 +892,9 @@ const app = createHttpServer({
     }
     return result;
   },
+  setConfigFlag: createSetConfigFlagCommand({ sink }),
+  deleteProfile: createDeleteProfileCommand({ storage, eventBus }),
+  profileView: (worldId, actorId) => profileView(storage, worldId, actorId),
   startSceneFromChat: async (command) => chatEngine.startSceneFromChat(command),
   startGroupChat: (command) => groupChatEngine.startGroup(command),
   sendGroupMessage: (command) => {

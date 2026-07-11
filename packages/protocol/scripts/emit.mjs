@@ -55,6 +55,7 @@ import {
   SubwikiEditCommandSchema,
   StreamHelloSchema,
   StreamSentenceSchema,
+  UserProfileViewSchema,
   WeltariEventSchema,
 } from '../dist/index.js';
 
@@ -111,6 +112,7 @@ const files = {
   'delete-profile-command.json': DeleteProfileCommandSchema,
   'delete-profile-accepted.json': DeleteProfileAcceptedSchema,
   'command-rejected.json': CommandRejectedSchema,
+  'user-profile-view.json': UserProfileViewSchema,
   'plugin-list.json': PluginListSchema,
   'map-jump-detail.json': MapJumpDetailSchema,
 };
