@@ -15,9 +15,19 @@ export interface CharacterProfile {
   /** Core-provenance only (installed skill text, hash-verified at load). */
   skills: readonly string[];
   personality: string;
-  /** Compacted memory core — core provenance, stable between compactions. */
+  /**
+   * The SEED memory core (M7 part 1, Rev 4 §11): fixture/config provenance,
+   * immutable. Prompts inject seed + the latest durable memory.core_updated
+   * snapshot — engine/memory.ts liveProfile() does the fold.
+   */
   memory_core: readonly string[];
   goals: readonly string[];
+  /**
+   * Owner ruling 2026-07-11 (Rev 4 §7): true freezes personality AND goals —
+   * the reflection engine gate refuses character.evolved for this character.
+   * Absent = unlocked (evolution allowed).
+   */
+  locked?: boolean;
 }
 
 export interface TurnLine {

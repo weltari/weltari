@@ -13,6 +13,7 @@ import type {
 } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
+import { liveProfile } from '../../engine/memory.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
 import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
@@ -88,7 +89,7 @@ export function createReflectionHandler(
       return;
     }
 
-    const context = assembleContext(profile, {
+    const context = assembleContext(liveProfile(storage, profile), {
       scene_id,
       world_clock_text: 'The scene has just ended.',
       latest_turns: sceneTranscript(storage, scene_id),

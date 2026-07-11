@@ -29,6 +29,7 @@ import {
 } from '../../engine/chat.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
+import { liveProfile } from '../../engine/memory.js';
 import {
   OUTREACH_FREEZE_CAP,
   outreachEligible,
@@ -170,7 +171,10 @@ export function createProactiveDmHandler(
       latestPerOrigin(storage, profile.character_id),
     );
     const context = assembleContext(
-      { ...profile, skills: [...profile.skills, CHAT_CONDUCT_SKILL] },
+      {
+        ...liveProfile(storage, profile),
+        skills: [...profile.skills, CHAT_CONDUCT_SKILL],
+      },
       {
         scene_id: conversationId,
         heading: 'Conversation',
