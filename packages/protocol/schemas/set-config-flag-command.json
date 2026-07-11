@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "world_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "flag": {
+      "type": "string",
+      "enum": [
+        "profiling_enabled"
+      ]
+    },
+    "value": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "world_id",
+    "actor_id",
+    "flag",
+    "value"
+  ],
+  "additionalProperties": false
+}

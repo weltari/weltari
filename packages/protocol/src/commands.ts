@@ -489,6 +489,101 @@ export const SubwikiEditAcceptedSchema = z.strictObject({
 });
 export type SubwikiEditAccepted = z.infer<typeof SubwikiEditAcceptedSchema>;
 
+/**
+ * POST /v1/commands/resolve-proposal — the approver's decision on a pending
+ * proposal (0.17.0, M7 part 2, Rev 4 §16). `approved` applies the diff
+ * through the engine ATOMICALLY with proposal.resolved (the applied rows
+ * carry the proposal_id as provenance); `rejected` writes only the resolved
+ * event — zero domain rows (I8). Idempotent: a proposal resolves once; a
+ * second resolve is a 409.
+ */
+export const ResolveProposalCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  proposal_id: z.string().min(1).max(100),
+  resolution: z.enum(['approved', 'rejected']),
+});
+export type ResolveProposalCommand = z.infer<
+  typeof ResolveProposalCommandSchema
+>;
+
+/** 202 response: the resolution is durable. `applied` counts the domain
+ * events the approval appended (0 on reject). */
+export const ResolveProposalAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  proposal_id: z.string().min(1),
+  resolution: z.enum(['approved', 'rejected']),
+  applied: z.int().nonnegative(),
+});
+export type ResolveProposalAccepted = z.infer<
+  typeof ResolveProposalAcceptedSchema
+>;
+
+/**
+ * POST /v1/commands/set-config-flag — flip a world flag (0.17.0, Rev 4 §15).
+ * Durable as a config.flag_set event; the flag state is a latest-wins fold.
+ */
+export const SetConfigFlagCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  flag: z.enum(['profiling_enabled']),
+  value: z.boolean(),
+});
+export type SetConfigFlagCommand = z.infer<typeof SetConfigFlagCommandSchema>;
+
+/** 202 response: the flag state is durable and on the stream. */
+export const SetConfigFlagAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  flag: z.enum(['profiling_enabled']),
+  value: z.boolean(),
+});
+export type SetConfigFlagAccepted = z.infer<typeof SetConfigFlagAcceptedSchema>;
+
+/**
+ * POST /v1/commands/set-character-lock — toggle a character's evolution lock
+ * (0.17.0, Rev 4 §7/§11): the user-facing switch over the flag that has
+ * gated character.evolved since 0.16.0. 409 on an unknown character.
+ */
+export const SetCharacterLockCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  character_id: z.string().min(1),
+  locked: z.boolean(),
+});
+export type SetCharacterLockCommand = z.infer<
+  typeof SetCharacterLockCommandSchema
+>;
+
+/** 202 response: the lock state is durable and on the stream. */
+export const SetCharacterLockAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  character_id: z.string().min(1),
+  locked: z.boolean(),
+});
+export type SetCharacterLockAccepted = z.infer<
+  typeof SetCharacterLockAcceptedSchema
+>;
+
+/**
+ * POST /v1/commands/delete-profile — the GDPR erasure right (0.17.0, Rev 4
+ * §9 guardrails): physically deletes the caller's profile rows from the side
+ * store and appends profile.deleted in the same transaction. The store is
+ * not a log projection, so replay never resurrects the data. Deleting an
+ * empty profile is a silent 202 no-op (removed: 0).
+ */
+export const DeleteProfileCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+});
+export type DeleteProfileCommand = z.infer<typeof DeleteProfileCommandSchema>;
+
+/** 202 response: the rows are gone. */
+export const DeleteProfileAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  removed: z.int().nonnegative(),
+});
+export type DeleteProfileAccepted = z.infer<typeof DeleteProfileAcceptedSchema>;
+
 /** 4xx response for a schema-valid command the engine refused (e.g. busy scene). */
 export const CommandRejectedSchema = z.strictObject({
   accepted: z.literal(false),

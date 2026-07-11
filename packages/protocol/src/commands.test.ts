@@ -3,8 +3,14 @@ import {
   AdvanceTimeCommandSchema,
   ApplyUpdateAcceptedSchema,
   ApplyUpdateCommandSchema,
+  DeleteProfileAcceptedSchema,
+  DeleteProfileCommandSchema,
   EndSceneCommandSchema,
   ExitChatCommandSchema,
+  ResolveProposalAcceptedSchema,
+  ResolveProposalCommandSchema,
+  SetCharacterLockCommandSchema,
+  SetConfigFlagCommandSchema,
   SendChatMessageAcceptedSchema,
   SendChatMessageCommandSchema,
   StartSceneFromChatCommandSchema,
@@ -520,5 +526,89 @@ describe('feed-reply + subwiki-edit commands (0.15.0, M6 part 5)', () => {
       };
       expect(SubwikiEditCommandSchema.safeParse(bad).success).toBe(false);
     }
+  });
+});
+
+describe('GM command family (0.17.0, M7 part 2, Rev 4 §9/§15/§16)', () => {
+  it('resolve-proposal validates both resolutions and rejects others', () => {
+    for (const resolution of ['approved', 'rejected']) {
+      const ok: unknown = {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        proposal_id: 'p-1',
+        resolution,
+      };
+      expect(ResolveProposalCommandSchema.safeParse(ok).success).toBe(true);
+    }
+    for (const bad of [
+      {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        proposal_id: 'p-1',
+        resolution: 'maybe',
+      },
+      { world_id: 'w1', actor_id: 'user:owner', resolution: 'approved' },
+      {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        proposal_id: 'p-1',
+        resolution: 'approved',
+        force: true,
+      },
+    ]) {
+      expect(ResolveProposalCommandSchema.safeParse(bad).success).toBe(false);
+    }
+    const accepted: unknown = {
+      accepted: true,
+      proposal_id: 'p-1',
+      resolution: 'approved',
+      applied: 4,
+    };
+    expect(ResolveProposalAcceptedSchema.safeParse(accepted).success).toBe(
+      true,
+    );
+  });
+
+  it('set-config-flag accepts profiling_enabled and rejects unknown flags', () => {
+    const ok: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      flag: 'profiling_enabled',
+      value: true,
+    };
+    expect(SetConfigFlagCommandSchema.safeParse(ok).success).toBe(true);
+    const bad: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      flag: 'sudo_mode',
+      value: true,
+    };
+    expect(SetConfigFlagCommandSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('set-character-lock validates', () => {
+    const ok: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: 'char:elias',
+      locked: true,
+    };
+    expect(SetCharacterLockCommandSchema.safeParse(ok).success).toBe(true);
+    const bad: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      character_id: '',
+      locked: true,
+    };
+    expect(SetCharacterLockCommandSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('delete-profile validates; removed count answers', () => {
+    const ok: unknown = { world_id: 'w1', actor_id: 'user:owner' };
+    expect(DeleteProfileCommandSchema.safeParse(ok).success).toBe(true);
+    const accepted: unknown = { accepted: true, removed: 0 };
+    expect(DeleteProfileAcceptedSchema.safeParse(accepted).success).toBe(true);
+    const negative: unknown = { accepted: true, removed: -1 };
+    expect(DeleteProfileAcceptedSchema.safeParse(negative).success).toBe(false);
   });
 });

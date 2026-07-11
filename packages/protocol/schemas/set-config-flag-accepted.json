@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "accepted": {
+      "type": "boolean",
+      "const": true
+    },
+    "flag": {
+      "type": "string",
+      "enum": [
+        "profiling_enabled"
+      ]
+    },
+    "value": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "accepted",
+    "flag",
+    "value"
+  ],
+  "additionalProperties": false
+}

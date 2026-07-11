@@ -613,6 +613,286 @@ export const SubwikiEditedEventSchema = z.strictObject({
   payload: z.strictObject({
     sublocation_id: z.string().min(1),
     entry: z.string().min(1).max(4000),
+    /** Present when an approved GM proposal applied this edit (0.17.0, Rev 4
+     * §16): the audit trail from the entry back to its consent. Absent on
+     * manual user edits from the Wiki page. */
+    proposal_id: z.string().min(1).max(100).optional(),
+  }),
+});
+
+/**
+ * One place inside a proposal diff (0.17.0, M7 part 2, Rev 4 §9/§16): what
+ * the GM wants to create — applied as a materialized sublocation row (plus an
+ * opening wiki entry when given) only after approval. `space` feeds the
+ * cold-boot seeding gate (≥1 public AND ≥1 private space, Rev 4 §9).
+ */
+export const ProposalPlaceDiffSchema = z.strictObject({
+  name: z.string().min(1).max(120),
+  description: z.string().min(1).max(2000),
+  /** Public spaces host encounters; private ones give characters somewhere
+   * to live (Rev 4 §9's minimum viable set). */
+  space: z.enum(['public', 'private']),
+  /** Optional opening wiki entry, documented at creation (Rev 4 §9: the
+   * seeded spaces are documented in the wiki). */
+  wiki_entry: z.string().min(1).max(4000).optional(),
+});
+export type ProposalPlaceDiff = z.infer<typeof ProposalPlaceDiffSchema>;
+
+/**
+ * One character inside a proposal diff (0.17.0, Rev 4 §9/§16): the seed
+ * profile a character.created applies on approval. Caps mirror the memory
+ * events (core ≤ 12 lines like memory.core_updated; goals ≤ 8 like
+ * character.evolved) so a GM-authored character is shaped exactly like an
+ * evolved one.
+ */
+export const ProposalCharacterDiffSchema = z.strictObject({
+  name: z.string().min(1).max(120),
+  personality: z.string().min(1).max(1000),
+  goals: z.array(z.string().min(1).max(300)).min(1).max(8),
+  /** Seed memory-core lines — the GM authors durable memories directly
+   * through consent (week-14 note: models treat update_core as rare). */
+  core: z.array(z.string().min(1).max(300)).max(12),
+  skills: z.array(z.string().min(1).max(300)).max(8),
+});
+export type ProposalCharacterDiff = z.infer<typeof ProposalCharacterDiffSchema>;
+
+const proposalBase = {
+  /** Engine-assigned proposal identity — every later event (resolution,
+   * applied rows) points back here. */
+  proposal_id: z.string().min(1).max(100),
+  /** Why the proposer wants this — rendered on the consent card. */
+  rationale: z.string().min(1).max(1000),
+  /** Rev 4 §16 uniform shape: who proposes (the GM in V1; the pipeline is
+   * generic — any agent may emit one). Repeats the envelope actor_id on
+   * purpose so the §16 object is complete in the payload alone. */
+  proposer: z.string().min(1),
+  /** Who must approve. V1: the single user actor. V2 routes by scope
+   * (world mutations → world owner; personal scope → the requesting user). */
+  approvers: z.array(z.string().min(1)).min(1).max(10),
+};
+
+/**
+ * An agent proposed a durable world change (0.17.0, M7 part 2, Rev 4 §16):
+ * the uniform consent object `{action, diff, rationale, proposer,
+ * approvers[]}`. NOTHING durable beyond this record happens at submit time —
+ * the diff is a complete, deterministic description of the change, applied
+ * only by an approving resolve-proposal command (engine-validated, atomic
+ * with proposal.resolved). The payload is a closed discriminated union per
+ * action so the frontend renders every diff it can receive and the engine
+ * applies only actions it knows (B5/B6). Emitted by: the GM chat engine
+ * (gate-1 schema + gate-2 engine-state checked), atomically with the GM
+ * reply that proposed it. Consumed by: clients (the consent card in the GM
+ * chat), the pending-proposals projection.
+ */
+export const ProposalSubmittedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('proposal.submitted'),
+  payload: z.discriminatedUnion('action', [
+    z.strictObject({
+      ...proposalBase,
+      action: z.literal('create_place'),
+      diff: ProposalPlaceDiffSchema,
+    }),
+    z.strictObject({
+      ...proposalBase,
+      action: z.literal('create_character'),
+      diff: ProposalCharacterDiffSchema,
+    }),
+    z.strictObject({
+      ...proposalBase,
+      action: z.literal('edit_wiki'),
+      diff: z.strictObject({
+        sublocation_id: z.string().min(1),
+        entry: z.string().min(1).max(4000),
+        /** The entry being replaced, when one exists — the consent card
+         * renders a real before/after diff from it. */
+        previous_entry: z.string().min(1).max(4000).optional(),
+      }),
+    }),
+    z.strictObject({
+      ...proposalBase,
+      action: z.literal('seed_world'),
+      diff: z.strictObject({
+        world_name: z.string().min(1).max(120),
+        /** The language the user chose in the interview (BCP-47-ish tag or
+         * plain name — display data, not a lookup key). */
+        language: z.string().min(1).max(35),
+        chapter_seed: z.string().min(1).max(2000).optional(),
+        /** Every deliberately named place gets a materialized row (Rev 4 §9
+         * binding). The engine gate additionally requires ≥1 public and ≥1
+         * private space — the schema cannot express the mix. */
+        places: z.array(ProposalPlaceDiffSchema).min(2).max(8),
+        characters: z.array(ProposalCharacterDiffSchema).min(1).max(6),
+      }),
+    }),
+  ]),
+});
+
+/**
+ * A proposal was resolved (0.17.0, Rev 4 §16): the approver's decision as a
+ * durable event — approval and application are logged (audit trail). On
+ * `approved` the applied domain events (sublocation.materialized,
+ * character.created, subwiki.edited, world.seeded) ride the SAME transaction,
+ * each carrying this proposal_id as provenance; on `rejected` this event is
+ * the ONLY durable trace — zero domain rows (I8). Idempotent per proposal:
+ * the engine refuses to resolve twice. Emitted by: the resolve-proposal
+ * command seam. Consumed by: clients (the consent card settles), the
+ * pending-proposals projection.
+ */
+export const ProposalResolvedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('proposal.resolved'),
+  payload: z.strictObject({
+    proposal_id: z.string().min(1).max(100),
+    resolution: z.enum(['approved', 'rejected']),
+  }),
+});
+
+/**
+ * A durable character entered the world (0.17.0, M7 part 2, Rev 4 §9): the
+ * seed profile of a GM-authored (or cold-boot-seeded) character — the exact
+ * counterpart of a fixture profile, as an event. The live-profile fold treats
+ * it as the seed layer: memory deltas, core updates and evolution accrue on
+ * top from the character's first reflection (week-14 owner note:
+ * multi-character by construction — nothing revisits). Emitted by: the
+ * resolve-proposal apply (consent-gated — the GM can never mint a character
+ * directly, B6/Rev 4 §9). Consumed by: character registries (chat roster,
+ * profile lookups), clients.
+ */
+export const CharacterCreatedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('character.created'),
+  payload: z.strictObject({
+    character_id: z.string().min(1),
+    name: z.string().min(1).max(120),
+    personality: z.string().min(1).max(1000),
+    goals: z.array(z.string().min(1).max(300)).min(1).max(8),
+    /** Seed memory-core lines (may be empty — memory accrues from the first
+     * reflection either way). */
+    core: z.array(z.string().min(1).max(300)).max(12),
+    skills: z.array(z.string().min(1).max(300)).max(8),
+    /** The approved proposal that applied this character (audit). */
+    proposal_id: z.string().min(1).max(100).optional(),
+  }),
+});
+
+/**
+ * Cold boot completed (0.17.0, M7 part 2, Rev 4 §9 Job 0): the world is
+ * seeded — every named place materialized, characters created, all in the
+ * approving transaction of the seed_world proposal. Its EXISTENCE is the
+ * onboarding fold's terminal state: a world with no world.seeded event is a
+ * fresh world still interviewing. Counts are audit data; the rows themselves
+ * are the sibling events in the same transaction. Emitted by: the
+ * resolve-proposal apply. Consumed by: clients (onboarding vs play surfaces),
+ * the onboarding fold.
+ */
+export const WorldSeededEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('world.seeded'),
+  payload: z.strictObject({
+    world_name: z.string().min(1).max(120),
+    language: z.string().min(1).max(35),
+    chapter_seed: z.string().min(1).max(2000).optional(),
+    place_count: z.int().positive(),
+    character_count: z.int().positive(),
+    /** Absent only on fixture-seeded dev worlds (env-flagged), which skip
+     * the interview. */
+    proposal_id: z.string().min(1).max(100).optional(),
+  }),
+});
+
+/**
+ * A gateway conversation bound for the first time (0.17.0, M7 part 2, Rev 4
+ * §13): messaging the bot once IS subscribing — this event records the first
+ * time a (connector, messenger conversation) pair was ever seen, and gates
+ * the one-time GM onboarding push (criterion: fires once per binding, ever).
+ * Idempotent by fold: the gateway host emits it only when no prior
+ * binding_established exists for the pair. Emitted by: the gateway host.
+ * Consumed by: the GM onboarding push, dev mode.
+ */
+export const GatewayBindingEstablishedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('gateway.binding_established'),
+  payload: z.strictObject({
+    connector_id: z.string().min(1),
+    /** The messenger-side chat id (Telegram chat id in V1). */
+    conversation_id: z.string().min(1),
+  }),
+});
+
+/**
+ * A world flag flipped (0.17.0, M7 part 2, Rev 4 §15): durable config as an
+ * event fold — latest event per flag wins; no mutable settings table exists
+ * (everything here is a projection of the log). The closed enum grows as
+ * config surfaces ship. `profiling_enabled` defaults OFF until the first
+ * config.flag_set: profiling is consent-first (Rev 4 §9 GDPR guardrails).
+ * Emitted by: the set-config-flag command seam (user) or an approved GM
+ * proposal path in later weeks. Consumed by: the profiling enqueue sites,
+ * clients (Config page).
+ */
+export const ConfigFlagSetEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('config.flag_set'),
+  payload: z.strictObject({
+    flag: z.enum(['profiling_enabled']),
+    value: z.boolean(),
+  }),
+});
+
+/**
+ * The user toggled a character's evolution lock (0.17.0, M7 part 2, Rev 4
+ * §7/§11): the user-facing face of the per-character `locked` flag that has
+ * gated character.evolved since 0.16.0 (until now data-settable only).
+ * Latest event per character wins, folded over the seed profile's own flag.
+ * Emitted by: the set-character-lock command seam (USER actor provenance).
+ * Consumed by: the reflection engine gate, clients (character settings).
+ */
+export const CharacterLockSetEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('character.lock_set'),
+  payload: z.strictObject({
+    character_id: z.string().min(1),
+    locked: z.boolean(),
+  }),
+});
+
+/**
+ * A profile-analysis pass updated the user's profile (0.17.0, M7 part 2,
+ * Rev 4 §9 Job 2 / §4.3). REFERENCES ONLY — the hypotheses themselves live
+ * in a mutable side store OUTSIDE the event log (like image pixels live as
+ * files), because profiling text is personal data that must be truly
+ * erasable (GDPR) while the log is append-only forever. This event says THAT
+ * the store changed, never what it says. Emitted by: the profile_analysis
+ * ledger job (the store's sole writer, Rev 4 §4.3). Consumed by: clients
+ * (Config page freshness), dev mode.
+ */
+export const ProfileUpdatedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('profile.updated'),
+  payload: z.strictObject({
+    user_actor_id: z.string().min(1),
+    /** Hypotheses in the store after this pass (audit; never the text). */
+    hypothesis_count: z.int().nonnegative(),
+    /** The ended scene or chat range the analysis covered. */
+    context_id: z.string().min(1),
+  }),
+});
+
+/**
+ * The user deleted their profile (0.17.0, Rev 4 §9 GDPR guardrails): the
+ * side-store rows are physically gone in the same transaction — and because
+ * the store is NOT a projection of the log, replay never resurrects them.
+ * The event records only the fact of deletion (an auditable user right, not
+ * personal data). Emitted by: the delete-profile command seam. Consumed by:
+ * clients (Config page).
+ */
+export const ProfileDeletedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('profile.deleted'),
+  payload: z.strictObject({
+    user_actor_id: z.string().min(1),
+    /** Rows physically removed (audit). */
+    removed: z.int().nonnegative(),
   }),
 });
 
@@ -816,6 +1096,13 @@ export const SublocationMaterializedEventSchema = z.strictObject({
     square: MapSquareSchema,
     /** World-coordinate anchor for the pin (center of the square). */
     map_position: MapPositionSchema,
+    /** Rev 4 §9 cold-boot seeding (0.17.0): whether the place is a public or
+     * private space — the seeding gate's ≥1-of-each rule reads it. Absent on
+     * Explore/map materializations (neither class). */
+    space: z.enum(['public', 'private']).optional(),
+    /** The approved proposal that applied this row (0.17.0 audit provenance;
+     * absent on Explore reveals and Narrator-stub placements). */
+    proposal_id: z.string().min(1).max(100).optional(),
   }),
 });
 
@@ -1124,6 +1411,15 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   CharacterEvolvedEventSchema,
   SubwikiUpdatedEventSchema,
   SubwikiEditedEventSchema,
+  ProposalSubmittedEventSchema,
+  ProposalResolvedEventSchema,
+  CharacterCreatedEventSchema,
+  WorldSeededEventSchema,
+  GatewayBindingEstablishedEventSchema,
+  ConfigFlagSetEventSchema,
+  CharacterLockSetEventSchema,
+  ProfileUpdatedEventSchema,
+  ProfileDeletedEventSchema,
   SocialPostCommittedEventSchema,
   SocialReactionCommittedEventSchema,
   SocialReplyPostedEventSchema,
