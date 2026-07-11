@@ -53,6 +53,7 @@ import { createSocialPostHandler } from './ledger/handlers/social-post.js';
 import { createSocialReactionHandler } from './ledger/handlers/social-reaction.js';
 import { createSocialReplyHandler } from './ledger/handlers/social-reply.js';
 import { createFeedReplyCommand } from './engine/feed.js';
+import { GM_CHARACTER_ID } from './engine/gm.js';
 import { createProposalEngine } from './engine/proposals.js';
 import { createSubwikiEditCommand } from './engine/wiki-edit.js';
 import { createCachePruneHandler } from './ledger/handlers/cache-prune.js';
@@ -172,6 +173,11 @@ for (const sublocation of FIXTURE_SUBLOCATIONS) {
 
 const registry = createModelRegistry({
   defaultModel: env.model,
+  // The GM's per-role override (Rev 4 §16 model routing): rides the
+  // per-character key — chat-class default, switchable without code.
+  ...(env.gmModel === undefined
+    ? {}
+    : { perCharacter: { [GM_CHARACTER_ID]: env.gmModel } }),
   ...(env.providerOrder === undefined
     ? {}
     : { providerOrder: env.providerOrder }),
