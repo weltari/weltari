@@ -1491,3 +1491,181 @@ describe('memory event family (0.16.0, M7 part 1, Rev 4 §11)', () => {
     expect(WeltariEventSchema.safeParse(negative).success).toBe(false);
   });
 });
+
+describe('GM event family (0.17.0, M7 part 2, Rev 4 §9/§15/§16)', () => {
+  const base = {
+    proposal_id: 'p-1',
+    rationale: 'The town needs a quiet place to meet strangers.',
+    proposer: 'char:gm',
+    approvers: ['user:owner'],
+  };
+
+  it('accepts a proposal.submitted for every action variant', () => {
+    const place = {
+      name: 'The Mossy Court',
+      description: 'A small walled yard behind the chandlery.',
+      space: 'public',
+      wiki_entry: 'A walled yard; the moss never dries.',
+    };
+    const character = {
+      name: 'Odo the Chandler',
+      personality: 'Careful, waxy-fingered, counts candles twice.',
+      goals: ['Sell through the winter stock.'],
+      core: ['Odo has kept the chandlery for eleven years.'],
+      skills: ['Candle craft: reads a wick like a ledger.'],
+    };
+    const diffs: [string, unknown][] = [
+      ['create_place', place],
+      ['create_character', character],
+      [
+        'edit_wiki',
+        {
+          sublocation_id: 'subloc:shrine',
+          entry: 'The bell hangs silent; someone oils the clapper.',
+          previous_entry: 'A mossy shrine behind the stables.',
+        },
+      ],
+      [
+        'seed_world',
+        {
+          world_name: 'Saltmarsh',
+          language: 'en',
+          chapter_seed: 'A harbor town that lies about its tides.',
+          places: [
+            place,
+            { ...place, name: 'The Low House', space: 'private' },
+          ],
+          characters: [character],
+        },
+      ],
+    ];
+    for (const [action, diff] of diffs) {
+      const event: unknown = {
+        ...envelope,
+        type: 'proposal.submitted',
+        payload: { ...base, action, diff },
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    }
+  });
+
+  it('rejects a mismatched diff, an unknown action, and empty approvers (B5)', () => {
+    for (const payload of [
+      // create_place action with a character-shaped diff
+      {
+        ...base,
+        action: 'create_place',
+        diff: {
+          name: 'Odo',
+          personality: 'x',
+          goals: ['g'],
+          core: [],
+          skills: [],
+        },
+      },
+      { ...base, action: 'drop_table', diff: { name: 'x' } },
+      {
+        ...base,
+        approvers: [],
+        action: 'edit_wiki',
+        diff: { sublocation_id: 's1', entry: 'e' },
+      },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'proposal.submitted',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts proposal.resolved for both resolutions and rejects others', () => {
+    for (const resolution of ['approved', 'rejected']) {
+      const event: unknown = {
+        ...envelope,
+        type: 'proposal.resolved',
+        payload: { proposal_id: 'p-1', resolution },
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    }
+    const bad: unknown = {
+      ...envelope,
+      type: 'proposal.resolved',
+      payload: { proposal_id: 'p-1', resolution: 'maybe' },
+    };
+    expect(WeltariEventSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('accepts character.created (empty core allowed) and world.seeded', () => {
+    const created: unknown = {
+      ...envelope,
+      type: 'character.created',
+      payload: {
+        character_id: 'char:odo',
+        name: 'Odo the Chandler',
+        personality: 'Careful, waxy-fingered.',
+        goals: ['Sell through the winter stock.'],
+        core: [],
+        skills: [],
+        proposal_id: 'p-1',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(created).success).toBe(true);
+    const seeded: unknown = {
+      ...envelope,
+      type: 'world.seeded',
+      payload: {
+        world_name: 'Saltmarsh',
+        language: 'en',
+        place_count: 3,
+        character_count: 2,
+        proposal_id: 'p-1',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(seeded).success).toBe(true);
+  });
+
+  it('accepts the binding, flag, lock and profile events; rejects an unknown flag', () => {
+    const cases: [string, unknown][] = [
+      [
+        'gateway.binding_established',
+        { connector_id: 'telegram', conversation_id: '12345' },
+      ],
+      ['config.flag_set', { flag: 'profiling_enabled', value: true }],
+      ['character.lock_set', { character_id: 'char:elias', locked: true }],
+      [
+        'profile.updated',
+        { user_actor_id: 'user:owner', hypothesis_count: 3, context_id: 'c1' },
+      ],
+      ['profile.deleted', { user_actor_id: 'user:owner', removed: 3 }],
+    ];
+    for (const [type, payload] of cases) {
+      const event: unknown = { ...envelope, type, payload };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    }
+    const badFlag: unknown = {
+      ...envelope,
+      type: 'config.flag_set',
+      payload: { flag: 'sudo_mode', value: true },
+    };
+    expect(WeltariEventSchema.safeParse(badFlag).success).toBe(false);
+  });
+
+  it('accepts the additive sublocation.materialized fields (space + proposal_id)', () => {
+    const event: unknown = {
+      ...envelope,
+      type: 'sublocation.materialized',
+      payload: {
+        sublocation_id: 'subloc:mossy-court',
+        name: 'The Mossy Court',
+        description: 'A small walled yard behind the chandlery.',
+        square: { col: 3, row: 4 },
+        map_position: { x: 0.35, y: 0.45 },
+        space: 'public',
+        proposal_id: 'p-1',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+  });
+});

@@ -78,15 +78,33 @@
  * cache.pruned (retention as a view watermark, never a deletion). All five
  * emitted only by reflection-class/maintenance ledger jobs through the
  * character's serial group.
+ * 0.17.0 (M7 part 2, Rev 4 §9/§15/§16, owner rulings 2026-07-11): the GM
+ * agent — proposal.submitted (the uniform consent object {action, diff,
+ * rationale, proposer, approvers[]}; a closed per-action diff union) /
+ * proposal.resolved (approve applies atomically, reject leaves zero domain
+ * rows) / character.created (consent-gated seed profiles — the live-profile
+ * fold's event-borne seed layer) / world.seeded (cold boot's terminal state)
+ * / gateway.binding_established (gates the once-per-binding GM onboarding
+ * push) / config.flag_set (world flags as latest-wins folds;
+ * profiling_enabled) / character.lock_set (the user-facing evolution lock) /
+ * profile.updated + profile.deleted (references only — hypotheses live in a
+ * deletable side store outside the log: GDPR). sublocation.materialized
+ * gains optional space + proposal_id; subwiki.edited gains optional
+ * proposal_id (both additive). Commands: resolve-proposal, set-config-flag,
+ * set-character-lock, delete-profile.
  */
-export const PROTOCOL_VERSION = '0.16.0';
+export const PROTOCOL_VERSION = '0.17.0';
 
 export {
   ArtSwitchedEventSchema,
   CacheAppendedEventSchema,
   CachePrunedEventSchema,
+  CharacterCreatedEventSchema,
   CharacterEvolvedEventSchema,
   CharacterJoinedEventSchema,
+  CharacterLockSetEventSchema,
+  ConfigFlagSetEventSchema,
+  GatewayBindingEstablishedEventSchema,
   ChatEndedEventSchema,
   ChatMessageCommittedEventSchema,
   ChatGroupEndedEventSchema,
@@ -112,6 +130,12 @@ export {
   MemoryDeltaCommittedEventSchema,
   PainterCompletedEventSchema,
   PluginRejectedEventSchema,
+  ProfileDeletedEventSchema,
+  ProfileUpdatedEventSchema,
+  ProposalCharacterDiffSchema,
+  ProposalPlaceDiffSchema,
+  ProposalResolvedEventSchema,
+  ProposalSubmittedEventSchema,
   ReflectionCommittedEventSchema,
   SceneEndedEventSchema,
   SceneExpiredEventSchema,
@@ -134,8 +158,11 @@ export {
   WeltariEventSchema,
   WorldAgentCommittedEventSchema,
   WorldCronCompletedEventSchema,
+  WorldSeededEventSchema,
   WorldTimeAdvancedEventSchema,
   type ImageRegion,
+  type ProposalCharacterDiff,
+  type ProposalPlaceDiff,
   type TurnStep,
   type WeltariEvent,
   type WeltariEventType,
@@ -170,6 +197,8 @@ export {
   ApplyUpdateAcceptedSchema,
   ApplyUpdateCommandSchema,
   CommandRejectedSchema,
+  DeleteProfileAcceptedSchema,
+  DeleteProfileCommandSchema,
   EndSceneAcceptedSchema,
   EndSceneCommandSchema,
   ExitChatAcceptedSchema,
@@ -190,8 +219,14 @@ export {
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
   PaintRegionCommandSchema,
+  ResolveProposalAcceptedSchema,
+  ResolveProposalCommandSchema,
   SendChatMessageAcceptedSchema,
   SendChatMessageCommandSchema,
+  SetCharacterLockAcceptedSchema,
+  SetCharacterLockCommandSchema,
+  SetConfigFlagAcceptedSchema,
+  SetConfigFlagCommandSchema,
   SendGroupMessageAcceptedSchema,
   SendGroupMessageCommandSchema,
   StartGroupChatAcceptedSchema,
@@ -207,6 +242,8 @@ export {
   type ApplyUpdateAccepted,
   type ApplyUpdateCommand,
   type CommandRejected,
+  type DeleteProfileAccepted,
+  type DeleteProfileCommand,
   type EndSceneAccepted,
   type EndSceneCommand,
   type ExitChatAccepted,
@@ -227,8 +264,14 @@ export {
   type OpenSceneCommand,
   type PaintRegionAccepted,
   type PaintRegionCommand,
+  type ResolveProposalAccepted,
+  type ResolveProposalCommand,
   type SendChatMessageAccepted,
   type SendChatMessageCommand,
+  type SetCharacterLockAccepted,
+  type SetCharacterLockCommand,
+  type SetConfigFlagAccepted,
+  type SetConfigFlagCommand,
   type SendGroupMessageAccepted,
   type SendGroupMessageCommand,
   type StartGroupChatAccepted,
