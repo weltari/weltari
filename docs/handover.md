@@ -37,8 +37,10 @@ The next session is **Week 13 — Milestone 6 part 5** (the Feed/Camera
 surface + wiki manual edits with the review-writes toggle — the remainder
 of `Week 12 Kickoff Prompt.md`'s slices 3 and 5; week 12 shipped slices
 1 + 2 + 4 and the time-structure re-ruling, see `docs/week12-results.md`).
-No week-13 kickoff prompt exists yet — the owner writes one at session
-start; until then the week-12 prompt + results are the task context.
+The complete briefing — rulings, scope, success criteria, budget,
+carried-over notes — is `Week 13 Kickoff Prompt.md` at the repo root.
+Treat it as the authoritative task description; where it conflicts with
+anything else except the owner, it wins.
 
 The weekly rhythm, which you should continue: kickoff prompt → agree scope
 and budget with the owner at session start → build in small conventional
