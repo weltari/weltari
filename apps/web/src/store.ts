@@ -877,6 +877,20 @@ function applyOne(
     case 'character.evolved':
     case 'cache.pruned':
       return;
+    // The GM surface (0.17.0, M7 part 2): proposals project into pendingProposals
+    // below once the consent card lands; the rest is engine-side state —
+    // binding pushes, config folds, profile references (the hypotheses
+    // themselves never ride the log: GDPR).
+    case 'proposal.submitted':
+    case 'proposal.resolved':
+    case 'character.created':
+    case 'world.seeded':
+    case 'gateway.binding_established':
+    case 'config.flag_set':
+    case 'character.lock_set':
+    case 'profile.updated':
+    case 'profile.deleted':
+      return;
   }
 }
 
