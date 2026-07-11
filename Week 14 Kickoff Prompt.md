@@ -15,12 +15,40 @@ ruling 2026-07-11 and lands with the M7 GM instead). Week 13 cost $0.006 of
 its budget. I am not a professional developer — explain plainly, recommend,
 and let me decide only where a genuine value judgment remains.
 
-M7 covers the GM agent AND the real memory store. Recommended split (adjust
-with me): **week 14 = the memory store + memoryquery** (this prompt),
-week 15 = the GM agent (persona, the Proposal pipeline, consent-gated
-authoring, profiling, cold-boot onboarding), week 16 = V1 wrap-up.
-Memory comes first because the GM's authoring and profiling both stand on
-it, and because characters get noticeably smarter the moment it lands.
+M7 covers the GM agent AND the real memory store. **Week 14 = the memory
+store + memoryquery** (this prompt); weeks 15–19 follow the **V1 completion
+map** below (owner-ruled 2026-07-11 — it SUPERSEDES the earlier "week 16 =
+V1 wrap-up" split). Memory comes first because the GM's authoring and
+profiling both stand on it, and because characters get noticeably smarter
+the moment it lands.
+
+## The V1 completion map (owner rulings 2026-07-11 — carry forward weekly)
+
+A hard code-vs-Rev-4 audit on 2026-07-11 (the protocol event list + the
+real narrator tool surface + targeted greps — never docs, never earlier
+kickoffs) found V1-scoped systems that no milestone had claimed. Owner
+rulings: **weather moves to V1.5** (Rev 4 §16 deterministic clock-seeded
+weather — do not build it); **every other Rev 4 §18 "In V1" item stays in
+V1** — nothing may be silently descoped again.
+
+Five build weeks + one verification week. Every weekly results doc must
+reproduce this table with its own week checked off, and every next kickoff
+prompt must carry the table forward, so nothing falls out of planning
+again:
+
+| Week | Scope | Rev 4 |
+| --- | --- | --- |
+| **14 (this prompt)** | The real memory store: durable core + deltas, the FTS5 Search Index, `memoryquery`, compaction, CACHE retention | §11, §4.2 |
+| 15 | The GM agent: the Proposal pipeline (`{action, diff, rationale, proposer, approvers[]}`), cold-boot onboarding (language → keys → world interview → seeding: every named place a materialized row, ≥1 public + ≥1 private space), consent-gated authoring, user profiling + GDPR view/export/delete, the gateway-onboarding GM message; personality/goals evolution behind the per-character `locked` flag | §9, §16 |
+| 16 | Objects & backpacks: materialize-on-touch rows, `interact_object` (character tool, engine-gated: holder change or payload write only, max 2/turn, name dedup), `transfer_object` (Narrator tool), `explore` listing public objects, empty-payload write-on-first-read, the live backpack UI projection, the GC-sweep ledger job | §7, §14, §17 |
+| 17 | The living-world loop: chance-encounter markers (1–5 live, game-time TTLs, sweep job + every clock advance, click re-validation, born-expired suppression, engine top-up, scene-end follow-up proposals) + CRON world movement (mailbox-routed location events, presence-checked, materialized-only) + character position bubbles on the map | §14 |
+| 18 | The agentic scene: `make_character`, `charactercall`, set-typed `determine_who_next` (V1 policy: size 1), `character_leave`, `move_character`, scene-side `query_wiki`, storytelling goals → subgoals (`update_goals` full-snapshot tool, engine-persisted, reinjected every turn), the full `next_scene_registration` payload, the context-budget warning | §6 |
+| 19 | Verification & close-out: a line-by-line audit of Rev 4 §18 AND every module contract against the code (the same hard-evidence method as above — event list, tool surfaces, greps), fix what it finds, packaging/container ship, docs/handover refresh, key rotation confirmed — only then is V1 declared done | all |
+
+Already deferred by earlier rulings (stays deferred): user Feed posting
+(V1.5), Mail, the resolve loop, FEL/DES, multiplayer, inter-agent comms,
+object-in-object nesting — the full Rev 4 §18 "Deferred" list, plus
+weather (V1.5, ruled above).
 
 ## Read first, in this order
 
@@ -76,10 +104,11 @@ it, and because characters get noticeably smarter the moment it lands.
    (keep the last N entries per character) — safe because reflection reads
    session history, never CACHE history.
 
-**Named for later (NOT this week):** the GM agent entirely (persona,
-Proposal pipeline, authoring tools, profiling, cold boot — week 15); user
-editing of character memory (arrives with the GM/config work); embedding
-retrieval; characters as full independent subagents.
+**Named for later (NOT this week — see the V1 completion map above):** the
+GM agent entirely (week 15); objects & backpacks (week 16); markers + CRON
+world movement (week 17); the agentic-scene tool surface + subgoals
+(week 18); user editing of character memory (arrives with the GM/config
+work); embedding retrieval; weather (V1.5 by owner ruling 2026-07-11).
 
 **Owner decisions to settle at session start:**
 
