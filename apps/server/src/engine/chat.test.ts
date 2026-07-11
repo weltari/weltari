@@ -227,6 +227,39 @@ describe('DM a character outside any scene (criterion a)', () => {
     ctx.storage.close();
   });
 
+  it('the archive pointer rides the chat tail once a compaction exists (owner ruling 2026-07-11) — and stays out of the stable prefix', async () => {
+    const ctx = setup();
+    const delta = ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: ELIAS.character_id,
+      type: 'memory.delta_committed',
+      payload: {
+        character_id: ELIAS.character_id,
+        origin: 'scene',
+        context_id: 's-old',
+        content: 'An old note behind the summary.',
+      },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: ELIAS.character_id,
+      type: 'memory.compacted',
+      payload: {
+        character_id: ELIAS.character_id,
+        up_to_id: delta.id,
+        delta_count: 1,
+        summary: 'Storm-season condensed: the traveler, the bell, the ferry.',
+      },
+    });
+    await sendAndAwait(ctx, SEND);
+    const call = ctx.llmCalls.find((c) => c.kind === 'chat');
+    expect(call?.prompt).toContain('Storm-season condensed');
+    expect(call?.prompt).toContain('memoryquery');
+    // Reflection-authored text is DATA: tail-only, never the prefix (I5/B14).
+    expect(call?.system).not.toContain('Storm-season condensed');
+    ctx.storage.close();
+  });
+
   it('the memory escalation: a DM question about a buried delta runs memoryquery mid-call and the reply visibly uses it (M7 part 1, criterion c)', async () => {
     const ctx = setup();
     // A delta buried in the archive — the instant CACHE recap cannot answer.

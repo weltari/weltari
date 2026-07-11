@@ -126,6 +126,32 @@ export function archiveView(
 }
 
 /**
+ * The archive POINTER for a prompt's dynamic tail (owner ruling 2026-07-11:
+ * "a pointer must be left in the main memory summarizing the sub-memory's
+ * contents, allowing the agent to determine if retrieving it is
+ * worthwhile"). Renders the latest compaction summary + the size of the
+ * archive behind it. Empty string when there is no compaction yet — recent
+ * deltas are recent, the CACHE recap and core cover the hot path, and an
+ * empty archive needs no advertisement.
+ */
+export function archiveRecapText(
+  storage: Storage,
+  characterId: string,
+): string {
+  const state = memoryStateOf(storage, characterId);
+  if (state.compaction === undefined) return '';
+  const newer = state.deltas.filter(
+    (d) => d.event_id > (state.compaction?.up_to_id ?? 0),
+  ).length;
+  return [
+    `Your older memories, condensed: ${state.compaction.summary}`,
+    `(${String(state.compaction.delta_count)} original notes stand behind this summary${
+      newer > 0 ? `, plus ${String(newer)} newer uncondensed notes` : ''
+    } — use memoryquery when you need the specifics.)`,
+  ].join('\n');
+}
+
+/**
  * The live profile: the seed profile with the durable memory state laid on
  * top — memory core = seed + latest snapshot; personality/goals replaced by
  * their latest evolution. EVERY character-class call site assembles from

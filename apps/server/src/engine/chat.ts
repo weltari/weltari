@@ -28,7 +28,7 @@ import {
   runSessionquery,
   runWikiquery,
 } from './chat-queries.js';
-import { liveProfile } from './memory.js';
+import { archiveRecapText, liveProfile } from './memory.js';
 import {
   assembleContext,
   type CharacterProfile,
@@ -409,6 +409,10 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         const recap = cacheRecapText(
           latestPerOrigin(storage, profile.character_id),
         );
+        // The archive pointer (owner ruling 2026-07-11): the condensed
+        // summary of older memories + what stands behind it, so the model
+        // can judge whether a memoryquery deep dive is worthwhile.
+        const archiveRecap = archiveRecapText(storage, profile.character_id);
         // The conduct skill rides the STABLE prefix (a constant appended to
         // constant profile skills — byte-identical across calls, I5). The
         // profile is the LIVE fold (M7 part 1): seed + latest durable core,
@@ -427,6 +431,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
             latest_turns: transcript,
             wiki: [],
             ...(recap === '' ? {} : { cache_recap: recap }),
+            ...(archiveRecap === '' ? {} : { archive_recap: archiveRecap }),
           },
         );
         // The query escalation (M6 part 3, Rev 4 §11): wikiquery +

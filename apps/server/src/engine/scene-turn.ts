@@ -35,7 +35,7 @@ import {
 } from './context-assembler.js';
 import type { EventSink } from './event-sink.js';
 import { runMemoryquery, runWikiquery } from './chat-queries.js';
-import { liveProfile } from './memory.js';
+import { archiveRecapText, liveProfile } from './memory.js';
 import {
   buildEliasProfile,
   buildNarratorProfile,
@@ -271,12 +271,20 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     // The LIVE profile fold (M7 part 1): seed + latest durable core, evolved
     // personality/goals — the scene call after a core update provably injects
     // it (criterion b); folding the Narrator is a no-op (it never reflects).
+    // Character calls also carry the archive POINTER (owner ruling
+    // 2026-07-11): the condensed summary of older memories, so the model can
+    // judge whether its memoryquery deep dive is worthwhile.
+    const archiveRecap =
+      plan.toolset === 'character_scene'
+        ? archiveRecapText(storage, plan.profile.character_id)
+        : '';
     const context = assembleContext(liveProfile(storage, plan.profile), {
       scene_id: sceneId,
       world_clock_text: worldClockText,
       latest_turns: transcript,
       ...(userInput === undefined ? {} : { user_input: userInput }),
       wiki: [],
+      ...(archiveRecap === '' ? {} : { archive_recap: archiveRecap }),
     });
 
     const record: RunningTurn['recorded'][number] = {
