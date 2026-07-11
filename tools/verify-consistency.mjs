@@ -506,6 +506,83 @@ if (imagesDir) {
   }
 }
 
+// 4l. The memory store (M7 part 1, Rev 4 §11): delta sets are capped and
+//     atomic with their reflection (a delta without its committed reflection
+//     is a torn transaction; more than 3 per reflection escaped the gate);
+//     compaction records are exactly-once per range (the harness never
+//     repairs); the FTS Search Index exactly mirrors the delta events; a
+//     CACHE watermark always points below itself.
+{
+  const reflectedScene = new Set();
+  const reflectedChat = new Set();
+  const deltaGroups = new Map();
+  const compactionRanges = new Map();
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'reflection.committed') {
+      reflectedScene.add(`${payload.character_id}|${payload.scene_id}`);
+    } else if (event.type === 'reflect_chat.committed') {
+      reflectedChat.add(`${payload.character_id}|${payload.conversation_id}`);
+    } else if (event.type === 'memory.delta_committed') {
+      const key = `${payload.character_id}|${payload.origin}|${payload.context_id}`;
+      deltaGroups.set(key, (deltaGroups.get(key) ?? 0) + 1);
+    } else if (event.type === 'memory.compacted') {
+      const key = `${payload.character_id}|${payload.up_to_id}`;
+      compactionRanges.set(key, (compactionRanges.get(key) ?? 0) + 1);
+      if (payload.up_to_id >= event.id) {
+        failures.push(
+          `memory.compacted ${key}: up_to_id ${payload.up_to_id} is not below the record's own id ${event.id}`,
+        );
+      }
+    } else if (event.type === 'cache.pruned') {
+      if (payload.watermark_id >= event.id) {
+        failures.push(
+          `cache.pruned for ${payload.character_id}: watermark ${payload.watermark_id} is not below the record's own id ${event.id}`,
+        );
+      }
+    }
+  }
+  for (const [key, count] of deltaGroups) {
+    const [characterId, origin, contextId] = key.split('|');
+    if (count > 3) {
+      failures.push(
+        `memory deltas for ${key}: ${count} committed — the 3-per-reflection cap escaped the gate`,
+      );
+    }
+    const reflected =
+      origin === 'scene'
+        ? reflectedScene.has(`${characterId}|${contextId}`)
+        : reflectedChat.has(`${characterId}|${contextId}`);
+    if (!reflected) {
+      failures.push(
+        `memory deltas for ${key}: no committed reflection for the context (torn transaction)`,
+      );
+    }
+  }
+  for (const [key, count] of compactionRanges) {
+    if (count > 1) {
+      failures.push(
+        `memory.compacted ${key}: ${count} records for one range (duplicate — the harness never repairs)`,
+      );
+    }
+  }
+  // The Search Index is a projection of the delta events — offline they must
+  // mirror exactly (the add rides the append's transaction; boot rebuilds).
+  const deltaEventIds = events
+    .filter((e) => e.type === 'memory.delta_committed')
+    .map((e) => e.id)
+    .sort((a, b) => a - b);
+  const ftsIds = db
+    .prepare('SELECT event_id FROM memory_delta_fts ORDER BY event_id')
+    .all()
+    .map((r) => Number(r.event_id));
+  if (JSON.stringify(ftsIds) !== JSON.stringify(deltaEventIds)) {
+    failures.push(
+      `memory Search Index out of sync: ${ftsIds.length} FTS rows vs ${deltaEventIds.length} delta events`,
+    );
+  }
+}
+
 // 5. Ledger rows are in legal states with legal shapes
 const badStates = db
   .prepare(
