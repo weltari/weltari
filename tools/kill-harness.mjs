@@ -60,6 +60,14 @@ const POINTS = [
   // convergence = the BOOT sweep (recovery path = startup path) commits the
   // pair exactly once (natural key scene_id, fused re-check).
   'mid_invitation_expiry',
+  // M6 part 5 (the Feed, Rev 4 §12): a 12 h skip crosses one social cadence
+  // boundary (default 2 posts/game day = 720 min) and the social_post job is
+  // killed AFTER generation, BEFORE the post + poster-CACHE + reaction-job
+  // transaction; convergence = the retried fire commits EXACTLY one
+  // social.post_committed for the occurrence (natural key world +
+  // occurrence_iso, fused re-check). The scene is ended first so both
+  // fixture characters are available — the salted pick lands first try.
+  'mid_social_post',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -283,6 +291,19 @@ function dbCountReflectChat(conversationId, rangeEndId) {
       `%"conversation_id":"${conversationId}"%`,
       `%"range_end_id":${rangeEndId}%`,
     );
+  db.close();
+  return row.n;
+}
+
+/** Feed convergence (M6 part 5): posts committed after a log head. */
+function dbCountPostsAbove(sinceId) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'social.post_committed' AND id > ?`,
+    )
+    .get(sinceId);
   db.close();
   return row.n;
 }
@@ -610,6 +631,9 @@ let pendingProactive = null;
 // convergence = the boot sweep commits the pair exactly once.
 let inviteSeq = 0;
 let pendingInvitationScene = null;
+// M6 part 5 feed cycles: the social_post fire killed mid-commit;
+// convergence = the retried fire commits exactly one post (natural key).
+let pendingSocialPost = null;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -841,6 +865,31 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       'mid_invitation_expiry convergence ok: the boot sweep expired the invitation exactly once',
     );
     pendingInvitationScene = null;
+  }
+
+  // M6 part 5: a kill at mid_social_post must CONVERGE — the leased fire
+  // retries and commits its post (+ poster CACHE + reaction jobs, one
+  // transaction) exactly once; per-occurrence uniqueness across the whole
+  // log is verify-consistency's 4k sweep.
+  if (pendingSocialPost !== null) {
+    const deadline = Date.now() + 30000;
+    while (dbCountPostsAbove(pendingSocialPost) < 1) {
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          'lost feed post: no social.post_committed committed after mid_social_post kill',
+        );
+      }
+      await sleep(500);
+    }
+    if (dbCountPostsAbove(pendingSocialPost) > 1) {
+      child.kill('SIGKILL');
+      fail('twinned feed post: social.post_committed committed twice');
+    }
+    console.log(
+      'mid_social_post convergence ok: the fire committed its post exactly once after restart',
+    );
+    pendingSocialPost = null;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -1121,6 +1170,32 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       if (advRes.status !== 202) fail(`advance-time returned ${advRes.status}`);
       await killAt;
       pendingInvitationScene = inviteScene;
+      break;
+    }
+    case 'mid_social_post': {
+      // Free BOTH fixture characters (presence gates the poster pick): with
+      // everyone available the first salted pick always lands and the fire
+      // is deterministic. The new scene opens after convergence.
+      const endRes = await post('/v1/commands/end-scene', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: currentScene,
+      });
+      if (endRes.status !== 202) fail(`end-scene returned ${endRes.status}`);
+      needNewScene = true;
+      const sinceId = dbEventIdsAbove(0).at(-1) ?? 0;
+      // A 12 h skip crosses exactly ONE social cadence boundary (720 min at
+      // the default 2 posts/game day) — the fire enqueues + drains on the
+      // spot and the kill lands inside its commit window.
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_social_post', 30000);
+      const advRes = await post('/v1/commands/advance-time', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        minutes: 720,
+      });
+      if (advRes.status !== 202) fail(`advance-time returned ${advRes.status}`);
+      await killAt;
+      pendingSocialPost = sinceId;
       break;
     }
     case 'mid_update': {

@@ -323,6 +323,75 @@ for (const event of events) {
   }
 }
 
+// 4k. Feed natural keys + atomicity (M6 part 5, Rev 4 §12): one post per
+//     (world, occurrence_iso); one reaction decision per (post, character);
+//     one answer per user reply (in_reply_to); every reaction/reply names a
+//     post that exists (they are enqueued/committed atomically WITH it).
+{
+  const postKeys = new Set();
+  const postIds = new Set();
+  const reactionKeys = new Set();
+  const answerKeys = new Set();
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'social.post_committed') {
+      const key = `${event.world_id}:${payload.occurrence_iso}`;
+      if (postKeys.has(key)) {
+        failures.push(
+          `social.post_committed ${payload.occurrence_iso}: duplicate post for the occurrence (natural key broken)`,
+        );
+      }
+      postKeys.add(key);
+      postIds.add(payload.post_id);
+    }
+  }
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'social.reaction_committed') {
+      const key = `${payload.post_id}:${payload.character_id}`;
+      if (reactionKeys.has(key)) {
+        failures.push(
+          `social.reaction_committed ${key}: duplicate reaction decision (natural key broken)`,
+        );
+      }
+      reactionKeys.add(key);
+      if (!postIds.has(payload.post_id)) {
+        failures.push(
+          `social.reaction_committed ${key}: names post ${payload.post_id} that is not in the log`,
+        );
+      }
+      if (payload.kind === 'comment' && payload.body === undefined) {
+        failures.push(
+          `social.reaction_committed ${key}: a comment without a body passed the gate`,
+        );
+      }
+      if (payload.kind === 'like' && payload.body !== undefined) {
+        failures.push(
+          `social.reaction_committed ${key}: a like carries a body`,
+        );
+      }
+    }
+    if (event.type === 'social.reply_answered') {
+      if (answerKeys.has(payload.in_reply_to)) {
+        failures.push(
+          `social.reply_answered ${payload.reply_id}: duplicate answer for user reply ${payload.in_reply_to}`,
+        );
+      }
+      answerKeys.add(payload.in_reply_to);
+      if (!postIds.has(payload.post_id)) {
+        failures.push(
+          `social.reply_answered ${payload.reply_id}: names post ${payload.post_id} that is not in the log`,
+        );
+      }
+    }
+    if (event.type === 'social.reply_posted' && !postIds.has(payload.post_id)) {
+      failures.push(
+        `social.reply_posted ${payload.reply_id}: names post ${payload.post_id} that is not in the log`,
+      );
+    }
+  }
+}
+
 // 4h. Chat-end atomicity (M6 part 2, Rev 4 §8): a chat.ended commits in ONE
 //     transaction with its reflect_chat job — the event without the row is a
 //     torn transaction. M6 part 4: a chat.group_ended commits with exactly

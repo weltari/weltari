@@ -204,13 +204,13 @@ describe('social_reply job handler', () => {
     };
     const ctx = setup(empty);
     seedThread(ctx.storage);
-    await expect(ctx.handler(job())).rejects.toThrowError(/empty answer/);
+    await expect(ctx.handler(job())).rejects.toThrow(/empty answer/);
     expect(answers(ctx.storage)).toBe(0);
   });
 
   it('a missing post/comment is corrupt state; an unknown character is a quiet no-op', async () => {
     const ctx = setup();
-    await expect(ctx.handler(job())).rejects.toThrowError(/not in the log/);
+    await expect(ctx.handler(job())).rejects.toThrow(/not in the log/);
 
     seedThread(ctx.storage);
     await ctx.handler({

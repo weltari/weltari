@@ -187,6 +187,6 @@ describe('social_reaction job handler', () => {
         ...job(2),
         payload: { post_id: 'post-missing', character_id: 'char:mara' },
       }),
-    ).rejects.toThrowError(/not in the log/);
+    ).rejects.toThrow(/not in the log/);
   });
 });
