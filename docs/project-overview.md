@@ -56,34 +56,29 @@ Built in ten weekly sessions, each ending with measured pass/fail criteria
 | M3 — Player experience (weeks 3–4) | Real Scene page, plugin loader, packaging + signed self-update | ✅ |
 | M4 — The UI shell (weeks 5–6) | App shell, Map/Gameday/Config pages, fog + Explore, scene lifecycle | ✅ |
 | M5 — The painted map (weeks 7–8) | Real image backends paint/extend the map; draw on it, click into it | ✅ |
-| M6 — Creation + Chat (weeks 9–11) | In-scene creation loop ✅, Chat DM core + startscene bridge ✅, part 3 is next | 🚧 |
+| M6 — Creation + Chat + Social (weeks 9–13) | In-scene creation loop, Chat DM core + character-led startscene, proactive DMs, invitation expiry, group chats, the Telegram bridge, the Feed + wiki manual edits | ✅ |
 
-Total real-AI spending across all ten weeks: **under $10**, tracked to the
-cent. Recent weeks cost cents (week 10: $0.19; one chat message ≈ $0.003)
-because everything runs against free fakes by default and real AI is used
-only for final proof demos.
+Total real-AI spending across all thirteen weeks: **under $10**, tracked to
+the cent. Recent weeks cost cents (week 13: $0.006; one chat-class call
+≈ $0.003) because everything runs against free fakes by default and real AI
+is used only for final proof demos.
 
 ## What's left to build
 
-- **Week 11 (M6 part 3)** — already written up in `Week 11 Kickoff
-  Prompt.md` at the repo root: characters negotiate and open scenes
-  themselves from chat, characters text you *first* (proactive DMs with a
-  politeness freeze after 3 ignored messages), characters look things up
-  mid-conversation, and a read-only Wiki page.
-- **M6 part 4** — group chats, the Feed/Camera surface, manual wiki edits,
-  pushing proactive DMs out through Telegram.
-- **M7** — the real long-term memory store for characters.
+- **M7** — the GM agent (guided world creation, consent-gated world
+  authoring through the Proposal pipeline deferred from week 13, user
+  profiling) and the real long-term memory store for characters.
 - **V1 wrap-up** — polish, a one-command playable build for strangers
   (packaging and self-update already exist and are proven).
+- **V1.5 (noted)** — user posting on the Feed; the CLI client.
 
 ## How long until it's finished?
 
 At the established pace — one focused session per week, each shipping a
-proven slice — the remaining list above is roughly **3–5 sessions**: week 11,
-one for M6 part 4, one or two for M7, and a wrap-up. That matches the
-estimate recorded at week 6 ("~6–7 weeks to V1"). It's an estimate, not a
-promise: every week so far has also surfaced one or two real-world surprises
-(that's what the sessions are for).
+proven slice — the remaining list above is roughly **2–3 sessions**: one or
+two for M7, and a wrap-up. It's an estimate, not a promise: every week so
+far has also surfaced one or two real-world surprises (that's what the
+sessions are for).
 
 ## How to run and try it
 

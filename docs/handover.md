@@ -15,32 +15,36 @@ characters, and an append-only event log that makes every world permanent and
 crash-proof. TypeScript strict, Node 24 LTS, ESM, npm workspaces. The core is
 AGPL-3.0-only; `packages/protocol` and `packages/plugin-sdk` are MIT.
 
-State at handover (2026-07-10, end of week 11):
+State at handover (2026-07-11, end of week 13):
 
-- **Milestones 1–5 and M6 parts 1–3 are complete and proven** — crash-safe
-  engine + job ledger (100-cycle kill harness, zero lost/duplicated events),
+- **Milestones 1–6 are complete and proven** — crash-safe engine + job
+  ledger (kill harness over 16 fault points, zero lost/duplicated events),
   the full Scene page with the narrator tool surface, the living fog map
   painted by real image backends, the in-scene creation loop, the Weltari
-  Chat DM core with the `startscene()` bridge and the subwiki pass, and
-  since week 11 the character-led startscene (a real character negotiated
-  the place and fired the tool itself), proactive CRON DMs with the
-  3-unanswered freeze, the wikiquery/sessionquery escalation, and the
-  read-only Wiki page.
-- `npm run gate` green (397 tests); kill harness green over 14 fault points.
+  Chat DM core with the character-led `startscene()` bridge, invitation
+  expiry, proactive CRON DMs riding the world clock, group chats, the
+  Telegram gateway bridge, and since week 13 the Feed (game-time character
+  posts, acquaintance delivery, like/comment reactions, user reply threads
+  with answer-only character responses, the notification bell, activity
+  dots) and wiki manual edits (immediate, USER actor provenance — the
+  Proposal pipeline was DROPPED from V1 by owner ruling 2026-07-11 and
+  lands with the M7 GM instead).
+- `npm run gate` green (463 tests); kill harness green over 16 fault points.
 - Each week ended with a measured results page: `docs/week1-results.md`
-  through `docs/week12-results.md`. Real-provider spend has been tracked to
-  the cent throughout (week 12 cost $0.03; a chat DM turn ≈ $0.003).
+  through `docs/week13-results.md`. Real-provider spend has been tracked to
+  the cent throughout (week 13 cost $0.006; a chat-class call ≈ $0.003).
 
 ## Your task
 
-The next session is **Week 13 — Milestone 6 part 5** (the Feed/Camera
-surface + wiki manual edits with the review-writes toggle — the remainder
-of `Week 12 Kickoff Prompt.md`'s slices 3 and 5; week 12 shipped slices
-1 + 2 + 4 and the time-structure re-ruling, see `docs/week12-results.md`).
-The complete briefing — rulings, scope, success criteria, budget,
-carried-over notes — is `Week 13 Kickoff Prompt.md` at the repo root.
-Treat it as the authoritative task description; where it conflicts with
-anything else except the owner, it wins.
+The next session is **Week 14 — Milestone 7** (the GM agent: cold-boot
+onboarding, Proposal-gated authoring — the Proposal pipeline deferred from
+week 13 lands here, designed for the GM from day one — user profiling, the
+gateway-onboarding GM message; plus the real memory store + `memoryquery`).
+Read `docs/week13-results.md` first — above all the owner rulings of
+2026-07-11 (Proposals dropped from V1 wiki writes; reply-to-comment is
+answer-only; user posting is V1.5). When a Week 14 kickoff prompt exists at
+the repo root, treat it as the authoritative task description; where it
+conflicts with anything else except the owner, it wins.
 
 The weekly rhythm, which you should continue: kickoff prompt → agree scope
 and budget with the owner at session start → build in small conventional
