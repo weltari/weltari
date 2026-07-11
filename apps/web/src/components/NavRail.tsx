@@ -1,12 +1,15 @@
 // The Left Nav Rail (wireframes §0.1): logo, Scene ▶, Map, Feed, Chats, Wiki,
 // Config stacked; the blinking clock and the profile avatar bottom-anchored.
-// Destinations whose backend systems arrive with Milestone 5 (Chats/Feed/Wiki)
-// render disabled with a "later" tooltip — the rail never links to a fake
-// surface. Recorded deviation: the sketches assume desktop landscape; on
+// M6 part 5: every destination is live. The Feed shows a red dot for unseen
+// feed activity (new posts AND new interactions — owner ruling 2026-07-11:
+// just a dot, never a number); the Wiki shows a blue dot for unseen World
+// Agent writes. Seen marks persist locally (seen.ts) — dots never re-appear
+// on reload. Recorded deviation: the sketches assume desktop landscape; on
 // mobile the rail becomes a bottom bar (docs/web.md).
 import { useSceneStore } from '../store.js';
 import { t } from '../i18n.js';
 import { navigate, useRoute, type Route } from '../router.js';
+import { useSeen } from '../seen.js';
 
 function IconPlay(): React.JSX.Element {
   return (
@@ -121,9 +124,9 @@ const DESTINATIONS: readonly Destination[] = [
     icon: <IconGlobe />,
   },
   {
-    route: null,
+    route: '/feed',
     label: t('nav.feed'),
-    disabledReason: t('nav.feed.later'),
+    disabledReason: null,
     icon: <IconCamera />,
   },
   {
@@ -156,6 +159,37 @@ export function NavRail(): React.JSX.Element {
   const route = useRoute();
   const connected = useSceneStore((s) => s.connected);
   const worldTime = useSceneStore((s) => s.worldTime);
+  // The dots (M6 part 5): store projections vs locally persisted seen marks.
+  // Only what arrived AFTER the mark dots — a replayed, already-seen post
+  // stays quiet across reloads.
+  const feedLastEventId = useSceneStore((s) => s.feedLastEventId);
+  const wikiLastEventId = useSceneStore((s) => s.wikiLastEventId);
+  const feedSeen = useSeen('feed');
+  const wikiSeen = useSeen('wiki');
+
+  const dotFor = (destination: Destination): React.JSX.Element | null => {
+    if (destination.route === '/feed' && feedLastEventId > feedSeen) {
+      return (
+        <span
+          className="wl-rail-dot"
+          data-kind="feed"
+          role="status"
+          aria-label={t('nav.feed.activity')}
+        />
+      );
+    }
+    if (destination.route === '/wiki' && wikiLastEventId > wikiSeen) {
+      return (
+        <span
+          className="wl-rail-dot"
+          data-kind="wiki"
+          role="status"
+          aria-label={t('nav.wiki.activity')}
+        />
+      );
+    }
+    return null;
+  };
 
   return (
     <nav className="wl-rail" aria-label="main navigation">
@@ -185,6 +219,7 @@ export function NavRail(): React.JSX.Element {
         >
           {destination.icon}
           <span className="wl-rail-label">{destination.label}</span>
+          {dotFor(destination)}
         </button>
       ))}
 

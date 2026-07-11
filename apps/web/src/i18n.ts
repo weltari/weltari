@@ -24,6 +24,27 @@ const EN = {
   'chat.newGroup': '+ New group',
   'chat.endGroup': 'End group chat',
   'chat.groupPlaceholder': 'Message the group…',
+  'feed.title': 'The Feed',
+  'feed.empty':
+    'No posts yet — characters post as world time passes. Skip time on the Gameday clock and check back.',
+  'feed.catchingUp': 'Catching up after the skip…',
+  'feed.likes': 'likes this',
+  'feed.replyPlaceholder': 'Reply to this comment…',
+  'feed.replySend': 'Send',
+  'feed.replying': 'Sending…',
+  'feed.notifications': 'Notifications',
+  'feed.notifications.empty':
+    'Nothing yet — answers to your replies land here.',
+  'feed.notification.answered': 'answered your reply:',
+  'nav.feed.activity': 'new feed activity',
+  'nav.wiki.activity': 'new wiki entry',
+  'wiki.title': 'World Wiki',
+  'wiki.empty':
+    'No entries yet. The World Agent writes a place’s wiki when a scene ends there — play a scene at a newly created place and come back.',
+  'wiki.edit': 'Edit this entry (changes apply immediately)',
+  'wiki.read': 'Back to reading',
+  'wiki.editedByYou': 'edited by you',
+  'wiki.writtenAfter': 'written after',
 } as const;
 
 export type MessageKey = keyof typeof EN;
