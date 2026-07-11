@@ -68,6 +68,18 @@ const POINTS = [
   // occurrence_iso, fused re-check). The scene is ended first so both
   // fixture characters are available — the salted pick lands first try.
   'mid_social_post',
+  // M7 part 1 (the memory store, Rev 4 §11): a scene reflection killed
+  // inside the NEW memory-commit window — deltas/core gated, the atomic
+  // append (reflection + CACHE + memory events) not yet written; convergence
+  // = the retried job commits EXACTLY one reflection and EXACTLY one delta
+  // set (the fake scripts two scene deltas) for the (character, scene).
+  'mid_memory_commit',
+  // M7 part 1: the compaction pass killed AFTER the summary generation,
+  // BEFORE memory.compacted appends. The cycle grows Elias's uncompacted
+  // archive past the trigger (each scene end reflects 2 deltas) until the
+  // pass fires; convergence = the retried job commits at least one record,
+  // and per-range uniqueness is verify-consistency's 4l sweep.
+  'mid_compaction',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -304,6 +316,61 @@ function dbCountPostsAbove(sinceId) {
        WHERE type = 'social.post_committed' AND id > ?`,
     )
     .get(sinceId);
+  db.close();
+  return row.n;
+}
+
+/** Memory convergence (M7 part 1): the reflection + its delta set for one
+ * (character, scene) — exactly one reflection, exactly one delta set. */
+function dbCountMemoryFor(sceneId) {
+  const db = new Database(dbPath);
+  const reflections = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'reflection.committed' AND payload LIKE ?`,
+    )
+    .get(`%"scene_id":"${sceneId}"%`).n;
+  const deltas = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'memory.delta_committed' AND payload LIKE ?`,
+    )
+    .get(`%"context_id":"${sceneId}"%`).n;
+  db.close();
+  return { reflections, deltas };
+}
+
+/** Compaction convergence (M7 part 1): records committed after a log head. */
+function dbCountCompactionsAbove(sinceId) {
+  const db = new Database(dbPath);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'memory.compacted' AND id > ?`,
+    )
+    .get(sinceId);
+  db.close();
+  return row.n;
+}
+
+/** Elias's uncompacted delta count — deltas newer than the latest record's
+ * up_to_id (the compaction trigger's own arithmetic, read offline). */
+function dbCountUncompactedDeltas() {
+  const db = new Database(dbPath);
+  const upTo =
+    db
+      .prepare(
+        `SELECT MAX(json_extract(payload, '$.up_to_id')) AS m FROM events
+         WHERE type = 'memory.compacted' AND payload LIKE '%"char:elias"%'`,
+      )
+      .get().m ?? 0;
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'memory.delta_committed' AND id > ?
+         AND payload LIKE '%"character_id":"char:elias"%'`,
+    )
+    .get(upTo);
   db.close();
   return row.n;
 }
@@ -634,6 +701,13 @@ let pendingInvitationScene = null;
 // M6 part 5 feed cycles: the social_post fire killed mid-commit;
 // convergence = the retried fire commits exactly one post (natural key).
 let pendingSocialPost = null;
+// M7 part 1 memory cycles: a reflection killed inside the memory-commit
+// window; convergence = one reflection + one delta set for the scene.
+let pendingMemoryScene = null;
+// M7 part 1 compaction cycles: the pass killed before its record appends;
+// convergence = at least one memory.compacted above the cycle's log head
+// (per-range uniqueness is verify-consistency's 4l sweep).
+let pendingCompaction = null;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -890,6 +964,53 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       'mid_social_post convergence ok: the fire committed its post exactly once after restart',
     );
     pendingSocialPost = null;
+  }
+
+  // M7 part 1: a kill at mid_memory_commit must CONVERGE — the retried
+  // reflection commits EXACTLY one reflection.committed and EXACTLY one
+  // delta set (the fake scripts two scene deltas) for the (character, scene).
+  if (pendingMemoryScene !== null) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const counts = dbCountMemoryFor(pendingMemoryScene);
+      if (counts.reflections === 1 && counts.deltas === 2) break;
+      if (counts.reflections > 1 || counts.deltas > 3) {
+        child.kill('SIGKILL');
+        fail(
+          `duplicate memory commit for ${pendingMemoryScene}: ${counts.reflections} reflections, ${counts.deltas} deltas`,
+        );
+      }
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          `lost memory commit: ${pendingMemoryScene} never converged (${counts.reflections} reflections, ${counts.deltas} deltas) after mid_memory_commit kill`,
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      `mid_memory_commit convergence ok: ${pendingMemoryScene} reflected once with exactly one delta set after restart`,
+    );
+    pendingMemoryScene = null;
+  }
+
+  // M7 part 1: a kill at mid_compaction must CONVERGE — the leased pass
+  // retries and commits its record (never twinned: 4l sweeps uniqueness).
+  if (pendingCompaction !== null) {
+    const deadline = Date.now() + 30000;
+    while (dbCountCompactionsAbove(pendingCompaction) < 1) {
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          'lost compaction: no memory.compacted committed after mid_compaction kill',
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      'mid_compaction convergence ok: the pass committed its record after restart',
+    );
+    pendingCompaction = null;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -1196,6 +1317,73 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       if (advRes.status !== 202) fail(`advance-time returned ${advRes.status}`);
       await killAt;
       pendingSocialPost = sinceId;
+      break;
+    }
+    case 'mid_memory_commit': {
+      // Same seed as mid_reflection: a committed turn gives the scene a
+      // participant; the kill lands INSIDE the memory-commit window (after
+      // gating, before the atomic append).
+      const committed = waitForLine(child, 'FAULT_POINT:pre_commit', 20000);
+      const turnId = await postTurn(currentScene);
+      await committed;
+      const commitDeadline = Date.now() + 15000;
+      while (!dbHasCommittedTurn(turnId)) {
+        if (Date.now() > commitDeadline)
+          fail('mid_memory_commit: seed turn never committed');
+        await sleep(250);
+      }
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_memory_commit', 25000);
+      const res = await post('/v1/commands/end-scene', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: currentScene,
+      });
+      if (res.status !== 202) fail(`end-scene returned ${res.status}`);
+      const memoryScene = currentScene;
+      needNewScene = true;
+      await killAt;
+      pendingMemoryScene = memoryScene;
+      break;
+    }
+    case 'mid_compaction': {
+      // Grow Elias's uncompacted archive to just BELOW the trigger (16):
+      // every scene end reflects two deltas (the fake's script), and earlier
+      // cycles' reflections count too. The FINAL round crosses the threshold
+      // while we already wait on the fault line, so the kill lands inside
+      // the compaction pass's own commit window.
+      const sinceId = dbEventIdsAbove(0).at(-1) ?? 0;
+      const runRound = async (endOnly) => {
+        const committed = waitForLine(child, 'FAULT_POINT:pre_commit', 20000);
+        const turnId = await postTurn(currentScene);
+        await committed;
+        const commitDeadline = Date.now() + 15000;
+        while (!dbHasCommittedTurn(turnId)) {
+          if (Date.now() > commitDeadline)
+            fail('mid_compaction: seed turn never committed');
+          await sleep(250);
+        }
+        const res = await post('/v1/commands/end-scene', {
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          scene_id: currentScene,
+        });
+        if (res.status !== 202) fail(`end-scene returned ${res.status}`);
+        if (endOnly) return;
+        sceneSeq += 1;
+        currentScene = `s-h${sceneSeq}`;
+        await openSceneWhenUnblocked(currentScene);
+      };
+      let rounds = 0;
+      while (dbCountUncompactedDeltas() < 14) {
+        if (rounds++ > 12)
+          fail('mid_compaction: archive never grew — deltas missing?');
+        await runRound(false);
+      }
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_compaction', 60000);
+      await runRound(true); // the crossing reflection enqueues the pass
+      needNewScene = true;
+      await killAt;
+      pendingCompaction = sinceId;
       break;
     }
     case 'mid_update': {
