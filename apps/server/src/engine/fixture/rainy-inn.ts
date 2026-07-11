@@ -6,8 +6,8 @@ import type { CharacterProfile } from '../context-assembler.js';
 import type { WorldCronDefinition } from '../world-clock.js';
 
 export const FIXTURE_WORLD_ID = 'w1';
-export const FIXTURE_SCENE_ID = 's1';
-export const FIXTURE_SCENE_TITLE = 'The Rainy Inn';
+// FIXTURE_SCENE_ID/TITLE retired with the M3 gateway scene echo (M6 part 4:
+// the gateway is a chat surface now — docs/gateway.md).
 
 export interface SublocationDefinition {
   sublocation_id: string;

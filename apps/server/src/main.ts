@@ -17,8 +17,6 @@ import {
   buildEliasProfile,
   buildMaraProfile,
   buildNarratorProfile,
-  FIXTURE_SCENE_ID,
-  FIXTURE_SCENE_TITLE,
   FIXTURE_SUBLOCATIONS,
   FIXTURE_WORLD_CRON,
   FIXTURE_WORLD_ID,
@@ -37,6 +35,7 @@ import { squareOf } from './engine/sublocations.js';
 import { createTurnEngine } from './engine/scene-turn.js';
 import { createWorldClock } from './engine/world-clock.js';
 import { createGroupChatEngine } from './engine/group-chat.js';
+import { createChatGatewayBridge } from './gateway/chat-bridge.js';
 import { createGatewayHost } from './gateway/host.js';
 import { createTelegramConnector } from './gateway/telegram/connector.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './http/bus.js';
@@ -299,63 +298,6 @@ async function startTurn(
   return { ok: true, value: { turnId: started.value.turnId } };
 }
 
-/** The scene the gateway echoes into: the latest open scene in the fixture
- * world, opened on demand — fresh worlds no longer auto-open one (M4 part 2:
- * the splash is the entry surface). */
-function ensureGatewayScene(): Result<string> {
-  const endedIds = new Set<string>();
-  let latestOpen: string | null = null;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
-    if (event.world_id !== FIXTURE_WORLD_ID) continue;
-    if (event.type === 'scene.ended') endedIds.add(event.payload.scene_id);
-    if (event.type === 'scene.started') latestOpen = event.payload.scene_id;
-  }
-  if (latestOpen !== null && !endedIds.has(latestOpen)) return ok(latestOpen);
-  const sceneId = `${FIXTURE_SCENE_ID}-gw-${String(storage.eventLog.lastId() + 1)}`;
-  const opened = lifecycle.openScene({
-    world_id: FIXTURE_WORLD_ID,
-    actor_id: 'gateway:telegram',
-    scene_id: sceneId,
-    title: FIXTURE_SCENE_TITLE,
-    participants: knownCharacters.map((c) => c.character_id),
-  });
-  if (!opened.ok) return opened;
-  return ok(sceneId);
-}
-
-/** Gateway seam: run one fixture-scene turn for inbound messenger text and
- * resolve with the committed transcript (the echo body). */
-async function runGatewayTurn(
-  _conversationId: string,
-  text: string,
-): Promise<Result<string>> {
-  const scene = ensureGatewayScene();
-  if (!scene.ok) return scene;
-  const started = await engine.startTurn({
-    world_id: FIXTURE_WORLD_ID,
-    actor_id: 'gateway:telegram',
-    scene_id: scene.value,
-    text,
-  });
-  if (!started.ok) return started;
-  const turnId = started.value.turnId;
-  await started.value.completion;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
-    if (event.type === 'turn.committed' && event.payload.turn_id === turnId) {
-      return {
-        ok: true,
-        value: event.payload.steps
-          .map((step) => `${step.speaker}: ${step.text}`)
-          .join('\n\n'),
-      };
-    }
-  }
-  return {
-    ok: false,
-    error: new OperationalError('turn_voided', 'turn did not commit'),
-  };
-}
-
 // Drop-in plugins (B10): validated, hash-verified, refused-on-tamper; the
 // app boots without a failing plugin. Connectors a plugin registers join the
 // gateway host under the 'plugin' trust boundary (the host validates B7).
@@ -366,21 +308,38 @@ const plugins = await loadPlugins({
   worldId: FIXTURE_WORLD_ID,
 });
 
+// The chat↔messenger bridge (M6 part 4, Rev 4 §13): the messenger is a VIEW
+// of Weltari Chat — inbound routes into the SAME conversation_id (replacing
+// the M3 scene echo); pushes ride the LIVE bus (eager CRON DMs + the
+// frozen-thread notice) toward the Telegram connector when one exists.
+const telegramConnector =
+  env.telegramBotToken === undefined
+    ? null
+    : createTelegramConnector({ token: env.telegramBotToken, logger });
+const gatewayBridge = createChatGatewayBridge({
+  storage,
+  logger,
+  profiles: dmRoster,
+  actorId: 'user:owner',
+  worldId: FIXTURE_WORLD_ID,
+  connectorId: 'telegram',
+  sendChat: (command) => chatEngine.sendMessage(command),
+  push: async (chatId, text) => {
+    if (telegramConnector === null) return { ok: false };
+    return telegramConnector.send(chatId, text);
+  },
+});
+eventBus.subscribe((event) => {
+  gatewayBridge.onDurableEvent(event);
+});
+
 const gatewayHost = createGatewayHost({
   storage,
   logger,
   connectors: [
-    ...(env.telegramBotToken === undefined
+    ...(telegramConnector === null
       ? []
-      : [
-          {
-            connector: createTelegramConnector({
-              token: env.telegramBotToken,
-              logger,
-            }),
-            boundary: 'telegram' as const,
-          },
-        ]),
+      : [{ connector: telegramConnector, boundary: 'telegram' as const }]),
     ...plugins.flatMap((plugin) =>
       plugin.connectors.map((entry) => ({
         connector: entry.connector,
@@ -388,7 +347,8 @@ const gatewayHost = createGatewayHost({
       })),
     ),
   ],
-  runTurn: runGatewayTurn,
+  runTurn: async (conversationId, text, externalMsgId) =>
+    gatewayBridge.route(conversationId, text, externalMsgId),
 });
 
 // Self-update (FINAL item 12, Guide B12). No public key = disabled entirely —
