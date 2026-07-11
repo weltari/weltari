@@ -5,8 +5,11 @@
 // and can never mutate anything. Inputs arrive as unvalidated provider JSON;
 // each executor safeParses and answers malformed input with an error string
 // the model can react to (the query_sublocations contract).
-// memoryquery is DEFERRED to M7 (the real memory store) — not stubbed.
-import { SessionqueryToolSchema, WikiqueryToolSchema } from '../llm/tools.js';
+import {
+  MemoryqueryToolSchema,
+  SessionqueryToolSchema,
+  WikiqueryToolSchema,
+} from '../llm/tools.js';
 import { validateAt } from '../boundary/validate.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
@@ -135,4 +138,39 @@ export function runSessionquery(
     ].join('\n');
   }
   return `No past scene of yours matches "${query}" (you can only recall scenes you were part of).`;
+}
+
+/**
+ * memoryquery (M7 part 1, Rev 4 §11): the deep dive into the character's OWN
+ * memory archive — BM25 over its deltas via the FTS5 Search Index (Rev 4
+ * §4.2). Participation-gated by construction twice over: the executor is
+ * bound to one character id at the call site, and the index itself filters
+ * on the character column. Latest-per-origin CACHE stays the instant answer;
+ * this is the escalation when the past is buried deeper.
+ */
+export function runMemoryquery(
+  storage: Storage,
+  characterId: string,
+  logger: Logger,
+  input: unknown,
+): string {
+  const parsed = validateAt(
+    'llm',
+    'tool:memoryquery',
+    MemoryqueryToolSchema,
+    input,
+    logger,
+  );
+  if (!parsed.ok) {
+    return 'ERROR: memoryquery needs { query: string } — one line of keywords about your own past.';
+  }
+  const query = parsed.value.query;
+  const hits = storage.memoryIndex.search(characterId, query, RESULT_CAP);
+  if (hits.length === 0) {
+    return `No memory of yours matches "${query}" (only your own memories are searchable).`;
+  }
+  return [
+    'You remember (most relevant first):',
+    ...hits.map((h) => `- ${h.content}`),
+  ].join('\n');
 }

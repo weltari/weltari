@@ -200,6 +200,34 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
           });
           text = `Let me think back. ${answer}`;
         }
+        // The memory deep dive (M7 part 1, Rev 4 §11): `!memoryquery <words>`
+        // runs the FTS5 executor mid-call and the reply VISIBLY uses the
+        // recalled delta — criterion (c) drives at $0.
+        const memory = /!memoryquery\s+([^\n!]+)/.exec(call.prompt);
+        if (memory !== null && call.queries?.memoryquery !== undefined) {
+          const answer = call.queries.memoryquery({
+            query: (memory[1] ?? '').trim(),
+          });
+          text = `Give me a moment to remember. ${answer}`;
+        }
+      }
+      // The character's scene-side queries (M7 part 1): same markers, spoken
+      // in-scene — the character's reply embeds the executor result.
+      if (call.toolset === 'character_scene') {
+        const memory = /!memoryquery\s+([^\n!]+)/.exec(call.prompt);
+        if (memory !== null && call.queries?.memoryquery !== undefined) {
+          const answer = call.queries.memoryquery({
+            query: (memory[1] ?? '').trim(),
+          });
+          text = `"Hold on — let me think," Elias says. ${answer}`;
+        }
+        const wiki = /!wikiquery\s+([^\n!]+)/.exec(call.prompt);
+        if (wiki !== null && call.queries?.wikiquery !== undefined) {
+          const answer = call.queries.wikiquery({
+            query: (wiki[1] ?? '').trim(),
+          });
+          text = `"I know the place," Elias says. ${answer}`;
+        }
       }
       if (firstTokenDelayMs > 0) {
         await new Promise<void>((resolve) => {

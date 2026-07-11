@@ -59,7 +59,12 @@ export interface LlmCall {
     /** M7 part 1 (Rev 4 §11): the reflection memory outputs — memory_delta /
      * update_core / evolve, all data-only; the reflection handlers run both
      * B6 gates and commit atomically with their existing events. */
-    | 'reflection';
+    | 'reflection'
+    /** M7 part 1 (Rev 4 §7/§11, owner ruling 2026-07-11): a character's
+     * SCENE turn — read-only queries only (memoryquery + wikiquery run
+     * mid-call; nothing stageable), so a character can deep-dive its own
+     * past or look up a place without ever mutating anything. */
+    | 'character_scene';
   /**
    * Engine-owned read-only query executors offered alongside the toolset
    * (M6 part 1, Rev 4 §6). The client runs these DURING the call and feeds
@@ -71,10 +76,14 @@ export interface LlmCall {
   queries?: {
     /** Narrator toolset: the sublocation lookup (M6 part 1). */
     query_sublocations?: (input: unknown) => string;
-    /** Chat toolset (M6 part 3, Rev 4 §11): the wiki read. */
+    /** Chat + character_scene toolsets (M6 part 3, Rev 4 §11): the wiki read. */
     wikiquery?: (input: unknown) => string;
     /** Chat toolset (M6 part 3): scene-query — participation-gated. */
     sessionquery?: (input: unknown) => string;
+    /** Chat + character_scene toolsets (M7 part 1, Rev 4 §11): the FTS5 deep
+     * dive into the character's OWN memory deltas — participation-gated by
+     * construction (the executor is bound to one character id). */
+    memoryquery?: (input: unknown) => string;
   };
   /**
    * Engine-owned gate executor (M6 part 2). When offered, the client runs

@@ -23,7 +23,11 @@ import { parseChatToolCall, type StartSceneToolInput } from '../llm/tools.js';
 import type { LlmClient } from '../llm/types.js';
 import type { Storage } from '../storage/db.js';
 import { cacheRecapText, capCacheLine, latestPerOrigin } from './cache.js';
-import { runSessionquery, runWikiquery } from './chat-queries.js';
+import {
+  runMemoryquery,
+  runSessionquery,
+  runWikiquery,
+} from './chat-queries.js';
 import { liveProfile } from './memory.js';
 import {
   assembleContext,
@@ -430,7 +434,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         // instant recap stays the hot path; specifics escalate on demand.
         // Each execution leaves a dev.tool_call frame (C11).
         const queryOf = (
-          tool: 'wikiquery' | 'sessionquery',
+          tool: 'wikiquery' | 'sessionquery' | 'memoryquery',
           run: (input: unknown) => string,
         ): ((input: unknown) => string) => {
           return (input: unknown): string => {
@@ -443,7 +447,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
             return run(input);
           };
         };
-        const basePrompt = `${context.dynamicTail}\n\n## Instruction\nReply as ${profile.name} to the last User message: a short, in-character text message (1-3 sentences, first person, no narration). This is a private chat outside any scene — you cannot change the world from here. Follow your Texting skill: if meeting in person is on the table, gather what is missing (the place above all), and once the place is agreed call the startscene tool yourself in this reply. When the User asks about a place or something specific that happened, use wikiquery/sessionquery to check before answering. After writing your reply, call the cache tool with a private 1-2 line recap of this exchange.`;
+        const basePrompt = `${context.dynamicTail}\n\n## Instruction\nReply as ${profile.name} to the last User message: a short, in-character text message (1-3 sentences, first person, no narration). This is a private chat outside any scene — you cannot change the world from here. Follow your Texting skill: if meeting in person is on the table, gather what is missing (the place above all), and once the place is agreed call the startscene tool yourself in this reply. When the User asks about a place or something specific that happened, use wikiquery/sessionquery to check before answering; when they touch something from your own past that your core memory does not hold, search your long-term memories with memoryquery first. After writing your reply, call the cache tool with a private 1-2 line recap of this exchange.`;
         // The critical-tool correction loop (owner ruling 2026-07-11): a
         // malformed startscene gets a hardcoded correction appended and the
         // WHOLE reply regenerates — nothing was committed yet, so a retry
@@ -474,6 +478,11 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
                   logger,
                   input,
                 ),
+              ),
+              // The memory deep dive (M7 part 1, Rev 4 §11): bound to THIS
+              // character — participation-gated by construction.
+              memoryquery: queryOf('memoryquery', (input) =>
+                runMemoryquery(storage, profile.character_id, logger, input),
               ),
             },
           });

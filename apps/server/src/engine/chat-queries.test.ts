@@ -10,7 +10,11 @@ import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { createRootLogger } from '../observability/logger.js';
 import { openStorage, type Storage } from '../storage/db.js';
-import { runSessionquery, runWikiquery } from './chat-queries.js';
+import {
+  runMemoryquery,
+  runSessionquery,
+  runWikiquery,
+} from './chat-queries.js';
 
 function quietLogger(): ReturnType<typeof createRootLogger> {
   const sink = new Writable({
@@ -155,6 +159,59 @@ describe('sessionquery (scene-query, participation-gated)', () => {
     });
     expect(theirs).toContain('Night of s-out');
     expect(runSessionquery(storage, 'w1', 'char:elias', logger, {})).toContain(
+      'ERROR',
+    );
+    storage.close();
+  });
+});
+
+describe('memoryquery (the memory deep dive, M7 part 1)', () => {
+  function seedDelta(
+    storage: Storage,
+    characterId: string,
+    content: string,
+  ): void {
+    storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: characterId,
+      type: 'memory.delta_committed',
+      payload: {
+        character_id: characterId,
+        origin: 'scene',
+        context_id: 's1',
+        content,
+      },
+    });
+  }
+
+  it('recalls a buried delta by keyword — and only the character own deltas (Rev 4 §11 tier 4)', () => {
+    const storage = open();
+    const logger = quietLogger();
+    seedDelta(
+      storage,
+      'char:elias',
+      'The traveler lied about the ferry schedule — small lies, but a pattern.',
+    );
+    seedDelta(
+      storage,
+      'char:mara',
+      'The ferry landing bell was fixed by Elias; I paid him in eels.',
+    );
+
+    const recalled = runMemoryquery(storage, 'char:elias', logger, {
+      query: 'ferry schedule lies',
+    });
+    expect(recalled).toContain('You remember');
+    expect(recalled).toContain('lied about the ferry schedule');
+    // Mara's delta matches the keyword but belongs to Mara alone.
+    expect(recalled).not.toContain('eels');
+
+    const nothing = runMemoryquery(storage, 'char:elias', logger, {
+      query: 'dragons of the far peaks',
+    });
+    expect(nothing).toContain('No memory of yours matches');
+    // Malformed input answers with an error string, never throws (I8 ethos).
+    expect(runMemoryquery(storage, 'char:elias', logger, {})).toContain(
       'ERROR',
     );
     storage.close();

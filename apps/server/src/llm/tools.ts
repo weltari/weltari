@@ -173,11 +173,21 @@ export const SessionqueryToolSchema = z.strictObject({
   query: z.string().min(1).max(200),
 });
 
+/** memoryquery (M7 part 1, Rev 4 §11): the FTS5 deep dive into the
+ * character's OWN memory deltas — the escalation past the always-injected
+ * core. Mid-call-only like every query. */
+export const MemoryqueryToolSchema = z.strictObject({
+  /** Keywords about the character's own past experiences. */
+  query: z.string().min(1).max(200),
+});
+
 export const CHAT_QUERY_DESCRIPTIONS = {
   wikiquery:
     'Look up what is publicly known about a place: searches the world wiki (place names, descriptions, latest entries). Use it when the User asks about a location and your instant recall is not enough. The result returns to you immediately.',
   sessionquery:
     'Recall a past scene YOU took part in: searches your scenes by their recaps and returns the best match with its final lines. You can only read scenes you were present in. Use it when the User asks about something specific that happened. The result returns to you immediately.',
+  memoryquery:
+    'Search your OWN long-term memories: your permanent private notes about things you experienced and learned, back to the very beginning. Use it when something from your past is referenced and your always-present core memory does not hold the detail. Only your own memories are searchable. The result returns to you immediately.',
 } as const;
 
 /** Static descriptions for the chat toolset (stable strings — never state). */
@@ -547,6 +557,7 @@ export function parseChatToolCall(
     }
     case 'wikiquery':
     case 'sessionquery':
+    case 'memoryquery':
       // Queries execute DURING the call (LlmCall.queries) and are filtered
       // out of the returned tool calls; one arriving here means the client
       // mis-routed it. Reject as a value — nothing durable happens (I8).

@@ -227,6 +227,41 @@ describe('DM a character outside any scene (criterion a)', () => {
     ctx.storage.close();
   });
 
+  it('the memory escalation: a DM question about a buried delta runs memoryquery mid-call and the reply visibly uses it (M7 part 1, criterion c)', async () => {
+    const ctx = setup();
+    // A delta buried in the archive — the instant CACHE recap cannot answer.
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: ELIAS.character_id,
+      type: 'memory.delta_committed',
+      payload: {
+        character_id: ELIAS.character_id,
+        origin: 'scene',
+        context_id: 's-old',
+        content:
+          'The traveler lied about the ferry schedule — small lies, but a pattern.',
+      },
+    });
+    await sendAndAwait(ctx, {
+      ...SEND,
+      text: 'Do you remember what the traveler said? !memoryquery traveler ferry lies',
+    });
+    const reply = ctx.storage.eventLog
+      .readSince(0)
+      .find(
+        (e) =>
+          e.type === 'chat.message_committed' &&
+          e.payload.sender === 'character',
+      );
+    // The reply VISIBLY uses the recalled delta (criterion c shape)…
+    if (reply?.type === 'chat.message_committed') {
+      expect(reply.payload.text).toContain('lied about the ferry schedule');
+    }
+    // …and the escalation left its dev.tool_call frame (C11).
+    expect(ctx.devFrames.some((f) => f.tool === 'memoryquery')).toBe(true);
+    ctx.storage.close();
+  });
+
   it('a duplicate request_id is a silent no-op (idempotent send)', async () => {
     const ctx = setup();
     await sendAndAwait(ctx, SEND);
