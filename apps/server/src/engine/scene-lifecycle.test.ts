@@ -93,7 +93,8 @@ describe('scene lifecycle (reflection fan-out + scoped open blocking)', () => {
       scene_id: 's1',
     });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.jobsEnqueued).toBe(2);
+    // Per-character reflection + World Agent + the object GC sweep (M7 part 3).
+    if (result.ok) expect(result.value.jobsEnqueued).toBe(3);
 
     const ended = ctx.storage.eventLog
       .readSince(0)
@@ -106,6 +107,7 @@ describe('scene lifecycle (reflection fan-out + scoped open blocking)', () => {
       ctx.storage.ledger.countByKey(`reflection:${ELIAS.character_id}:s1`),
     ).toBe(1);
     expect(ctx.storage.ledger.countByKey('world_agent:s1')).toBe(1);
+    expect(ctx.storage.ledger.countByKey('object_gc:w1:s1')).toBe(1);
     const worldAgentJobs = ctx.storage.ledger
       .listActive('w1')
       .filter((j) => j.type === 'world_agent');

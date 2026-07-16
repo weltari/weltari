@@ -77,6 +77,7 @@ import {
   createWorldCronCodeHandler,
   createWorldCronLlmHandler,
 } from './ledger/handlers/world-cron.js';
+import { createObjectGcHandler } from './ledger/handlers/object-gc.js';
 import { createProfileAnalysisHandler } from './ledger/handlers/profile-analysis.js';
 import { createRunner } from './ledger/runner.js';
 import {
@@ -503,6 +504,12 @@ const runner = createRunner({
       storage,
       eventBus,
       llm,
+      logger,
+      ...(faultPoint === undefined ? {} : { faultPoint }),
+    }),
+    object_gc: createObjectGcHandler({
+      storage,
+      eventBus,
       logger,
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),

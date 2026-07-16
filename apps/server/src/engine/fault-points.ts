@@ -51,7 +51,12 @@ export type FaultPoint =
    * gated, the transaction (side-store rows + profile.updated) not yet
    * written. Idempotent per (actor, context): the retry commits exactly one
    * hypothesis set per ended scene/chat range. */
-  | 'mid_profile_analysis';
+  | 'mid_profile_analysis'
+  /** M7 part 3: inside the object_gc job — the sweep is due, the transaction
+   * (object.swept tombstones + their same-transaction row deletions) not yet
+   * written. Candidates are recomputed INSIDE the transaction, so a retry
+   * converges: already-swept strays are simply no longer candidates. */
+  | 'mid_object_gc';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;
