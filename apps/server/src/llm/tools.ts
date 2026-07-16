@@ -533,11 +533,22 @@ export type ProposeWorldSeedToolInput = z.infer<
   typeof ProposeWorldSeedToolSchema
 >;
 
+/** M7 part 3 (Rev 4 §7): GM-authored objects — consent-gated like every GM
+ * write; holder = a sublocation (owner ruling 2026-07-16: backpacks are V2). */
+export const ProposeObjectToolSchema = z.strictObject({
+  name: z.string().min(1).max(120),
+  holder_sublocation_id: z.string().min(1).max(200),
+  object_payload: z.string().min(1).max(4000).optional(),
+  rationale: z.string().min(1).max(1000),
+});
+export type ProposeObjectToolInput = z.infer<typeof ProposeObjectToolSchema>;
+
 export const GM_TOOL_NAMES = [
   'propose_place',
   'propose_character',
   'propose_wiki_edit',
   'propose_world_seed',
+  'propose_object',
 ] as const;
 export type GmToolName = (typeof GM_TOOL_NAMES)[number];
 
@@ -551,6 +562,8 @@ export const GM_TOOL_DESCRIPTIONS: Record<GmToolName, string> = {
     "Propose replacing a place's wiki entry with new text. Use the wikiquery tool FIRST to read what stands there now — your entry replaces it whole. sublocation_id must be the real id from wikiquery. The user sees old vs new as a diff card.",
   propose_world_seed:
     'Submit the completed world-creation form ONCE, when the interview has covered everything: world_name, language (what the user chose), chapter_seed (optional: the opening story situation), places (2-8; every place you deliberately name — at least one public AND one private), characters (1-6). The user reviews the whole world as one card; approval creates all of it at once. Do not call this while anything essential is still unasked.',
+  propose_object:
+    "Propose a durable object lying at a place. Nothing is created until the user approves the card. name; holder_sublocation_id = the real id of the place it lies at (wikiquery to find ids); object_payload (optional) = the authored content — what it is and/or contains (a letter's text goes here); rationale = why the world wants it. Objects you author are public: anyone present can find them via exploration.",
 };
 
 /** Per-tool shape recaps for the GM correction loop (M7 part 2): a gate-1
@@ -565,6 +578,8 @@ export const GM_TOOL_SCHEMA_HINTS: Record<GmToolName, string> = {
     'propose_wiki_edit needs: sublocation_id (the real id from wikiquery), entry, rationale.',
   propose_world_seed:
     'propose_world_seed needs ALL of: world_name; language; places (array of 2-8 objects, EACH {name, description, space: "public"|"private" lowercase}); characters (array of 1-6 objects, EACH {name, personality, goals: array of short strings}); rationale. chapter_seed optional. ONE call carrying the whole form.',
+  propose_object:
+    'propose_object needs: name, holder_sublocation_id (the real id of the place it lies at), rationale; object_payload optional.',
 };
 
 /** A GM tool call that passed gate 1. The proposal engine's gate 2 (world
@@ -573,7 +588,8 @@ export type ValidatedGmToolCall =
   | { tool: 'propose_place'; input: ProposePlaceToolInput }
   | { tool: 'propose_character'; input: ProposeCharacterToolInput }
   | { tool: 'propose_wiki_edit'; input: ProposeWikiEditToolInput }
-  | { tool: 'propose_world_seed'; input: ProposeWorldSeedToolInput };
+  | { tool: 'propose_world_seed'; input: ProposeWorldSeedToolInput }
+  | { tool: 'propose_object'; input: ProposeObjectToolInput };
 
 /** Gate 1 for the GM toolset — same contract as every parse here: reject as
  * a value, zero rows (I8). */
@@ -637,6 +653,18 @@ export function parseGmToolCall(
             ok: true,
             value: { tool: 'propose_world_seed', input: input.value },
           }
+        : input;
+    }
+    case 'propose_object': {
+      const input = validateAt(
+        'llm',
+        'tool:propose_object',
+        ProposeObjectToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'propose_object', input: input.value } }
         : input;
     }
     default:

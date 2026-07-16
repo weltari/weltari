@@ -2085,6 +2085,71 @@
                 },
                 "action": {
                   "type": "string",
+                  "const": "create_object"
+                },
+                "diff": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "holder_sublocation_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "object_payload": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4000
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "holder_sublocation_id"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "proposal_id",
+                "rationale",
+                "proposer",
+                "approvers",
+                "action",
+                "diff"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "proposal_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "rationale": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000
+                },
+                "proposer": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "approvers": {
+                  "minItems": 1,
+                  "maxItems": 10,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "action": {
+                  "type": "string",
                   "const": "edit_wiki"
                 },
                 "diff": {

@@ -35,6 +35,16 @@ function Diff({ payload }: { payload: ProposalPayload }): React.JSX.Element {
           </ul>
         </div>
       );
+    case 'create_object':
+      return (
+        <div className="wl-proposal-diff">
+          <strong>{payload.diff.name}</strong>{' '}
+          <em>({payload.diff.holder_sublocation_id})</em>
+          {payload.diff.object_payload === undefined ? null : (
+            <p>{payload.diff.object_payload}</p>
+          )}
+        </div>
+      );
     case 'edit_wiki':
       return (
         <div className="wl-proposal-diff">

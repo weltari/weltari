@@ -27,6 +27,7 @@ import {
   MemoryqueryToolSchema,
   NARRATOR_TOOL_DESCRIPTIONS,
   ProposeCharacterToolSchema,
+  ProposeObjectToolSchema,
   ProposePlaceToolSchema,
   ProposeWikiEditToolSchema,
   ProposeWorldSeedToolSchema,
@@ -473,6 +474,11 @@ export function createOpenRouterClient(
                                   description:
                                     GM_TOOL_DESCRIPTIONS.propose_world_seed,
                                   inputSchema: ProposeWorldSeedToolSchema,
+                                }),
+                                propose_object: tool({
+                                  description:
+                                    GM_TOOL_DESCRIPTIONS.propose_object,
+                                  inputSchema: ProposeObjectToolSchema,
                                 }),
                                 ...queryToolsFor(call),
                               },

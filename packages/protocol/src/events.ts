@@ -749,6 +749,21 @@ export const ProposalCharacterDiffSchema = z.strictObject({
 });
 export type ProposalCharacterDiff = z.infer<typeof ProposalCharacterDiffSchema>;
 
+/**
+ * One object inside a proposal diff (0.18.0, M7 part 3, Rev 4 §7): what the
+ * GM wants to author — applied as an object.created row (holder = a
+ * sublocation; owner ruling 2026-07-16: character/user holders are V2) only
+ * after approval. GM-authored objects have no creating scene and are never
+ * GC candidates.
+ */
+export const ProposalObjectDiffSchema = z.strictObject({
+  name: z.string().min(1).max(120),
+  holder_sublocation_id: z.string().min(1),
+  /** Optional authored content — what the object is and/or contains. */
+  object_payload: z.string().min(1).max(4000).optional(),
+});
+export type ProposalObjectDiff = z.infer<typeof ProposalObjectDiffSchema>;
+
 const proposalBase = {
   /** Engine-assigned proposal identity — every later event (resolution,
    * applied rows) points back here. */
@@ -790,6 +805,11 @@ export const ProposalSubmittedEventSchema = z.strictObject({
       ...proposalBase,
       action: z.literal('create_character'),
       diff: ProposalCharacterDiffSchema,
+    }),
+    z.strictObject({
+      ...proposalBase,
+      action: z.literal('create_object'),
+      diff: ProposalObjectDiffSchema,
     }),
     z.strictObject({
       ...proposalBase,

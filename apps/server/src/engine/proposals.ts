@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ProposalSubmittedEventSchema,
   type ProposalCharacterDiff,
+  type ProposalObjectDiff,
   type ProposalPlaceDiff,
   type ResolveProposalCommand,
   type WeltariEvent,
@@ -197,6 +198,35 @@ export function createProposalEngine(
       : ok(undefined);
   }
 
+  /** Gate 2 for an object (M7 part 3, Rev 4 §7): the holder must exist and
+   * the (name, holder) pair must be free — the same dedup the scene gate
+   * enforces, against the objects projection. */
+  function gateObject(
+    worldId: string,
+    object: ProposalObjectDiff,
+  ): Result<undefined> {
+    const holderKnown = knownSublocations(storage, worldId).some(
+      (s) => s.sublocation_id === object.holder_sublocation_id,
+    );
+    if (!holderKnown) {
+      return err(
+        new OperationalError('unknown_sublocation', 'no such sublocation'),
+      );
+    }
+    const taken =
+      storage.objects.resolveName(worldId, object.name, [
+        object.holder_sublocation_id,
+      ]).length > 0;
+    return taken
+      ? err(
+          new OperationalError(
+            'object_exists',
+            `an object named like "${object.name}" already lies at ${object.holder_sublocation_id}`,
+          ),
+        )
+      : ok(undefined);
+  }
+
   /** Gate 2 per action — run at submit AND re-run at apply (world state may
    * have moved while the card sat pending; B6's second gate holds twice). */
   function gate(worldId: string, payload: ProposalPayload): Result<undefined> {
@@ -205,6 +235,8 @@ export function createProposalEngine(
         return gatePlace(worldId, payload.diff);
       case 'create_character':
         return gateCharacter(worldId, payload.diff);
+      case 'create_object':
+        return gateObject(worldId, payload.diff);
       case 'edit_wiki': {
         const known = knownSublocations(storage, worldId).some(
           (s) => s.sublocation_id === payload.diff.sublocation_id,
@@ -362,6 +394,31 @@ export function createProposalEngine(
         return ok(
           characterPlan(worldId, actorId, payload.proposal_id, payload.diff),
         );
+      case 'create_object':
+        // No scene_id: a GM-authored object has no creating scene and is
+        // never a GC candidate (Rev 4 §7). The random id suffix follows the
+        // scene path's rule — (name, holder) may legitimately recur after a
+        // move, so ids never derive from names alone; the fused re-check
+        // keeps the apply single, so no twins can mint.
+        return ok({
+          events: [
+            {
+              world_id: worldId,
+              actor_id: actorId,
+              type: 'object.created',
+              payload: {
+                object_id: `obj:${slugifyName(payload.diff.name)}-${randomUUID().slice(0, 8)}`,
+                name: payload.diff.name,
+                holder_sublocation_id: payload.diff.holder_sublocation_id,
+                ...(payload.diff.object_payload === undefined
+                  ? {}
+                  : { object_payload: payload.diff.object_payload }),
+                proposal_id: payload.proposal_id,
+              },
+            },
+          ],
+          jobs: [],
+        });
       case 'edit_wiki':
         return ok({
           events: [

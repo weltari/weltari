@@ -104,7 +104,10 @@
  * update, sublocation → sublocation) / object.swept (the GC tombstone: the
  * row leaves the projection, the log stays append-only — I1). The objects
  * table is a same-transaction fold of these events owned by a sole-writer
- * repository.
+ * repository. The §16 proposal union gains action `create_object`
+ * (ProposalObjectDiff: name + holder_sublocation_id + optional payload) —
+ * GM-authored objects ride the existing consent seam and are never GC
+ * candidates (no creating scene).
  */
 export const PROTOCOL_VERSION = '0.18.0';
 
@@ -150,6 +153,7 @@ export {
   ProfileDeletedEventSchema,
   ProfileUpdatedEventSchema,
   ProposalCharacterDiffSchema,
+  ProposalObjectDiffSchema,
   ProposalPlaceDiffSchema,
   ProposalResolvedEventSchema,
   ProposalSubmittedEventSchema,
@@ -179,6 +183,7 @@ export {
   WorldTimeAdvancedEventSchema,
   type ImageRegion,
   type ProposalCharacterDiff,
+  type ProposalObjectDiff,
   type ProposalPlaceDiff,
   type TurnStep,
   type WeltariEvent,

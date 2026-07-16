@@ -1769,6 +1769,40 @@ describe('object event family (0.18.0, M7 part 3, Rev 4 §7)', () => {
     }
   });
 
+  it('accepts proposal.submitted action create_object and rejects a mismatched diff', () => {
+    const base = {
+      proposal_id: 'prop-1',
+      rationale: 'The story needs something findable here.',
+      proposer: 'char:gm',
+      approvers: ['user:owner'],
+      action: 'create_object',
+    };
+    for (const diff of [
+      {
+        name: 'a tide-worn locket',
+        holder_sublocation_id: 'subloc:long-pier',
+        object_payload: 'Inside: a miniature of a woman facing away.',
+      },
+      { name: 'a tide-worn locket', holder_sublocation_id: 'subloc:long-pier' },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'proposal.submitted',
+        payload: { ...base, diff },
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    }
+    const mismatched: unknown = {
+      ...envelope,
+      type: 'proposal.submitted',
+      payload: {
+        ...base,
+        diff: { name: 'a locket', holder_character_id: 'char:elias' },
+      },
+    };
+    expect(WeltariEventSchema.safeParse(mismatched).success).toBe(false);
+  });
+
   it('accepts object.swept (the GC tombstone) and rejects extras (B5)', () => {
     const valid: unknown = {
       ...envelope,
