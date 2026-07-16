@@ -94,6 +94,12 @@ const POINTS = [
   // the retried job commits EXACTLY one hypothesis set (the fake scripts
   // two) for the (actor, context).
   'mid_profile_analysis',
+  // M7 part 3 (objects, Rev 4 §7): a character materializes a payload-less
+  // stray (!obj) in a scene, the scene ends (enqueuing the object_gc sweep),
+  // and the sweep is killed BEFORE its tombstone transaction; convergence =
+  // the retried job sweeps the stray EXACTLY once (row gone, ONE
+  // object.swept, the object.created stays in the log — I1).
+  'mid_object_gc',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -339,6 +345,34 @@ function dbProposalState(proposalId) {
     .get(like).n;
   db.close();
   return { resolutions, materialized };
+}
+
+/** One harness stray's object state (M7 part 3): the live row count, its
+ * tombstone count, and whether the creating event still stands (I1). */
+function dbObjectGcState(name) {
+  const db = new Database(dbPath);
+  const liveRows = db
+    .prepare('SELECT COUNT(*) AS n FROM objects WHERE name = ?')
+    .get(name).n;
+  const createdRow = db
+    .prepare(
+      `SELECT payload FROM events
+       WHERE type = 'object.created' AND payload LIKE ?
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(`%"name":"${name}"%`);
+  let swept = 0;
+  if (createdRow !== undefined) {
+    const objectId = JSON.parse(createdRow.payload).object_id;
+    swept = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM events
+         WHERE type = 'object.swept' AND payload LIKE ?`,
+      )
+      .get(`%"object_id":"${objectId}"%`).n;
+  }
+  db.close();
+  return { liveRows, swept, created: createdRow === undefined ? 0 : 1 };
 }
 
 /** The GM card for one harness place name (the reply commits detached —
@@ -781,6 +815,8 @@ let proposalSeq = 0;
 // convergence = exactly one hypothesis set per (actor, context).
 let pendingProfile = null;
 let profileSeq = 0;
+let objectGcSeq = 0;
+let pendingObjectGc = null;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -1148,6 +1184,40 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       'mid_profile_analysis convergence ok: one hypothesis set committed after restart',
     );
     pendingProfile = null;
+  }
+
+  // M7 part 3: a kill at mid_object_gc must CONVERGE — the leased sweep
+  // retries and tombstones the stray EXACTLY once; the creating event stays
+  // in the log (I1: the tombstone is the deletion, never an event delete).
+  if (pendingObjectGc !== null) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const state = dbObjectGcState(pendingObjectGc);
+      if (state.created !== 1) {
+        child.kill('SIGKILL');
+        fail(
+          `object.created for "${pendingObjectGc}" left the log (I1 broken)`,
+        );
+      }
+      if (state.liveRows === 0 && state.swept === 1) break;
+      if (state.swept > 1) {
+        child.kill('SIGKILL');
+        fail(
+          `duplicate tombstones for "${pendingObjectGc}": ${state.swept} object.swept events`,
+        );
+      }
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          `lost sweep: "${pendingObjectGc}" never converged (${state.liveRows} rows, ${state.swept} swept)`,
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      'mid_object_gc convergence ok: the stray swept exactly once after restart',
+    );
+    pendingObjectGc = null;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -1601,6 +1671,40 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       const rangeEndId = Number(exitBody.job_key.split(':').at(-1));
       await killAt;
       pendingProfile = `${exitBody.conversation_id}:${rangeEndId}`;
+      break;
+    }
+    case 'mid_object_gc': {
+      objectGcSeq += 1;
+      const strayName = `harness stray ${String(objectGcSeq)}`;
+      // A committed turn materializes the payload-less stray (!obj —
+      // hyphens become spaces in the fake's marker).
+      const committed = waitForLine(child, 'FAULT_POINT:pre_commit', 20000);
+      const turnId = await postTurn(
+        currentScene,
+        202,
+        `I drop something. !obj harness-stray-${String(objectGcSeq)}`,
+      );
+      await committed;
+      const commitDeadline = Date.now() + 15000;
+      while (!dbHasCommittedTurn(turnId)) {
+        if (Date.now() > commitDeadline)
+          fail('mid_object_gc: seed turn never committed');
+        await sleep(250);
+      }
+      if (dbObjectGcState(strayName).liveRows !== 1)
+        fail(`mid_object_gc: stray "${strayName}" never materialized`);
+      // Ending the scene enqueues the sweep; the kill lands inside its
+      // tombstone window.
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_object_gc', 25000);
+      const res = await post('/v1/commands/end-scene', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: currentScene,
+      });
+      if (res.status !== 202) fail(`end-scene returned ${res.status}`);
+      needNewScene = true;
+      await killAt;
+      pendingObjectGc = strayName;
       break;
     }
     case 'mid_update': {
