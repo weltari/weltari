@@ -621,6 +621,99 @@ export const SubwikiEditedEventSchema = z.strictObject({
 });
 
 /**
+ * A durable object entered the world (0.18.0, M7 part 3, Rev 4 §7):
+ * materialize-on-touch — the Narrator narrates scenery freely as prose, and
+ * an object becomes this event (and its row) only when an interaction has a
+ * durable consequence; ~95% of narrated stuff never becomes data. V1 objects
+ * are sublocation-held ONLY (owner ruling 2026-07-16: backpacks — character/
+ * user holders, transfer_object, the secrecy rule — are V2), so every object
+ * is public: listed by `explore`, observable-now, usable by anyone present.
+ * Emitted by: the scene turn engine (a character's gated `interact_object`,
+ * atomic with its turn.committed) or the resolve-proposal apply (GM-authored
+ * objects, consent-gated). Consumed by: the objects repository (the sole
+ * writer folds this into the objects table in the SAME transaction), clients.
+ */
+export const ObjectCreatedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('object.created'),
+  payload: z.strictObject({
+    object_id: z.string().min(1),
+    name: z.string().min(1).max(120),
+    /** The sublocation holding the object — V1's only holder kind. */
+    holder_sublocation_id: z.string().min(1),
+    /** What the object is and/or contains (prose). Present when the creating
+     * touch authored content in the same op; absent = an empty carrier
+     * awaiting write-on-first-read or a later authoring touch. */
+    object_payload: z.string().min(1).max(4000).optional(),
+    /** Provenance: the scene whose touch materialized the row. Absent on
+     * proposal-applied objects. */
+    scene_id: z.string().min(1).optional(),
+    /** The approved GM proposal that applied this row (audit provenance;
+     * absent on touch-materialized objects). */
+    proposal_id: z.string().min(1).max(100).optional(),
+  }),
+});
+
+/**
+ * An object's prose payload was written (0.18.0, Rev 4 §7). Two writers,
+ * distinguished by the envelope's actor_id: a character authoring content
+ * through `interact_object` (engine→truth directly, never through the
+ * Narrator), or the Narrator's write-on-first-read — an empty public object
+ * examined once gets improvised content persisted EXACTLY once (the engine
+ * gate refuses an improv write over an existing payload; the second read
+ * returns the same content). Emitted by: the scene turn engine, atomic with
+ * its turn.committed. Consumed by: the objects repository (same-transaction
+ * fold), clients.
+ */
+export const ObjectPayloadWrittenEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('object.payload_written'),
+  payload: z.strictObject({
+    object_id: z.string().min(1),
+    object_payload: z.string().min(1).max(4000),
+    /** Provenance: the scene whose turn wrote the payload. */
+    scene_id: z.string().min(1),
+  }),
+});
+
+/**
+ * An object changed holders (0.18.0, Rev 4 §7): one pointer update — V1
+ * moves are sublocation → sublocation within the scene's reach (owner ruling
+ * 2026-07-16: character/user holders are V2, so possession never changes,
+ * only placement). Emitted by: the scene turn engine (a character's gated
+ * `interact_object`, atomic with its turn.committed). Consumed by: the
+ * objects repository (same-transaction fold), clients.
+ */
+export const ObjectMovedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('object.moved'),
+  payload: z.strictObject({
+    object_id: z.string().min(1),
+    from_sublocation_id: z.string().min(1),
+    to_sublocation_id: z.string().min(1),
+    /** Provenance: the scene whose turn moved the object. */
+    scene_id: z.string().min(1),
+  }),
+});
+
+/**
+ * The GC sweep tombstoned a stray object (0.18.0, Rev 4 §7): payload-less,
+ * sublocation-held, and never touched again after its creating scene —
+ * dropped sticks vanish; payload carriers are exempt. The object leaves the
+ * projection (its row is deleted in the SAME transaction), but the log stays
+ * append-only (I1): this event IS the deletion, a tombstone — never an
+ * event-log DELETE. Emitted by: the object-gc ledger job. Consumed by: the
+ * objects repository, verify block sweeps, clients.
+ */
+export const ObjectSweptEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('object.swept'),
+  payload: z.strictObject({
+    object_id: z.string().min(1),
+  }),
+});
+
+/**
  * One place inside a proposal diff (0.17.0, M7 part 2, Rev 4 §9/§16): what
  * the GM wants to create — applied as a materialized sublocation row (plus an
  * opening wiki entry when given) only after approval. `space` feeds the
@@ -1411,6 +1504,10 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   CharacterEvolvedEventSchema,
   SubwikiUpdatedEventSchema,
   SubwikiEditedEventSchema,
+  ObjectCreatedEventSchema,
+  ObjectPayloadWrittenEventSchema,
+  ObjectMovedEventSchema,
+  ObjectSweptEventSchema,
   ProposalSubmittedEventSchema,
   ProposalResolvedEventSchema,
   CharacterCreatedEventSchema,

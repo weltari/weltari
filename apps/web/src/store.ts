@@ -904,6 +904,15 @@ function applyOne(
     case 'character.evolved':
     case 'cache.pruned':
       return;
+    // Objects (0.18.0, M7 part 3): engine-side state only in V1 — the
+    // backpack UI defers to V2 with character/user holders (owner ruling
+    // 2026-07-16); public objects reach the user through narration and
+    // explore results, not a client projection.
+    case 'object.created':
+    case 'object.payload_written':
+    case 'object.moved':
+    case 'object.swept':
+      return;
     // The GM consent cards (0.17.0, Rev 4 §16): pending = submitted minus
     // resolved — a pure fold, so replay rebuilds the open cards exactly.
     case 'proposal.submitted': {

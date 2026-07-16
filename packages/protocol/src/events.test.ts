@@ -1669,3 +1669,118 @@ describe('GM event family (0.17.0, M7 part 2, Rev 4 §9/§15/§16)', () => {
     expect(WeltariEventSchema.safeParse(event).success).toBe(true);
   });
 });
+
+describe('object event family (0.18.0, M7 part 3, Rev 4 §7)', () => {
+  it('accepts object.created as a touch (scene), a proposal apply, and an empty carrier', () => {
+    const base = {
+      object_id: 'obj:brass-key',
+      name: 'a brass key',
+      holder_sublocation_id: 'subloc:tide-bell',
+    };
+    for (const payload of [
+      { ...base, scene_id: 's1', object_payload: 'A worn brass key.' },
+      { ...base, proposal_id: 'p-1', object_payload: 'A worn brass key.' },
+      { ...base, scene_id: 's1' }, // empty carrier awaiting write-on-first-read
+    ]) {
+      const event: unknown = { ...envelope, type: 'object.created', payload };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    }
+  });
+
+  it('rejects object.created with an empty name, oversized payload, or extra key (B5/B7)', () => {
+    const base = {
+      object_id: 'obj:brass-key',
+      holder_sublocation_id: 'subloc:tide-bell',
+      scene_id: 's1',
+    };
+    for (const payload of [
+      { ...base, name: '' },
+      { ...base, name: 'x'.repeat(121) },
+      { ...base, name: 'a brass key', object_payload: 'x'.repeat(4001) },
+      { ...base, name: 'a brass key', holder_character_id: 'char:elias' },
+    ]) {
+      const event: unknown = { ...envelope, type: 'object.created', payload };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts object.payload_written and requires the payload + scene provenance', () => {
+    const valid: unknown = {
+      ...envelope,
+      type: 'object.payload_written',
+      payload: {
+        object_id: 'obj:letter',
+        object_payload: 'Meet me under the pier at low tide. — P',
+        scene_id: 's1',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    for (const payload of [
+      { object_id: 'obj:letter', object_payload: '', scene_id: 's1' },
+      { object_id: 'obj:letter', object_payload: 'x' },
+      {
+        object_id: 'obj:letter',
+        object_payload: 'x',
+        scene_id: 's1',
+        version: 2,
+      },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'object.payload_written',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts object.moved (sublocation → sublocation) and rejects a missing endpoint', () => {
+    const valid: unknown = {
+      ...envelope,
+      type: 'object.moved',
+      payload: {
+        object_id: 'obj:brass-key',
+        from_sublocation_id: 'subloc:tide-bell',
+        to_sublocation_id: 'subloc:long-pier',
+        scene_id: 's1',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    for (const payload of [
+      {
+        object_id: 'obj:brass-key',
+        from_sublocation_id: 'subloc:tide-bell',
+        scene_id: 's1',
+      },
+      {
+        object_id: 'obj:brass-key',
+        from_sublocation_id: 'subloc:tide-bell',
+        to_sublocation_id: 'subloc:long-pier',
+      },
+      {
+        object_id: 'obj:brass-key',
+        from_sublocation_id: 'subloc:tide-bell',
+        to_character_id: 'char:elias', // backpacks are V2 (owner ruling 2026-07-16)
+        scene_id: 's1',
+      },
+    ]) {
+      const event: unknown = { ...envelope, type: 'object.moved', payload };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts object.swept (the GC tombstone) and rejects extras (B5)', () => {
+    const valid: unknown = {
+      ...envelope,
+      type: 'object.swept',
+      payload: { object_id: 'obj:dropped-stick' },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    const smuggled: unknown = {
+      ...envelope,
+      type: 'object.swept',
+      payload: { object_id: 'obj:dropped-stick', purge_log: true },
+    };
+    expect(WeltariEventSchema.safeParse(smuggled).success).toBe(false);
+  });
+});
