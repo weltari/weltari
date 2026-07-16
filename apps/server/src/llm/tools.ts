@@ -225,6 +225,11 @@ export const CHARACTER_SCENE_TOOL_DESCRIPTIONS: Record<
     "Make a physical object durable — use it ONLY when the interaction has a lasting consequence: you place or drop an item somewhere, move it elsewhere, or author written content into it (a letter's text goes in payload). An important object directly impacts goals, alters relationships, has utility, shifts the story, or holds high intrinsic value — everything else stays prose and needs no tool call. object: its name, or an id you were given. payload: the authored content. move_to: the sublocation_id it moves to. A call that would change nothing durable is rejected — express it in your attempt instead. At most 2 object operations per turn.",
 };
 
+/** Static description for the explore listing (M7 part 3 — character scene
+ * turns only; stable string, never state). */
+export const EXPLORE_QUERY_DESCRIPTION =
+  'Look around a place: returns what is publicly known about the sublocation (its wiki), the objects lying there openly (anyone present may take or read them), and the places one level deeper inside it. Omit sublocation_id for where you are now. The result returns to you immediately; the information is open to everyone present.';
+
 export const CHAT_QUERY_DESCRIPTIONS = {
   wikiquery:
     'Look up what is publicly known about a place: searches the world wiki (place names, descriptions, latest entries). Use it when the User asks about a location and your instant recall is not enough. The result returns to you immediately.',

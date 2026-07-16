@@ -38,7 +38,11 @@ import {
   type TurnLine,
 } from './context-assembler.js';
 import type { EventSink } from './event-sink.js';
-import { runMemoryquery, runWikiquery } from './chat-queries.js';
+import {
+  runExploreQuery,
+  runMemoryquery,
+  runWikiquery,
+} from './chat-queries.js';
 import { archiveRecapText, liveProfile } from './memory.js';
 import {
   buildEliasProfile,
@@ -371,6 +375,24 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                     input_json: JSON.stringify(input),
                   });
                   return runWikiquery(storage, worldId, logger, input);
+                },
+                // The §14 listing (M7 part 3): wiki + public objects + one
+                // level of interiors; defaults to the place the turn is in
+                // (staged moves included via the stage's live view).
+                explore: (input: unknown): string => {
+                  devBus.publish({
+                    type: 'dev.tool_call',
+                    turn_id: turnId,
+                    tool: 'explore',
+                    input_json: JSON.stringify(input),
+                  });
+                  return runExploreQuery(
+                    storage,
+                    worldId,
+                    turn.stage.currentSublocation(),
+                    logger,
+                    input,
+                  );
                 },
               },
               gate: (raw: RawToolCall): string => {

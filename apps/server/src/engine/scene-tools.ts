@@ -91,6 +91,9 @@ export interface ToolStage {
   staged(): readonly StagedToolEffect[];
   /** The staged end_scene, if the Narrator closed the scene this turn. */
   endScene(): StagedToolEffect | undefined;
+  /** The scene's sublocation as THIS turn sees it (staged moves included) —
+   * the explore executor's default place (M7 part 3). */
+  currentSublocation(): string;
   /**
    * The engine-owned read-only query executor (Rev 4 §6) the turn engine
    * offers to the LLM client (LlmCall.queries). Running mode `parentless`
@@ -644,6 +647,9 @@ export function createToolStage(
     },
     endScene(): StagedToolEffect | undefined {
       return stagedEnd;
+    },
+    currentSublocation(): string {
+      return current;
     },
     querySublocations(input: unknown): string {
       const parsed = QuerySublocationsToolSchema.safeParse(input);

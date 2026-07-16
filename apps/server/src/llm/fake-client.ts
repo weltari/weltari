@@ -249,6 +249,17 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
           });
           text = `"I know the place," Elias says. ${answer}`;
         }
+        // The §14 listing (M7 part 3): `!explore [sublocation_id]` runs the
+        // executor mid-call and the reply VISIBLY carries the listing —
+        // objects, wiki and interiors drive at $0.
+        const exploreMark = /!explore(?:\s+(subloc:\S+))?/.exec(call.prompt);
+        if (exploreMark !== null && call.queries?.explore !== undefined) {
+          const target = exploreMark[1];
+          const answer = call.queries.explore(
+            target === undefined ? {} : { sublocation_id: target },
+          );
+          text = `"Let me look around," Elias says. ${answer}`;
+        }
       }
       if (firstTokenDelayMs > 0) {
         await new Promise<void>((resolve) => {

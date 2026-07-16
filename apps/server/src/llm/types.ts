@@ -100,6 +100,9 @@ export interface LlmCall {
      * dive into the character's OWN memory deltas — participation-gated by
      * construction (the executor is bound to one character id). */
     memoryquery?: (input: unknown) => string;
+    /** character_scene toolset (M7 part 3, Rev 4 §14): the sublocation
+     * listing — wiki + publicly held objects + one level of interiors. */
+    explore?: (input: unknown) => string;
   };
   /**
    * Engine-owned gate executor (M6 part 2). When offered, the client runs
