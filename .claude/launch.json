@@ -12,7 +12,7 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": [
         "-c",
-        "export PATH=\"/opt/homebrew/opt/node@24/bin:$PATH\"; export OPENROUTER_API_KEY=$(grep '^OPENROUTER_API_KEY=' .env | cut -d= -f2-); export WELTARI_IMAGE_BACKEND=openrouter; export WELTARI_MODEL=deepseek/deepseek-v4-pro; export WELTARI_DB_PATH=\"${TMPDIR:-/tmp/}weltari-real/w.sqlite\"; export WELTARI_IMAGES_DIR=\"${TMPDIR:-/tmp/}weltari-real/images\"; mkdir -p \"${TMPDIR:-/tmp/}weltari-real\"; node apps/server/dist/main.js"
+        "export PATH=\"/opt/homebrew/opt/node@24/bin:$PATH\"; export OPENROUTER_API_KEY=$(grep '^OPENROUTER_API_KEY=' .env | cut -d= -f2-); export WELTARI_IMAGE_BACKEND=stub; export WELTARI_MODEL=deepseek/deepseek-v4-pro; export WELTARI_DB_PATH=\"${TMPDIR:-/tmp/}weltari-real/w.sqlite\"; export WELTARI_IMAGES_DIR=\"${TMPDIR:-/tmp/}weltari-real/images\"; mkdir -p \"${TMPDIR:-/tmp/}weltari-real\"; node apps/server/dist/main.js"
       ],
       "port": 7777
     },
