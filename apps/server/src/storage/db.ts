@@ -23,6 +23,10 @@ import {
   type MemoryIndexRepository,
 } from './repositories/memory-index.js';
 import {
+  createObjectsRepository,
+  type ObjectsRepository,
+} from './repositories/objects.js';
+import {
   createUserProfileRepository,
   type UserProfileRepository,
 } from './repositories/user-profile.js';
@@ -45,6 +49,9 @@ export interface Storage {
   /** The GM's profiling side store (M7 part 2, Rev 4 §9 Job 2) — NOT a
    * projection: personal data, truly erasable (GDPR). */
   readonly userProfile: UserProfileRepository;
+  /** Durable objects (M7 part 3, Rev 4 §7) — a projection of the object.*
+   * events, fed by the append in-transaction and rebuilt at boot. */
+  readonly objects: ObjectsRepository;
   /**
    * The WriteGate: every multi-statement durable write goes through here so it
    * commits or vanishes atomically (crash-only design, Brief §2.4). better-sqlite3
@@ -155,15 +162,18 @@ export function openStorage(options: StorageOptions): Storage {
 
   const nowIso = options.nowIso ?? ((): string => new Date().toISOString());
   const memoryIndex = createMemoryIndexRepository(db);
-  const eventLog = createEventLogRepository(db, nowIso, memoryIndex);
+  const objects = createObjectsRepository(db);
+  const eventLog = createEventLogRepository(db, nowIso, memoryIndex, objects);
   const ledger = createLedgerRepository(db, nowIso);
   const gateway = createGatewayRepository(db, nowIso);
   const userProfile = createUserProfileRepository(db, nowIso);
-  // Projection discipline: the FTS index is derived state — re-project it
-  // from the log every boot, so a kill between an append and nothing (the
-  // index write shares the append's transaction) or a hand-deleted DB file
-  // sibling can never leave stale search results.
+  // Projection discipline: the FTS index and the objects table are derived
+  // state — re-project both from the log every boot, so a kill between an
+  // append and nothing (each projection write shares the append's
+  // transaction) or a hand-deleted DB file sibling can never leave stale
+  // rows.
   memoryIndex.rebuild();
+  objects.rebuild();
 
   return {
     eventLog,
@@ -171,6 +181,7 @@ export function openStorage(options: StorageOptions): Storage {
     gateway,
     memoryIndex,
     userProfile,
+    objects,
     transact<T>(fn: () => T): T {
       const run = db.transaction(fn);
       return run();

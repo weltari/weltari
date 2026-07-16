@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { WeltariEventSchema, type WeltariEvent } from '@weltari/protocol';
 import { CorruptStateError } from '../../errors.js';
 import type { MemoryIndexRepository } from './memory-index.js';
+import type { ObjectsRepository } from './objects.js';
 
 /** A WeltariEvent before the log assigns `id` and `ts` (distributes over the union). */
 export type NewEvent = WeltariEvent extends infer E
@@ -67,6 +68,9 @@ export function createEventLogRepository(
   nowIso: () => string,
   /** Indexes memory deltas inside the append's own transaction (M7 part 1). */
   memoryIndex?: MemoryIndexRepository,
+  /** Folds object events into the objects table inside the append's own
+   * transaction (M7 part 3). */
+  objects?: ObjectsRepository,
 ): EventLogRepository {
   const insert = db.prepare(
     'INSERT INTO events (world_id, actor_id, type, payload, ts) VALUES (?, ?, ?, ?, ?)',
@@ -98,6 +102,16 @@ export function createEventLogRepository(
           persisted.payload.character_id,
           persisted.payload.content,
         );
+      }
+      // The objects table rides the SAME transaction as its source event
+      // for the identical reason (M7 part 3).
+      if (
+        persisted.type === 'object.created' ||
+        persisted.type === 'object.payload_written' ||
+        persisted.type === 'object.moved' ||
+        persisted.type === 'object.swept'
+      ) {
+        objects?.apply(persisted);
       }
       return persisted;
     },
