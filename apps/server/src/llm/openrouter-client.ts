@@ -10,10 +10,12 @@ import type { ModelRegistry } from './model-registry.js';
 import {
   CacheToolSchema,
   ChangeSublocationToolSchema,
+  CHARACTER_SCENE_TOOL_DESCRIPTIONS,
   CHAT_QUERY_DESCRIPTIONS,
   CHAT_TOOL_DESCRIPTIONS,
   CreateSublocationToolSchema,
   EndSceneToolSchema,
+  InteractObjectToolSchema,
   EndSubsessionToolSchema,
   EvolveToolSchema,
   GM_TOOL_DESCRIPTIONS,
@@ -161,6 +163,34 @@ function narratorToolsFor(call: LlmCall): ToolSet {
 function chatToolsFor(call: LlmCall): ToolSet {
   return {
     ...CHAT_TOOLS,
+    ...queryToolsFor(call),
+  };
+}
+
+/** The character's scene toolset (M7 parts 1+3, Rev 4 §7/§11): the read-only
+ * queries plus interact_object — gated mid-call exactly like the narrator's
+ * mutating tools when the call offers `gate` (staging stays in-memory;
+ * durability only at turn.committed), data-only otherwise. */
+function characterSceneToolsFor(call: LlmCall): ToolSet {
+  const gate = call.gate;
+  const mutating: ToolSet =
+    gate === undefined
+      ? {
+          interact_object: tool({
+            description: CHARACTER_SCENE_TOOL_DESCRIPTIONS.interact_object,
+            inputSchema: InteractObjectToolSchema,
+          }),
+        }
+      : {
+          interact_object: tool({
+            description: CHARACTER_SCENE_TOOL_DESCRIPTIONS.interact_object,
+            inputSchema: InteractObjectToolSchema,
+            execute: (input): string =>
+              gate({ tool: 'interact_object', input }),
+          }),
+        };
+  return {
+    ...mutating,
     ...queryToolsFor(call),
   };
 }
@@ -375,14 +405,23 @@ export function createOpenRouterClient(
                         }
                       : call.toolset === 'character_scene'
                         ? {
-                            // M7 part 1 (Rev 4 §7/§11): a character's scene
-                            // turn — read-only queries only (memoryquery /
-                            // wikiquery execute mid-call); nothing stageable.
-                            tools: queryToolsFor(call),
+                            // M7 parts 1+3 (Rev 4 §7/§11): a character's
+                            // scene turn — read-only queries execute mid-call;
+                            // interact_object runs the B6 double gate mid-call
+                            // when `gate` is offered (M7 part 3), data-only
+                            // otherwise.
+                            tools: characterSceneToolsFor(call),
                             toolChoice: 'auto' as const,
-                            ...(call.queries === undefined
+                            ...(call.queries === undefined &&
+                            call.gate === undefined
                               ? {}
-                              : { stopWhen: stepCountIs(QUERY_STEP_LIMIT) }),
+                              : {
+                                  stopWhen: stepCountIs(
+                                    call.gate === undefined
+                                      ? QUERY_STEP_LIMIT
+                                      : GATED_STEP_LIMIT,
+                                  ),
+                                }),
                           }
                         : call.toolset === 'gm'
                           ? {
@@ -454,6 +493,7 @@ export function createOpenRouterClient(
           'wikiquery',
           'sessionquery',
           'memoryquery',
+          'explore',
         ];
         const toolCalls: RawToolCall[] =
           call.toolset === undefined || call.gate !== undefined

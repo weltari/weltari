@@ -11,8 +11,10 @@
 // near-duplicate rejection. query_sublocations is NOT staged: it executes
 // mid-call through the stage's read-only executor (queries route context,
 // they never mutate).
+import { randomUUID } from 'node:crypto';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { Storage } from '../storage/db.js';
+import { objectNameKey } from '../storage/repositories/objects.js';
 import {
   QuerySublocationsToolSchema,
   type ValidatedToolCall,
@@ -21,6 +23,8 @@ import type { SublocationDefinition } from './fixture/rainy-inn.js';
 
 export interface SceneToolsOptions {
   storage: Storage;
+  /** The world the scene plays in — object reads are world-scoped (M7 part 3). */
+  worldId: string;
   sublocations: readonly SublocationDefinition[];
   startSublocationId: string;
   /** character_id → named art poses (fixture art sets). */
@@ -53,11 +57,37 @@ export type StagedToolEffect =
       dividerText: string | undefined;
       /** Present exactly when endType is `continuation` (gate-enforced). */
       nextScene?: { sublocationId: string; premiseSeed?: string };
+    }
+  // The object effects (M7 part 3, Rev 4 §7) — staged ONLY by a character's
+  // interact_object; each carries its actor (the touching character) because
+  // the commit writes actor_id per event and the stage outlives the call.
+  | {
+      kind: 'object_create';
+      objectId: string;
+      name: string;
+      holderSublocationId: string;
+      payload?: string;
+      actorId: string;
+    }
+  | {
+      kind: 'object_payload';
+      objectId: string;
+      payload: string;
+      actorId: string;
+    }
+  | {
+      kind: 'object_move';
+      objectId: string;
+      fromSublocationId: string;
+      toSublocationId: string;
+      actorId: string;
     };
 
 export interface ToolStage {
-  /** Gate 2. ok = the effect is staged; err.message is the trail reason. */
-  apply(call: ValidatedToolCall): Result<StagedToolEffect>;
+  /** Gate 2. ok = the effect is staged; err.message is the trail reason.
+   * `actorId` names the calling character — required by interact_object
+   * (M7 part 3: object events carry the touching character as actor). */
+  apply(call: ValidatedToolCall, actorId?: string): Result<StagedToolEffect>;
   staged(): readonly StagedToolEffect[];
   /** The staged end_scene, if the Narrator closed the scene this turn. */
   endScene(): StagedToolEffect | undefined;
@@ -131,6 +161,24 @@ const PARENTLESS_QUERY_INSTRUCTION =
   'sublocation, please use the change_sublocation tool; otherwise, create ' +
   'a new one.';
 
+/** The fixed refusal Rev 4 §7 mandates for an interact_object that would
+ * change nothing durable — prose stays prose by construction. */
+const NOTHING_DURABLE_REFUSAL =
+  'interact_object changes nothing here: give it a payload to author ' +
+  'content, or move_to to move the object — otherwise express it in your ' +
+  'attempt instead.';
+
+/** Max accepted object operations per turn (Rev 4 §7). */
+const OBJECT_OPS_PER_TURN = 2;
+
+/** An object as the stage sees it: a committed row or one staged this turn. */
+interface StagedObjectView {
+  objectId: string;
+  name: string;
+  holderSublocationId: string;
+  hasPayload: boolean;
+}
+
 export function createToolStage(
   options: SceneToolsOptions,
   sceneId: string,
@@ -149,6 +197,11 @@ export function createToolStage(
     sceneId,
     options.startSublocationId,
   );
+  /** Object state as this turn has already changed it (M7 part 3): staged
+   * creates/moves/payload writes overlay the committed rows, so a second
+   * interact_object in the same reply sees the first one's world. */
+  const stagedObjects = new Map<string, StagedObjectView>();
+  let objectOps = 0;
 
   function findKnown(sublocationId: string): SublocationDefinition | undefined {
     return (
@@ -161,9 +214,218 @@ export function createToolStage(
     return [...options.sublocations, ...stagedCreates.values()];
   }
 
+  /** The scene's reach (Rev 4 §7 reachable holders, V1): the current
+   * sublocation, its parent, and its children — including stubs staged this
+   * very turn. */
+  function reachableSublocationIds(): string[] {
+    const ids = new Set<string>([current]);
+    const currentDef = findKnown(current);
+    if (currentDef?.parent_id !== undefined) ids.add(currentDef.parent_id);
+    for (const def of allKnown()) {
+      if (def.parent_id === current) ids.add(def.sublocation_id);
+    }
+    return [...ids];
+  }
+
+  /** Resolve an interact_object ref against committed rows AND this turn's
+   * staged objects (dedup by normalized name per holder — Rev 4 §7). */
+  function resolveObjectRef(
+    ref: string,
+    reachable: readonly string[],
+  ): StagedObjectView[] {
+    const staged = stagedObjects.get(ref);
+    if (staged !== undefined) return [staged];
+    const committedById = options.storage.objects.byId(ref);
+    if (committedById !== undefined) {
+      const overlaid = stagedObjects.get(committedById.object_id);
+      const view = overlaid ?? {
+        objectId: committedById.object_id,
+        name: committedById.name,
+        holderSublocationId: committedById.holder_sublocation_id,
+        hasPayload: committedById.payload !== undefined,
+      };
+      return reachable.includes(view.holderSublocationId) ? [view] : [];
+    }
+    const key = objectNameKey(ref);
+    const byName = new Map<string, StagedObjectView>();
+    for (const row of options.storage.objects.resolveName(
+      options.worldId,
+      ref,
+      [...reachable],
+    )) {
+      byName.set(row.object_id, {
+        objectId: row.object_id,
+        name: row.name,
+        holderSublocationId: row.holder_sublocation_id,
+        hasPayload: row.payload !== undefined,
+      });
+    }
+    // Staged views overlay committed rows of the same id and add this turn's
+    // creations; a staged move can also carry an object out of reach.
+    for (const view of stagedObjects.values()) {
+      if (objectNameKey(view.name) !== key) continue;
+      if (reachable.includes(view.holderSublocationId)) {
+        byName.set(view.objectId, view);
+      } else {
+        byName.delete(view.objectId);
+      }
+    }
+    return [...byName.values()];
+  }
+
   return {
-    apply(call: ValidatedToolCall): Result<StagedToolEffect> {
+    apply(call: ValidatedToolCall, actorId?: string): Result<StagedToolEffect> {
       switch (call.tool) {
+        case 'interact_object': {
+          if (actorId === undefined) {
+            // Only character calls pass an actor — the Narrator can never
+            // stage an object (Rev 4 §7: write authority preserved).
+            return err(
+              new OperationalError(
+                'object_needs_actor',
+                'interact_object is a character tool',
+              ),
+            );
+          }
+          if (!sceneIsOpen(options.storage, sceneId)) {
+            return err(
+              new OperationalError(
+                'scene_not_open',
+                `scene ${sceneId} is not open`,
+              ),
+            );
+          }
+          if (objectOps >= OBJECT_OPS_PER_TURN) {
+            return err(
+              new OperationalError(
+                'object_op_limit',
+                `at most ${String(OBJECT_OPS_PER_TURN)} object operations per turn — express the rest in your attempt instead`,
+              ),
+            );
+          }
+          const reachable = reachableSublocationIds();
+          const moveTo = call.input.move_to;
+          if (moveTo !== undefined) {
+            if (findKnown(moveTo) === undefined) {
+              return err(
+                new OperationalError(
+                  'unknown_sublocation',
+                  `no sublocation ${moveTo} in this world`,
+                ),
+              );
+            }
+            if (!reachable.includes(moveTo)) {
+              return err(
+                new OperationalError(
+                  'sublocation_out_of_reach',
+                  `${moveTo} is not within this scene's reach`,
+                ),
+              );
+            }
+          }
+          const payload = call.input.payload;
+          const matches = resolveObjectRef(call.input.object, reachable);
+          const [target, ambiguous] = matches;
+          if (ambiguous !== undefined) {
+            const listing = matches
+              .map((m) => `${m.objectId} (at ${m.holderSublocationId})`)
+              .join(', ');
+            return err(
+              new OperationalError(
+                'object_ambiguous',
+                `"${call.input.object}" matches several objects: ${listing} — call again with the object id`,
+              ),
+            );
+          }
+          if (target !== undefined) {
+            // The existing row (dedup — Rev 4 §7): exactly one durable change
+            // per call, or the fixed refusal.
+            if (payload !== undefined && moveTo !== undefined) {
+              return err(
+                new OperationalError(
+                  'object_one_op_per_call',
+                  'one operation per call: author the payload OR move the object — call twice for both',
+                ),
+              );
+            }
+            if (payload !== undefined) {
+              stagedObjects.set(target.objectId, {
+                ...target,
+                hasPayload: true,
+              });
+              const effect: StagedToolEffect = {
+                kind: 'object_payload',
+                objectId: target.objectId,
+                payload,
+                actorId,
+              };
+              effects.push(effect);
+              objectOps += 1;
+              return ok(effect);
+            }
+            if (moveTo !== undefined && moveTo !== target.holderSublocationId) {
+              stagedObjects.set(target.objectId, {
+                ...target,
+                holderSublocationId: moveTo,
+              });
+              const effect: StagedToolEffect = {
+                kind: 'object_move',
+                objectId: target.objectId,
+                fromSublocationId: target.holderSublocationId,
+                toSublocationId: moveTo,
+                actorId,
+              };
+              effects.push(effect);
+              objectOps += 1;
+              return ok(effect);
+            }
+            return err(
+              new OperationalError(
+                'object_nothing_durable',
+                NOTHING_DURABLE_REFUSAL,
+              ),
+            );
+          }
+          // No match: materialize-on-touch (Rev 4 §7) — the first durable
+          // interaction creates the row. An id-shaped ref that resolved to
+          // nothing is a stale pointer, not a name to mint.
+          if (call.input.object.startsWith('obj:')) {
+            return err(
+              new OperationalError(
+                'unknown_object',
+                `no object ${call.input.object} within reach — use its name to materialize a new one`,
+              ),
+            );
+          }
+          const name = call.input.object.trim();
+          if (objectNameKey(name) === '') {
+            return err(
+              new OperationalError(
+                'invalid_name',
+                'the object name must contain at least one letter or digit',
+              ),
+            );
+          }
+          const holder = moveTo ?? current;
+          const objectId = `obj:${slugifyName(name)}-${randomUUID().slice(0, 8)}`;
+          stagedObjects.set(objectId, {
+            objectId,
+            name,
+            holderSublocationId: holder,
+            hasPayload: payload !== undefined,
+          });
+          const effect: StagedToolEffect = {
+            kind: 'object_create',
+            objectId,
+            name,
+            holderSublocationId: holder,
+            ...(payload === undefined ? {} : { payload }),
+            actorId,
+          };
+          effects.push(effect);
+          objectOps += 1;
+          return ok(effect);
+        }
         case 'end_scene': {
           if (stagedEnd !== undefined) {
             return err(
@@ -435,6 +697,8 @@ export function createToolStage(
       effects.length = 0;
       stagedEnd = undefined;
       stagedCreates.clear();
+      stagedObjects.clear();
+      objectOps = 0;
       parentlessQueried = false;
     },
   };

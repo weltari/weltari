@@ -25,7 +25,11 @@ import {
 } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
 import type { DevBus, EventBus, StreamBus } from '../http/bus.js';
-import { parseToolCall, type RawToolCall } from '../llm/tools.js';
+import {
+  parseCharacterSceneToolCall,
+  parseToolCall,
+  type RawToolCall,
+} from '../llm/tools.js';
 import type { LlmClient } from '../llm/types.js';
 import type { Storage } from '../storage/db.js';
 import {
@@ -336,10 +340,13 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         : plan.toolset === 'character_scene'
           ? {
               // The character's scene-side queries (M7 part 1, Rev 4 §7/§11,
-              // owner ruling 2026-07-11): read-only mid-call executors,
-              // nothing stageable — memoryquery deep-dives the character's
-              // OWN deltas; wikiquery covers the query-sublocations-then-
-              // their-wiki flow in one step. Dev-trailed like every query.
+              // owner ruling 2026-07-11): read-only mid-call executors —
+              // memoryquery deep-dives the character's OWN deltas; wikiquery
+              // covers the query-sublocations-then-their-wiki flow in one
+              // step. Dev-trailed like every query. M7 part 3 adds the gate:
+              // interact_object runs both B6 gates mid-call exactly like the
+              // narrator's tools — staging stays in-memory, durability only
+              // at turn.committed.
               toolset: plan.toolset,
               queries: {
                 memoryquery: (input: unknown): string => {
@@ -365,6 +372,20 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                   });
                   return runWikiquery(storage, worldId, logger, input);
                 },
+              },
+              gate: (raw: RawToolCall): string => {
+                if (turn.interrupted) {
+                  return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
+                }
+                const gated = gateOne(
+                  raw,
+                  turn.stage,
+                  turnId,
+                  plan.profile.character_id,
+                );
+                return gated.ok
+                  ? stagedAck(gated.value)
+                  : `ERROR: ${gated.error.message}`;
               },
             }
           : {
@@ -415,13 +436,20 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
   /** One raw call through both B6 gates: valid → staged (in-memory) + a
    * dev.tool_call frame; rejected → a dev.tool_rejected frame and nothing
    * else (I8: zero rows). Shared by the post-call loop (fake/legacy clients
-   * return calls as data) and the mid-call gate executor (M6 part 2). */
+   * return calls as data) and the mid-call gate executor (M6 part 2).
+   * `actorId` present = a character call (M7 part 3): gate 1 parses the
+   * character toolset (interact_object) and the actor rides the staged
+   * effect; absent = the Narrator's toolset. */
   function gateOne(
     raw: RawToolCall,
     stage: ToolStage,
     turnId: string,
+    actorId?: string,
   ): Result<StagedToolEffect> {
-    const parsed = parseToolCall(raw, logger);
+    const parsed =
+      actorId === undefined
+        ? parseToolCall(raw, logger)
+        : parseCharacterSceneToolCall(raw, logger);
     if (!parsed.ok) {
       devBus.publish({
         type: 'dev.tool_rejected',
@@ -432,7 +460,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       });
       return parsed;
     }
-    const staged = stage.apply(parsed.value);
+    const staged = stage.apply(parsed.value, actorId);
     if (!staged.ok) {
       devBus.publish({
         type: 'dev.tool_rejected',
@@ -465,6 +493,12 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         return `staged: ${effect.sublocationId} ("${effect.name}") will be created when this reply commits — you may change_sublocation to it or register it as next_scene now.`;
       case 'end_scene':
         return `staged: the scene closes (${effect.endType}) when this reply commits.`;
+      case 'object_create':
+        return `staged: "${effect.name}" becomes a durable object (${effect.objectId}) at ${effect.holderSublocationId} when this reply commits${effect.payload === undefined ? '' : ', carrying your authored content'}.`;
+      case 'object_payload':
+        return `staged: your content is written into ${effect.objectId} when this reply commits.`;
+      case 'object_move':
+        return `staged: ${effect.objectId} moves to ${effect.toSublocationId} when this reply commits.`;
     }
   }
 
@@ -474,9 +508,10 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     rawCalls: readonly RawToolCall[],
     stage: ToolStage,
     turnId: string,
+    actorId?: string,
   ): void {
     for (const raw of rawCalls) {
-      gateOne(raw, stage, turnId);
+      gateOne(raw, stage, turnId, actorId);
     }
   }
 
@@ -515,7 +550,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
           kind: 'character',
           profile: elias,
           instruction:
-            'Reply as Elias in 1-3 short sentences of dialogue, true to his voice. If the conversation touches something from your own past that your core memory does not hold, search your long-term memories with memoryquery before answering; if it touches a place you are not sure about, look it up with wikiquery. The scene already gave you where you are — query only when you genuinely need more.',
+            'Reply as Elias in 1-3 short sentences of dialogue, true to his voice. If the conversation touches something from your own past that your core memory does not hold, search your long-term memories with memoryquery before answering; if it touches a place you are not sure about, look it up with wikiquery. The scene already gave you where you are — query only when you genuinely need more. If you durably place, move, or write content into a physical object that matters beyond this moment, call interact_object — most scenery stays prose.',
           toolset: 'character_scene',
         },
         {
@@ -529,6 +564,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       const stage = createToolStage(
         {
           storage,
+          worldId: command.world_id,
           sublocations,
           startSublocationId,
           artSets,
@@ -584,7 +620,14 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
             return;
           }
           steps.push(result.value.step);
-          runToolGates(result.value.toolCalls, stage, turnId);
+          runToolGates(
+            result.value.toolCalls,
+            stage,
+            turnId,
+            plan.toolset === 'character_scene'
+              ? plan.profile.character_id
+              : undefined,
+          );
           if (index === 0) await faultPoint('between_calls');
         }
         await faultPoint('pre_commit');
@@ -699,6 +742,53 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                   },
                 });
               }
+            } else if (effect.kind === 'object_create') {
+              // Materialize-on-touch (M7 part 3, Rev 4 §7): the row is the
+              // event's same-transaction fold (repositories/objects.ts) —
+              // actor = the touching character, never the Narrator.
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: effect.actorId,
+                  type: 'object.created',
+                  payload: {
+                    object_id: effect.objectId,
+                    name: effect.name,
+                    holder_sublocation_id: effect.holderSublocationId,
+                    ...(effect.payload === undefined
+                      ? {}
+                      : { object_payload: effect.payload }),
+                    scene_id: command.scene_id,
+                  },
+                }),
+              );
+            } else if (effect.kind === 'object_payload') {
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: effect.actorId,
+                  type: 'object.payload_written',
+                  payload: {
+                    object_id: effect.objectId,
+                    object_payload: effect.payload,
+                    scene_id: command.scene_id,
+                  },
+                }),
+              );
+            } else if (effect.kind === 'object_move') {
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: effect.actorId,
+                  type: 'object.moved',
+                  payload: {
+                    object_id: effect.objectId,
+                    from_sublocation_id: effect.fromSublocationId,
+                    to_sublocation_id: effect.toSublocationId,
+                    scene_id: command.scene_id,
+                  },
+                }),
+              );
             }
             // end_scene is appended LAST so clients see the turn + moves first.
           }

@@ -3,7 +3,11 @@
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { createRootLogger } from '../observability/logger.js';
-import { parseToolCall, type RawToolCall } from './tools.js';
+import {
+  parseCharacterSceneToolCall,
+  parseToolCall,
+  type RawToolCall,
+} from './tools.js';
 
 function quietLogger(): ReturnType<typeof createRootLogger> {
   const sink = new Writable({
@@ -134,5 +138,48 @@ describe('parseToolCall (B6 gate 1)', () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('query_not_stageable');
+  });
+
+  it('rejects interact_object — a character tool the Narrator can never stage (M7 part 3)', () => {
+    const result = parseToolCall(
+      raw('interact_object', { object: 'a brass key' }),
+      logger,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('unknown_tool');
+  });
+});
+
+describe('parseCharacterSceneToolCall (B6 gate 1, M7 part 3)', () => {
+  it('accepts a well-formed interact_object in each field mix', () => {
+    for (const input of [
+      { object: 'a brass key' },
+      { object: 'a brass key', payload: 'Its teeth are filed flat.' },
+      { object: 'obj:brass-key-1234', move_to: 'subloc:cellar' },
+    ]) {
+      expect(
+        parseCharacterSceneToolCall(raw('interact_object', input), logger).ok,
+      ).toBe(true);
+    }
+  });
+
+  it('rejects malformed inputs and the narrator toolset (B5/I8)', () => {
+    for (const call of [
+      raw('interact_object', { payload: 'no object named' }),
+      raw('interact_object', { object: '' }),
+      raw('interact_object', { object: 'x', payload: 'y', admin: true }),
+      raw('end_scene', { type: 'rest' }),
+      raw('summon_dragon', { size: 'large' }),
+    ]) {
+      expect(parseCharacterSceneToolCall(call, logger).ok).toBe(false);
+    }
+  });
+
+  it('rejects the mid-call queries arriving as staged calls', () => {
+    for (const tool of ['explore', 'memoryquery', 'wikiquery']) {
+      const result = parseCharacterSceneToolCall(raw(tool, {}), logger);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe('query_not_stageable');
+    }
   });
 });

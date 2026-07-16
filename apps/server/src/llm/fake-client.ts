@@ -638,7 +638,71 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                             }
                             return calls;
                           })()
-                        : [],
+                        : call.toolset === 'character_scene'
+                          ? // The character's object touches (M7 part 3, Rev 4
+                            // §7) — the whole materialize-on-touch pipeline
+                            // drivable at $0:
+                            //   !obj <name-slug>                → bare create (place here)
+                            //   !objwrite <name-slug> <text…>   → author payload
+                            //   !objmove <name-slug> <subloc>   → move the object
+                            //     (an unknown name materializes AT the target)
+                            //   !objbad                         → gate-1 subject
+                            // A bare !obj naming an EXISTING object is the
+                            // gate-2 nothing-durable subject.
+                            ((): RawToolCall[] => {
+                              const calls: RawToolCall[] = [];
+                              const bare = /!obj\b\s+(\S+)/.exec(call.prompt);
+                              if (bare !== null) {
+                                calls.push({
+                                  tool: 'interact_object',
+                                  input: {
+                                    object: (bare[1] ?? '').replaceAll(
+                                      '-',
+                                      ' ',
+                                    ),
+                                  },
+                                });
+                              }
+                              const write =
+                                /!objwrite\s+(\S+)\s+([^\n!]+)/.exec(
+                                  call.prompt,
+                                );
+                              if (write !== null) {
+                                calls.push({
+                                  tool: 'interact_object',
+                                  input: {
+                                    object: (write[1] ?? '').replaceAll(
+                                      '-',
+                                      ' ',
+                                    ),
+                                    payload: (write[2] ?? '').trim(),
+                                  },
+                                });
+                              }
+                              const move = /!objmove\s+(\S+)\s+(\S+)/.exec(
+                                call.prompt,
+                              );
+                              if (move !== null) {
+                                calls.push({
+                                  tool: 'interact_object',
+                                  input: {
+                                    object: (move[1] ?? '').replaceAll(
+                                      '-',
+                                      ' ',
+                                    ),
+                                    move_to: move[2] ?? '',
+                                  },
+                                });
+                              }
+                              if (call.prompt.includes('!objbad')) {
+                                calls.push({
+                                  tool: 'interact_object',
+                                  input: { payload: 42 },
+                                });
+                              }
+                              return calls;
+                            })()
+                          : [],
       });
     },
   };
