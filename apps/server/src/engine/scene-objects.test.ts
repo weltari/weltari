@@ -192,3 +192,50 @@ describe('interact_object (materialize-on-touch)', () => {
     ctx.storage.close();
   });
 });
+
+describe('explore (the §14 listing)', () => {
+  function characterText(ctx: Ctx): string {
+    const turns = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'turn.committed');
+    const last = turns[turns.length - 1];
+    if (last?.type !== 'turn.committed') return '';
+    return last.payload.steps.find((s) => s.call === 'character')?.text ?? '';
+  }
+
+  it('lists the wiki line, the public objects (payload or none-yet), and nothing when empty', async () => {
+    const ctx = setup();
+    await runTurn(ctx, '!explore');
+    expect(characterText(ctx)).toContain('Objects here: none recorded.');
+
+    await runTurn(
+      ctx,
+      '!objwrite sealed-letter Meet me under the pier at low tide.',
+    );
+    await runTurn(ctx, '!obj dropped-stick');
+    await runTurn(ctx, '!explore');
+    const text = characterText(ctx);
+    expect(text).toContain('The Common Room');
+    expect(text).toContain('sealed letter');
+    expect(text).toContain('under the pier at low tide');
+    expect(text).toContain('dropped stick');
+    expect(text).toContain('nothing written about it yet');
+    ctx.storage.close();
+  });
+
+  it('explores a named sublocation, listing interiors one level deeper; unknown ids answer plainly', async () => {
+    const ctx = setup();
+    // A committed child of the common room (from an earlier turn).
+    await runTurn(ctx, '!create wine-nook subloc:common_room');
+    await runTurn(ctx, '!explore subloc:common_room');
+    const text = characterText(ctx);
+    expect(text).toContain('One level deeper:');
+    expect(text).toContain('wine nook');
+
+    await runTurn(ctx, '!explore subloc:nowhere');
+    expect(characterText(ctx)).toContain(
+      'No sublocation subloc:nowhere exists',
+    );
+    ctx.storage.close();
+  });
+});

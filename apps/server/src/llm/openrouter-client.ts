@@ -15,6 +15,8 @@ import {
   CHAT_TOOL_DESCRIPTIONS,
   CreateSublocationToolSchema,
   EndSceneToolSchema,
+  EXPLORE_QUERY_DESCRIPTION,
+  ExploreToolSchema,
   InteractObjectToolSchema,
   EndSubsessionToolSchema,
   EvolveToolSchema,
@@ -203,6 +205,7 @@ function queryToolsFor(call: LlmCall): ToolSet {
   const wikiquery = call.queries?.wikiquery;
   const sessionquery = call.queries?.sessionquery;
   const memoryquery = call.queries?.memoryquery;
+  const explore = call.queries?.explore;
   return {
     ...(wikiquery === undefined
       ? {}
@@ -229,6 +232,15 @@ function queryToolsFor(call: LlmCall): ToolSet {
             description: CHAT_QUERY_DESCRIPTIONS.memoryquery,
             inputSchema: MemoryqueryToolSchema,
             execute: (input): string => memoryquery(input),
+          }),
+        }),
+    ...(explore === undefined
+      ? {}
+      : {
+          explore: tool({
+            description: EXPLORE_QUERY_DESCRIPTION,
+            inputSchema: ExploreToolSchema,
+            execute: (input): string => explore(input),
           }),
         }),
   };

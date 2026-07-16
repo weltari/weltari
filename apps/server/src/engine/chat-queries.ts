@@ -6,6 +6,7 @@
 // each executor safeParses and answers malformed input with an error string
 // the model can react to (the query_sublocations contract).
 import {
+  ExploreToolSchema,
   MemoryqueryToolSchema,
   SessionqueryToolSchema,
   WikiqueryToolSchema,
@@ -77,6 +78,71 @@ export function runWikiquery(
   return hits.length === 0
     ? `No wiki entry matches "${query}".`
     : `Wiki results for "${query}":\n${hits.join('\n')}`;
+}
+
+/**
+ * explore (M7 part 3, Rev 4 §14): pure retrieval, no LLM call — the
+ * sublocation's wiki (latest entry, else its description) + the objects
+ * publicly held there (V1 objects are sublocation-held only, hence public —
+ * owner ruling 2026-07-16) + the sublocations one level deeper. Exploring is
+ * the character's choice; the information is open to anyone present. Reads
+ * committed state only — this turn's staged effects are not yet world truth.
+ */
+export function runExploreQuery(
+  storage: Storage,
+  worldId: string,
+  currentSublocationId: string,
+  logger: Logger,
+  input: unknown,
+): string {
+  const parsed = validateAt(
+    'llm',
+    'tool:explore',
+    ExploreToolSchema,
+    input,
+    logger,
+  );
+  if (!parsed.ok) {
+    return 'ERROR: explore takes { sublocation_id?: string } — omit it for the place you are in.';
+  }
+  const targetId = parsed.value.sublocation_id ?? currentSublocationId;
+  const known = knownSublocations(storage, worldId);
+  const target = known.find((s) => s.sublocation_id === targetId);
+  if (target === undefined) {
+    return `No sublocation ${targetId} exists in this world.`;
+  }
+  let entry: string | undefined;
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (
+      (event.type === 'subwiki.updated' || event.type === 'subwiki.edited') &&
+      event.world_id === worldId &&
+      event.payload.sublocation_id === targetId
+    ) {
+      entry = event.payload.entry;
+    }
+  }
+  const objects = storage.objects.heldAt(worldId, targetId);
+  const objectLines = objects.map((o) => {
+    const detail =
+      o.payload === undefined
+        ? 'nothing written about it yet'
+        : o.payload.length > 200
+          ? `${o.payload.slice(0, 200)}…`
+          : o.payload;
+    return `- ${o.name} (${o.object_id}): ${detail}`;
+  });
+  const children = known.filter((s) => s.parent_id === targetId);
+  return [
+    `${target.name} (${target.sublocation_id}): ${entry ?? target.description}`,
+    objectLines.length === 0
+      ? 'Objects here: none recorded.'
+      : `Objects here:\n${objectLines.join('\n')}`,
+    children.length === 0
+      ? 'No deeper places recorded here.'
+      : `One level deeper:\n${children
+          .map((c) => `- ${c.name} (${c.sublocation_id}): ${c.description}`)
+          .join('\n')}`,
+  ].join('\n');
 }
 
 /**
