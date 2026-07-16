@@ -512,9 +512,15 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                           //   !badproposal                → gate-1 subject
                           ((): RawToolCall[] => {
                             const calls: RawToolCall[] = [];
-                            const place = /!proposeplace\s+(\S+)/.exec(
-                              call.prompt,
+                            // Markers are read AFTER the last user line only
+                            // (the group-router rule): a consumed marker in
+                            // the transcript never re-proposes on later
+                            // replies (gate 2 would refuse the twin anyway,
+                            // but the card flow should stay drivable).
+                            const gmTail = call.prompt.slice(
+                              call.prompt.lastIndexOf('User:'),
                             );
+                            const place = /!proposeplace\s+(\S+)/.exec(gmTail);
                             if (place !== null) {
                               calls.push({
                                 tool: 'propose_place',
@@ -531,7 +537,7 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                               });
                             }
                             const privatePlace = /!proposeprivate\s+(\S+)/.exec(
-                              call.prompt,
+                              gmTail,
                             );
                             if (privatePlace !== null) {
                               calls.push({
@@ -550,7 +556,7 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                               });
                             }
                             const character = /!proposechar\s+(\S+)/.exec(
-                              call.prompt,
+                              gmTail,
                             );
                             if (character !== null) {
                               calls.push({
@@ -575,7 +581,7 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                               });
                             }
                             const wikiEdit = /!proposewiki\s+(\S+)/.exec(
-                              call.prompt,
+                              gmTail,
                             );
                             if (wikiEdit !== null) {
                               calls.push({
@@ -589,9 +595,7 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                                 },
                               });
                             }
-                            const seed = /!proposeseed\s+(\S+)/.exec(
-                              call.prompt,
-                            );
+                            const seed = /!proposeseed\s+(\S+)/.exec(gmTail);
                             if (seed !== null) {
                               calls.push({
                                 tool: 'propose_world_seed',
@@ -660,7 +664,7 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                             // empty carrier.
                             const object =
                               /!proposeobj(-empty)?\s+(\S+)\s+(\S+)/.exec(
-                                call.prompt,
+                                gmTail,
                               );
                             if (object !== null) {
                               calls.push({
@@ -679,7 +683,7 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                                 },
                               });
                             }
-                            if (call.prompt.includes('!badproposal')) {
+                            if (gmTail.includes('!badproposal')) {
                               calls.push({
                                 tool: 'propose_place',
                                 input: { name: 42 },

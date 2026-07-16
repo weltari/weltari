@@ -9,31 +9,28 @@
     },
     {
       "name": "weltari-real",
-      "runtimeExecutable": "powershell",
+      "runtimeExecutable": "bash",
       "runtimeArgs": [
-        "-NoProfile",
-        "-Command",
-        "$env:OPENROUTER_API_KEY=((Get-Content .env | Where-Object {$_ -match '^OPENROUTER_API_KEY='}) -replace '^OPENROUTER_API_KEY=',''); $env:WELTARI_IMAGE_BACKEND='openrouter'; $env:WELTARI_MODEL='deepseek/deepseek-v4-pro'; $env:WELTARI_DB_PATH=\"$env:TEMP\\weltari-real\\w.sqlite\"; $env:WELTARI_IMAGES_DIR=\"$env:TEMP\\weltari-real\\images\"; node apps/server/dist/main.js"
+        "-c",
+        "export PATH=\"/opt/homebrew/opt/node@24/bin:$PATH\"; export OPENROUTER_API_KEY=$(grep '^OPENROUTER_API_KEY=' .env | cut -d= -f2-); export WELTARI_IMAGE_BACKEND=openrouter; export WELTARI_MODEL=deepseek/deepseek-v4-pro; export WELTARI_DB_PATH=\"${TMPDIR:-/tmp/}weltari-real/w.sqlite\"; export WELTARI_IMAGES_DIR=\"${TMPDIR:-/tmp/}weltari-real/images\"; mkdir -p \"${TMPDIR:-/tmp/}weltari-real\"; node apps/server/dist/main.js"
       ],
       "port": 7777
     },
     {
       "name": "weltari-fake",
-      "runtimeExecutable": "powershell",
+      "runtimeExecutable": "bash",
       "runtimeArgs": [
-        "-NoProfile",
-        "-Command",
-        "$env:WELTARI_FAKE_LLM='1'; $env:WELTARI_DB_PATH=\"$env:TEMP\\weltari-fake\\w.sqlite\"; $env:WELTARI_IMAGES_DIR=\"$env:TEMP\\weltari-fake\\images\"; node apps/server/dist/main.js"
+        "-c",
+        "export PATH=\"/opt/homebrew/opt/node@24/bin:$PATH\"; export WELTARI_FAKE_LLM=1; export WELTARI_DB_PATH=\"${TMPDIR:-/tmp/}weltari-fake/w.sqlite\"; export WELTARI_IMAGES_DIR=\"${TMPDIR:-/tmp/}weltari-fake/images\"; mkdir -p \"${TMPDIR:-/tmp/}weltari-fake\"; node apps/server/dist/main.js"
       ],
       "port": 7777
     },
     {
       "name": "weltari-masking",
-      "runtimeExecutable": "powershell",
+      "runtimeExecutable": "bash",
       "runtimeArgs": [
-        "-NoProfile",
-        "-Command",
-        "$env:WELTARI_FAKE_LLM='1'; $env:WELTARI_FAKE_LLM_DELAY_MS='7000'; $env:WELTARI_DB_PATH=\"$env:TEMP\\weltari-mask\\w.sqlite\"; $env:WELTARI_IMAGES_DIR=\"$env:TEMP\\weltari-mask\\images\"; node apps/server/dist/main.js"
+        "-c",
+        "export PATH=\"/opt/homebrew/opt/node@24/bin:$PATH\"; export WELTARI_FAKE_LLM=1; export WELTARI_FAKE_LLM_DELAY_MS=7000; export WELTARI_DB_PATH=\"${TMPDIR:-/tmp/}weltari-mask/w.sqlite\"; export WELTARI_IMAGES_DIR=\"${TMPDIR:-/tmp/}weltari-mask/images\"; mkdir -p \"${TMPDIR:-/tmp/}weltari-mask\"; node apps/server/dist/main.js"
       ],
       "port": 7777
     }
