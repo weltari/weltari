@@ -46,6 +46,7 @@ const EN = {
   'proposal.action.create_character': 'a new character',
   'proposal.action.edit_wiki': 'a wiki change',
   'proposal.action.seed_world': 'your starting world',
+  'proposal.action.create_object': 'a new object',
   'proposal.approve': 'Consent',
   'proposal.reject': 'Reject',
   'proposal.discuss': 'Chat about this',

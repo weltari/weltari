@@ -139,6 +139,18 @@ function requestOf(
           })),
         },
       };
+    case 'propose_object':
+      return {
+        ...base,
+        action: 'create_object',
+        diff: {
+          name: call.input.name,
+          holder_sublocation_id: call.input.holder_sublocation_id,
+          ...(call.input.object_payload === undefined
+            ? {}
+            : { object_payload: call.input.object_payload }),
+        },
+      };
   }
 }
 

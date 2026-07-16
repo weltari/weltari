@@ -654,6 +654,31 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                                 },
                               });
                             }
+                            // M7 part 3: `!proposeobj <name-slug> <subloc>`
+                            // scripts a GM-authored object (with content);
+                            // `!proposeobj-empty <name-slug> <subloc>` an
+                            // empty carrier.
+                            const object =
+                              /!proposeobj(-empty)?\s+(\S+)\s+(\S+)/.exec(
+                                call.prompt,
+                              );
+                            if (object !== null) {
+                              calls.push({
+                                tool: 'propose_object',
+                                input: {
+                                  name: (object[2] ?? '').replaceAll('-', ' '),
+                                  holder_sublocation_id: object[3] ?? '',
+                                  ...(object[1] === '-empty'
+                                    ? {}
+                                    : {
+                                        object_payload:
+                                          'Folded inside: a note in a careful hand — "the tide keeps what it takes."',
+                                      }),
+                                  rationale:
+                                    'The story needs something findable here; the world says it already exists.',
+                                },
+                              });
+                            }
                             if (call.prompt.includes('!badproposal')) {
                               calls.push({
                                 tool: 'propose_place',
