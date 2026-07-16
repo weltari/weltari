@@ -94,8 +94,19 @@
  * set-character-lock, delete-profile. GET /v1/profile (+ /export) wire
  * shape: UserProfileView (entries + the profiling_enabled fold — the
  * hypotheses travel only over this surface, never the event stream).
+ * 0.18.0 (M7 part 3, Rev 4 §7/§14/§17, owner ruling 2026-07-16: backpacks —
+ * character/user holders, transfer_object, the secrecy rule, the backpack UI
+ * — defer to V2; V1 objects are sublocation-held only, hence public):
+ * object.created (materialize-on-touch: a character's gated interact_object
+ * or a resolve-proposal apply — narrated-but-untouched scenery never becomes
+ * data) / object.payload_written (character authoring or the Narrator's
+ * write-on-first-read, persisted exactly once) / object.moved (one pointer
+ * update, sublocation → sublocation) / object.swept (the GC tombstone: the
+ * row leaves the projection, the log stays append-only — I1). The objects
+ * table is a same-transaction fold of these events owned by a sole-writer
+ * repository.
  */
-export const PROTOCOL_VERSION = '0.17.0';
+export const PROTOCOL_VERSION = '0.18.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -130,6 +141,10 @@ export {
   MemoryCompactedEventSchema,
   MemoryCoreUpdatedEventSchema,
   MemoryDeltaCommittedEventSchema,
+  ObjectCreatedEventSchema,
+  ObjectMovedEventSchema,
+  ObjectPayloadWrittenEventSchema,
+  ObjectSweptEventSchema,
   PainterCompletedEventSchema,
   PluginRejectedEventSchema,
   ProfileDeletedEventSchema,
