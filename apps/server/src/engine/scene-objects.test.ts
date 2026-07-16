@@ -193,6 +193,55 @@ describe('interact_object (materialize-on-touch)', () => {
   });
 });
 
+describe('describe_object (write-on-first-read)', () => {
+  it('persists the Narrator improv for an empty object exactly once — the second read returns the SAME content', async () => {
+    const ctx = setup();
+    await runTurn(ctx, '!obj old-chest');
+    await runTurn(
+      ctx,
+      "!describe old-chest Inside: a sailor's oilskin, folded around a cracked compass.",
+    );
+    const rows = ctx.storage.objects.heldAt('w1', 'subloc:common_room');
+    expect(rows[0]?.payload).toContain('cracked compass');
+    const written = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'object.payload_written');
+    expect(written).toHaveLength(1);
+    expect(written[0]?.actor_id).toBe('char:narrator');
+
+    // The improv is once-only: a second describe is refused, the content
+    // stands unchanged (criterion d).
+    await runTurn(ctx, '!describe old-chest Actually it is full of bees.');
+    expect(
+      rejections(ctx).some(
+        (r) =>
+          r.tool === 'describe_object' &&
+          r.reason.includes('already has written content'),
+      ),
+    ).toBe(true);
+    const after = ctx.storage.objects.heldAt('w1', 'subloc:common_room');
+    expect(after[0]?.payload).toContain('cracked compass');
+    expect(after[0]?.payload).not.toContain('bees');
+    ctx.storage.close();
+  });
+
+  it('the Narrator can never mint an object: describing something untouched is refused', async () => {
+    const ctx = setup();
+    await runTurn(ctx, '!describe ghost-chest A chest nobody ever touched.');
+    expect(
+      rejections(ctx).some(
+        (r) => r.tool === 'describe_object' && r.reason.includes('no object'),
+      ),
+    ).toBe(true);
+    expect(
+      ctx.storage.eventLog
+        .readSince(0)
+        .filter((e) => e.type.startsWith('object.')),
+    ).toHaveLength(0);
+    ctx.storage.close();
+  });
+});
+
 describe('explore (the §14 listing)', () => {
   function characterText(ctx: Ctx): string {
     const turns = ctx.storage.eventLog

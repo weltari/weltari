@@ -14,6 +14,7 @@ import {
   CHAT_QUERY_DESCRIPTIONS,
   CHAT_TOOL_DESCRIPTIONS,
   CreateSublocationToolSchema,
+  DescribeObjectToolSchema,
   EndSceneToolSchema,
   EXPLORE_QUERY_DESCRIPTION,
   ExploreToolSchema,
@@ -63,6 +64,10 @@ const NARRATOR_TOOLS: ToolSet = {
   create_sublocation: tool({
     description: NARRATOR_TOOL_DESCRIPTIONS.create_sublocation,
     inputSchema: CreateSublocationToolSchema,
+  }),
+  describe_object: tool({
+    description: NARRATOR_TOOL_DESCRIPTIONS.describe_object,
+    inputSchema: DescribeObjectToolSchema,
   }),
 };
 
@@ -144,6 +149,12 @@ function narratorToolsFor(call: LlmCall): ToolSet {
             inputSchema: CreateSublocationToolSchema,
             execute: (input): string =>
               gate({ tool: 'create_sublocation', input }),
+          }),
+          describe_object: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.describe_object,
+            inputSchema: DescribeObjectToolSchema,
+            execute: (input): string =>
+              gate({ tool: 'describe_object', input }),
           }),
         };
   const querySublocations = call.queries?.query_sublocations;

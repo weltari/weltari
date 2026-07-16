@@ -200,6 +200,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
    * current sublocation changes turn to turn and must never touch the prefix). */
   function narratorToolContext(
     sceneId: string,
+    worldId: string,
     sublocations: readonly SublocationDefinition[],
   ): string {
     const current = currentSublocationId(storage, sceneId, startSublocationId);
@@ -209,10 +210,23 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     const artList = [...artSets.entries()]
       .map(([characterId, poses]) => `${characterId}: ${poses.join('|')}`)
       .join('; ');
+    // The durable objects lying here (M7 part 3, Rev 4 §7): the Narrator
+    // narrates an existing payload VERBATIM in spirit and may describe_object
+    // only the ones marked empty — write-on-first-read, exactly once.
+    const objects = storage.objects.heldAt(worldId, current);
+    const objectList =
+      objects.length === 0
+        ? ''
+        : ` Durable objects here: ${objects
+            .map(
+              (o) =>
+                `${o.object_id} ("${o.name}"): ${o.payload ?? 'nothing written yet — improvise once with describe_object when examined'}`,
+            )
+            .join('; ')}.`;
     return [
       `Current sublocation: ${current}.`,
       `Sublocations you may move the scene to: ${sublocationList}.`,
-      `Art poses you may switch: ${artList}.`,
+      `Art poses you may switch: ${artList}.${objectList}`,
     ].join(' ');
   }
 
@@ -521,6 +535,8 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         return `staged: your content is written into ${effect.objectId} when this reply commits.`;
       case 'object_move':
         return `staged: ${effect.objectId} moves to ${effect.toSublocationId} when this reply commits.`;
+      case 'object_improv':
+        return `staged: your improvised content is written into ${effect.objectId} when this reply commits — every later read returns exactly it.`;
     }
   }
 
@@ -565,7 +581,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         {
           kind: 'narrator',
           profile: narrator,
-          instruction: `Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias. You may call your scene tools when the fiction calls for it.${resolveInstruction} ${narratorToolContext(command.scene_id, sublocations)}`,
+          instruction: `Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias. You may call your scene tools when the fiction calls for it.${resolveInstruction} ${narratorToolContext(command.scene_id, command.world_id, sublocations)}`,
           toolset: 'narrator',
         },
         {
@@ -807,6 +823,21 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                     object_id: effect.objectId,
                     from_sublocation_id: effect.fromSublocationId,
                     to_sublocation_id: effect.toSublocationId,
+                    scene_id: command.scene_id,
+                  },
+                }),
+              );
+            } else if (effect.kind === 'object_improv') {
+              // Write-on-first-read (Rev 4 §7): the Narrator's improvised
+              // content, persisted exactly once — actor = the Narrator.
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: narrator.character_id,
+                  type: 'object.payload_written',
+                  payload: {
+                    object_id: effect.objectId,
+                    object_payload: effect.payload,
                     scene_id: command.scene_id,
                   },
                 }),
