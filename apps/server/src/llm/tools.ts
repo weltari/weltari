@@ -181,6 +181,50 @@ export const MemoryqueryToolSchema = z.strictObject({
   query: z.string().min(1).max(200),
 });
 
+/**
+ * explore (M7 part 3, Rev 4 §14): pure retrieval, no LLM call — the
+ * sublocation's wiki + the objects publicly held there + the sublocations one
+ * level deeper. Exploring is the character's choice; the information is open
+ * to anyone present. Mid-call-only like every query.
+ */
+export const ExploreToolSchema = z.strictObject({
+  /** The sublocation to explore; omit for the scene's current one. */
+  sublocation_id: z.string().min(1).optional(),
+});
+
+/**
+ * interact_object (M7 part 3, Rev 4 §7): the character's ONE mutating scene
+ * tool — create/move an item or author its written content. Engine gate:
+ * accepted only if it changes a holder or writes a payload; anything else is
+ * rejected with "express it in your attempt instead" — prose stays prose by
+ * construction. Max 2 object ops per turn; a ref matching an existing name at
+ * a reachable holder resolves to the existing row (dedup). V1 holders are
+ * sublocations only (owner ruling 2026-07-16: backpacks are V2).
+ */
+export const InteractObjectToolSchema = z.strictObject({
+  /** The object: a name ("the brass key") or an object id from an earlier
+   * staged-ack / explore result. */
+  object: z.string().min(1).max(120),
+  /** Written/authored content — what the object is and/or contains. */
+  payload: z.string().min(1).max(4000).optional(),
+  /** Move the object to this sublocation (must be within the scene's reach). */
+  move_to: z.string().min(1).optional(),
+});
+export type InteractObjectToolInput = z.infer<typeof InteractObjectToolSchema>;
+
+export const CHARACTER_SCENE_TOOL_NAMES = ['interact_object'] as const;
+export type CharacterSceneToolName =
+  (typeof CHARACTER_SCENE_TOOL_NAMES)[number];
+
+/** Static descriptions for the character's scene toolset (stable strings). */
+export const CHARACTER_SCENE_TOOL_DESCRIPTIONS: Record<
+  CharacterSceneToolName,
+  string
+> = {
+  interact_object:
+    "Make a physical object durable — use it ONLY when the interaction has a lasting consequence: you place or drop an item somewhere, move it elsewhere, or author written content into it (a letter's text goes in payload). An important object directly impacts goals, alters relationships, has utility, shifts the story, or holds high intrinsic value — everything else stays prose and needs no tool call. object: its name, or an id you were given. payload: the authored content. move_to: the sublocation_id it moves to. A call that would change nothing durable is rejected — express it in your attempt instead. At most 2 object operations per turn.",
+};
+
 export const CHAT_QUERY_DESCRIPTIONS = {
   wikiquery:
     'Look up what is publicly known about a place: searches the world wiki (place names, descriptions, latest entries). Use it when the User asks about a location and your instant recall is not enough. The result returns to you immediately.',
@@ -584,12 +628,16 @@ export interface RawToolCall {
   input: unknown;
 }
 
-/** A tool call that passed gate 1 (shape). Gate 2 (state) still applies. */
+/** A tool call that passed gate 1 (shape). Gate 2 (state) still applies.
+ * interact_object (M7 part 3) is produced ONLY by parseCharacterSceneToolCall
+ * — the narrator parser rejects it as unknown, so the Narrator can never
+ * stage an object (Rev 4 §7: Narrator/World Agent never create directly). */
 export type ValidatedToolCall =
   | { tool: 'end_scene'; input: EndSceneToolInput }
   | { tool: 'change_sublocation'; input: ChangeSublocationToolInput }
   | { tool: 'switch_art'; input: SwitchArtToolInput }
-  | { tool: 'create_sublocation'; input: CreateSublocationToolInput };
+  | { tool: 'create_sublocation'; input: CreateSublocationToolInput }
+  | { tool: 'interact_object'; input: InteractObjectToolInput };
 
 /**
  * Gate 1: shape-validate one raw tool call. Unknown names and malformed
@@ -670,6 +718,48 @@ export function parseToolCall(
         new OperationalError(
           'unknown_tool',
           `no such narrator tool: ${raw.tool}`,
+        ),
+      );
+  }
+}
+
+/**
+ * Gate 1 for the character's scene toolset (M7 part 3): interact_object is
+ * its only mutating tool (explore/memoryquery/wikiquery execute mid-call and
+ * are never staged). Same contract as parseToolCall — reject as a value,
+ * zero rows (I8).
+ */
+export function parseCharacterSceneToolCall(
+  raw: RawToolCall,
+  logger: Logger,
+): Result<ValidatedToolCall> {
+  switch (raw.tool) {
+    case 'interact_object': {
+      const input = validateAt(
+        'llm',
+        'tool:interact_object',
+        InteractObjectToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'interact_object', input: input.value } }
+        : input;
+    }
+    case 'explore':
+    case 'memoryquery':
+    case 'wikiquery':
+      return err(
+        new OperationalError(
+          'query_not_stageable',
+          `${raw.tool} executes during the call and is never staged`,
+        ),
+      );
+    default:
+      return err(
+        new OperationalError(
+          'unknown_tool',
+          `no such character scene tool: ${raw.tool}`,
         ),
       );
   }
