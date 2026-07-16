@@ -614,6 +614,7 @@ if (imagesDir) {
       (event.type === 'sublocation.materialized' ||
         event.type === 'subwiki.edited' ||
         event.type === 'character.created' ||
+        event.type === 'object.created' ||
         event.type === 'world.seeded') &&
       payload.proposal_id !== undefined
     ) {
@@ -656,6 +657,12 @@ if (imagesDir) {
         if (rows('sublocation.materialized') !== 1) {
           failures.push(
             `approved create_place ${proposalId}: ${rows('sublocation.materialized')} materialized rows (want 1)`,
+          );
+        }
+      } else if (payload.action === 'create_object') {
+        if (rows('object.created') !== 1) {
+          failures.push(
+            `approved create_object ${proposalId}: ${rows('object.created')} object rows (want 1)`,
           );
         }
       } else if (payload.action === 'seed_world') {
@@ -723,6 +730,128 @@ if (imagesDir) {
     if (rows === 0 && !deletedAfter.has(actorId)) {
       failures.push(
         `profile.updated ${key}: zero side-store rows and no profile.deleted (torn transaction)`,
+      );
+    }
+  }
+}
+
+// 4n. Objects (M7 part 3, Rev 4 §7): the objects table mirrors the fold of
+//     the object.* events exactly (the row rides the append's transaction;
+//     boot rebuilds); every object event references an object alive at that
+//     point (created once, nothing after swept); (name, holder) stays unique
+//     among live rows per world; a swept object was a legal stray — payload-
+//     less, scene-created, never touched outside its creating scene, and its
+//     creating scene had ENDED before the tombstone.
+{
+  const nameKey = (name) => name.trim().toLowerCase().replace(/\s+/g, ' ');
+  const fold = new Map(); // object_id -> live folded row
+  const sceneEndIds = new Map(); // scene_id -> event id of its end
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'scene.ended' || event.type === 'scene.expired') {
+      sceneEndIds.set(payload.scene_id, event.id);
+      continue;
+    }
+    if (
+      event.type !== 'object.created' &&
+      event.type !== 'object.payload_written' &&
+      event.type !== 'object.moved' &&
+      event.type !== 'object.swept'
+    ) {
+      continue;
+    }
+    const id = payload.object_id;
+    const row = fold.get(id);
+    if (event.type === 'object.created') {
+      if (row !== undefined) {
+        failures.push(`object ${id} created twice (event ${event.id})`);
+        continue;
+      }
+      fold.set(id, {
+        world_id: event.world_id,
+        name: payload.name,
+        holder: payload.holder_sublocation_id,
+        payload: payload.object_payload ?? null,
+        createdScene: payload.scene_id ?? null,
+        touchedOutsideCreatingScene: false,
+      });
+      continue;
+    }
+    if (row === undefined) {
+      failures.push(
+        `${event.type} (event ${event.id}) references object ${id} that is not alive`,
+      );
+      continue;
+    }
+    if (event.type === 'object.payload_written') {
+      row.payload = payload.object_payload;
+      if (payload.scene_id !== row.createdScene)
+        row.touchedOutsideCreatingScene = true;
+    } else if (event.type === 'object.moved') {
+      row.holder = payload.to_sublocation_id;
+      if (payload.scene_id !== row.createdScene)
+        row.touchedOutsideCreatingScene = true;
+    } else {
+      // The tombstone: legal only for a true stray of an ended scene.
+      if (row.payload !== null) {
+        failures.push(
+          `object ${id} swept WITH a payload (carriers are exempt)`,
+        );
+      }
+      if (row.createdScene === null) {
+        failures.push(
+          `object ${id} swept without a creating scene (GM-authored objects are exempt)`,
+        );
+      } else {
+        const endId = sceneEndIds.get(row.createdScene);
+        if (endId === undefined || endId > event.id) {
+          failures.push(
+            `object ${id} swept before its creating scene ${row.createdScene} ended`,
+          );
+        }
+      }
+      if (row.touchedOutsideCreatingScene) {
+        failures.push(
+          `object ${id} swept although a later scene touched it (not a stray)`,
+        );
+      }
+      fold.delete(id);
+    }
+  }
+  // Live-row uniqueness per (world, holder, name key).
+  const seenKeys = new Map();
+  for (const [id, row] of fold) {
+    const key = `${row.world_id}|${row.holder}|${nameKey(row.name)}`;
+    const prior = seenKeys.get(key);
+    if (prior !== undefined) {
+      failures.push(`objects ${prior} and ${id} share (name, holder) ${key}`);
+    }
+    seenKeys.set(key, id);
+  }
+  // The table mirrors the fold exactly.
+  const tableRows = db
+    .prepare(
+      'SELECT object_id, world_id, name, holder_sublocation_id, payload FROM objects',
+    )
+    .all();
+  if (tableRows.length !== fold.size) {
+    failures.push(
+      `objects table has ${tableRows.length} rows, the event fold ${fold.size}`,
+    );
+  }
+  for (const row of tableRows) {
+    const folded = fold.get(row.object_id);
+    if (folded === undefined) {
+      failures.push(`objects table row ${row.object_id} has no live fold`);
+      continue;
+    }
+    if (
+      folded.name !== row.name ||
+      folded.holder !== row.holder_sublocation_id ||
+      (folded.payload ?? null) !== row.payload
+    ) {
+      failures.push(
+        `objects table row ${row.object_id} diverges from its event fold`,
       );
     }
   }
