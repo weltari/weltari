@@ -81,6 +81,13 @@ export type StagedToolEffect =
       fromSublocationId: string;
       toSublocationId: string;
       actorId: string;
+    }
+  // Write-on-first-read (Rev 4 §7): the Narrator's improvised content for a
+  // payload-less object — no actor field; the commit stamps the Narrator.
+  | {
+      kind: 'object_improv';
+      objectId: string;
+      payload: string;
     };
 
 export interface ToolStage {
@@ -488,6 +495,59 @@ export function createToolStage(
                 }),
           };
           stagedEnd = effect;
+          effects.push(effect);
+          return ok(effect);
+        }
+        case 'describe_object': {
+          // Write-on-first-read (M7 part 3, Rev 4 §7): Narrator improv is
+          // persisted EXACTLY once — an existing payload refuses the write,
+          // so the second read returns the same content by construction.
+          if (!sceneIsOpen(options.storage, sceneId)) {
+            return err(
+              new OperationalError(
+                'scene_not_open',
+                `scene ${sceneId} is not open`,
+              ),
+            );
+          }
+          const reachable = reachableSublocationIds();
+          const matches = resolveObjectRef(call.input.object, reachable);
+          const [target, ambiguous] = matches;
+          if (ambiguous !== undefined) {
+            const listing = matches
+              .map((m) => `${m.objectId} (at ${m.holderSublocationId})`)
+              .join(', ');
+            return err(
+              new OperationalError(
+                'object_ambiguous',
+                `"${call.input.object}" matches several objects: ${listing} — call again with the object id`,
+              ),
+            );
+          }
+          if (target === undefined) {
+            // The Narrator can never create objects (Rev 4 §7: write
+            // authority preserved) — only fill ones a touch materialized.
+            return err(
+              new OperationalError(
+                'unknown_object',
+                `no object "${call.input.object}" within reach — objects only exist once a character's interaction materialized them`,
+              ),
+            );
+          }
+          if (target.hasPayload) {
+            return err(
+              new OperationalError(
+                'payload_exists',
+                `${target.objectId} already has written content — narrate its existing content instead`,
+              ),
+            );
+          }
+          stagedObjects.set(target.objectId, { ...target, hasPayload: true });
+          const effect: StagedToolEffect = {
+            kind: 'object_improv',
+            objectId: target.objectId,
+            payload: call.input.payload,
+          };
           effects.push(effect);
           return ok(effect);
         }

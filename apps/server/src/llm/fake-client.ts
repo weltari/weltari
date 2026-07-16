@@ -73,6 +73,7 @@ const SCRIPT: Record<string, string> = {
  *                                          without !query — the query-first rule)
  *   !query                               → run the engine's query_sublocations
  *                                          executor (mode parentless) mid-call
+ *   !describe <name-slug> <text…>        → describe_object (write-on-first-read, M7 part 3)
  *   !badshape                            → switch_art with a malformed input (gate-1 subject)
  *   !ghosttool                           → an unknown tool name (gate-1 subject)
  */
@@ -116,6 +117,18 @@ function scriptedToolCalls(prompt: string): RawToolCall[] {
     calls.push({
       tool: 'switch_art',
       input: { character_id: art[1] ?? '', art_id: art[2] ?? '' },
+    });
+  }
+  // Write-on-first-read (M7 part 3, Rev 4 §7): `!describe <name-slug>
+  // <text…>` scripts the Narrator's improvised payload for an empty object.
+  const describe = /!describe\s+(\S+)\s+([^\n!]+)/.exec(prompt);
+  if (describe !== null) {
+    calls.push({
+      tool: 'describe_object',
+      input: {
+        object: (describe[1] ?? '').replaceAll('-', ' '),
+        payload: (describe[2] ?? '').trim(),
+      },
     });
   }
   const endNext = /!endnext\s+(\S+)/.exec(prompt);

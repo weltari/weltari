@@ -84,12 +84,29 @@ export const SwitchArtToolSchema = z.strictObject({
 });
 export type SwitchArtToolInput = z.infer<typeof SwitchArtToolSchema>;
 
+/**
+ * describe_object — write-on-first-read (M7 part 3, Rev 4 §7): a public
+ * object examined with NO payload gets the Narrator's improvised content
+ * persisted exactly once — the engine gate refuses a write over an existing
+ * payload, so the second read returns the SAME content by construction. The
+ * Narrator can never create or move objects (write authority preserved);
+ * this is its one object surface.
+ */
+export const DescribeObjectToolSchema = z.strictObject({
+  /** The object: its id from the scene context, or its name. */
+  object: z.string().min(1).max(120),
+  /** The improvised content — what the object is and/or contains. */
+  payload: z.string().min(1).max(4000),
+});
+export type DescribeObjectToolInput = z.infer<typeof DescribeObjectToolSchema>;
+
 export const NARRATOR_TOOL_NAMES = [
   'end_scene',
   'change_sublocation',
   'switch_art',
   'create_sublocation',
   'query_sublocations',
+  'describe_object',
 ] as const;
 export type NarratorToolName = (typeof NARRATOR_TOOL_NAMES)[number];
 
@@ -105,6 +122,8 @@ export const NARRATOR_TOOL_DESCRIPTIONS: Record<NarratorToolName, string> = {
     'Create a new place mid-scene when the story commits to it (the scene moves there, or the next scene opens there) — mentioning a place in prose costs nothing and needs no tool call. One sublocation = one backdrop image: if a single background image can stage it, it is one sublocation (a park, a market square, a bridge); if only an aerial view could, name the stage inside it instead. An interior of the current location gets parent_id = the current exterior-atomic sublocation (always flat, never nested). A genuinely new parentless place requires calling query_sublocations with mode "parentless" first, in this same reply: if an existing sublocation plausibly fits, use change_sublocation instead of creating.',
   query_sublocations:
     'Look up existing sublocations before creating or moving. mode "parentless" lists every exterior-atomic place (REQUIRED before any parentless create_sublocation); mode "children" lists the interiors under parent_id; mode "search" matches keyword against names and descriptions. The result returns to you immediately.',
+  describe_object:
+    'Persist your improvised content for a durable object that has NONE yet (the scene context marks these "nothing written yet"): when someone examines such an object, improvise what it is or contains in your narration AND record exactly that here, so every later read returns the same content. Only works once per object — an object that already has content must be narrated from its existing content instead.',
 };
 
 /**
@@ -642,6 +661,7 @@ export type ValidatedToolCall =
   | { tool: 'change_sublocation'; input: ChangeSublocationToolInput }
   | { tool: 'switch_art'; input: SwitchArtToolInput }
   | { tool: 'create_sublocation'; input: CreateSublocationToolInput }
+  | { tool: 'describe_object'; input: DescribeObjectToolInput }
   | { tool: 'interact_object'; input: InteractObjectToolInput };
 
 /**
@@ -706,6 +726,18 @@ export function parseToolCall(
             ok: true,
             value: { tool: 'create_sublocation', input: input.value },
           }
+        : input;
+    }
+    case 'describe_object': {
+      const input = validateAt(
+        'llm',
+        'tool:describe_object',
+        DescribeObjectToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'describe_object', input: input.value } }
         : input;
     }
     case 'query_sublocations':
