@@ -181,6 +181,19 @@ export function appendSceneEndWithFanOut(
     });
     if (analysis !== null) jobsEnqueued += 1;
   }
+  // The object GC sweep (M7 part 3, Rev 4 §7): payload-less strays vanish
+  // once their creating scene is over — one world-serial sweep per scene end
+  // (dropped sticks vanish; payload carriers are exempt in the handler).
+  const objectGc = storage.ledger.enqueue({
+    idempotency_key: `object_gc:${request.world_id}:${request.scene_id}`,
+    world_id: request.world_id,
+    type: 'object_gc',
+    payload: { ended_scene_id: request.scene_id },
+    // One sweep at a time per world — two sweeps racing the same strays
+    // would tombstone twice.
+    serial_group: `object_gc:${request.world_id}`,
+  });
+  if (objectGc !== null) jobsEnqueued += 1;
   return { event, jobsEnqueued };
 }
 
