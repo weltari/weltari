@@ -12,6 +12,7 @@ import type { FaultPointHook } from '../../engine/fault-points.js';
 import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Storage } from '../../storage/db.js';
+import type { NewEvent } from '../../storage/repositories/event-log.js';
 import type { JobHandler } from '../runner.js';
 
 const payloadSchema = z.strictObject({
@@ -41,6 +42,19 @@ export interface WorldCronCodeHandlerOptions {
   sink: EventSink;
   logger: Logger;
   faultPoint?: FaultPointHook;
+  /**
+   * Kind-routed occurrence planner (M7 part 4): PURE — returns the domain
+   * events one code occurrence produces (world movement pointer updates, a
+   * CRON marker drop…), appended atomically with world_cron.completed in
+   * ONE sink.appendMany. The completed event's (cron_type, scheduled_for)
+   * natural key is the idempotency for the WHOLE batch. Unknown kinds
+   * return [] — the occurrence still completes.
+   */
+  occurrenceEvents?: (
+    worldId: string,
+    cronType: string,
+    scheduledFor: string,
+  ) => NewEvent[];
 }
 
 export function createWorldCronCodeHandler(
@@ -76,12 +90,20 @@ export function createWorldCronCodeHandler(
       );
       return;
     }
-    sink.append({
-      world_id: job.world_id,
-      actor_id: 'system:world_cron',
-      type: 'world_cron.completed',
-      payload: { cron_type, scheduled_for, job_class: 'code' },
-    });
+    // The occurrence's domain events (M7 part 4) + the completed record in
+    // ONE transaction — a kill leaves either the whole occurrence or none
+    // of it, and the completed-event gate above covers the retry.
+    const planned =
+      options.occurrenceEvents?.(job.world_id, cron_type, scheduled_for) ?? [];
+    sink.appendMany([
+      ...planned,
+      {
+        world_id: job.world_id,
+        actor_id: 'system:world_cron',
+        type: 'world_cron.completed',
+        payload: { cron_type, scheduled_for, job_class: 'code' },
+      },
+    ]);
   };
 }
 

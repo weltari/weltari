@@ -32,6 +32,7 @@ import type { EventBus } from '../http/bus.js';
 import { addMinutesIso } from '../ledger/scheduler.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
+import type { NewEvent } from '../storage/repositories/event-log.js';
 import { presenceOf } from './chat.js';
 import type { FaultPointHook } from './fault-points.js';
 import { pickIndex } from './outreach.js';
@@ -180,6 +181,62 @@ export function appendTopUpDrops(
     events.push(dropped.event);
   }
   return events;
+}
+
+/**
+ * Plan one CRON marker occurrence (Rev 4 §14 "CRON drops"): PURE planning —
+ * the world-cron code handler appends the result atomically with its
+ * world_cron.completed, whose (cron_type, scheduled_for) natural key is the
+ * occurrence's idempotency. Deterministic per (world, occurrence), stamped
+ * with the SCHEDULED fictional time; the ceiling and born-expired
+ * suppression apply exactly as at the drop gate (a suppressed or refused
+ * occurrence still completes — it simply carries no marker, and the
+ * encounter "never happened" by construction). Never plans more than one
+ * drop; the advance-time sweep's top-up owns the floor.
+ */
+export function planCronMarkerDrop(
+  storage: Storage,
+  config: MarkerConfig,
+  knownCharacters: readonly KnownCharacter[],
+  worldId: string,
+  scheduledFor: string,
+): NewEvent[] {
+  if (storage.markers.live(worldId).length >= config.max) return [];
+  const expiresAt = addMinutesIso(scheduledFor, config.ttlGameMinutes);
+  if (expiresAt <= worldTimeOf(storage, worldId)) return []; // born-expired
+  const anchors = materializedSublocations(storage, worldId);
+  if (anchors.length === 0) return [];
+  const seed = `${worldId}:${scheduledFor}`;
+  const anchor = anchors[pickIndex(seed, anchors.length)];
+  if (anchor === undefined) return [];
+  const free = knownCharacters.filter(
+    (c) => presenceOf(storage, worldId, c.character_id).state === 'available',
+  );
+  const picked =
+    free.length === 0 ? undefined : free[pickIndex(`${seed}:cast`, free.length)];
+  return [
+    {
+      world_id: worldId,
+      actor_id: MARKER_ACTOR_ID,
+      type: 'marker.dropped',
+      payload: {
+        // Deterministic per occurrence — a retry can never mint a twin even
+        // before the completed-event gate settles.
+        marker_id: `marker:cron:${worldId}:${scheduledFor}`,
+        kind: 'map_event',
+        sublocation_id: anchor.sublocation_id,
+        involved_characters: picked === undefined ? [] : [picked.character_id],
+        premise_seed:
+          picked === undefined
+            ? `Something is stirring at ${anchor.name}.`
+            : `${picked.name} is at ${anchor.name}, doing something that might be worth a look.`,
+        dropped_at_game_time: scheduledFor,
+        ttl_game_minutes: config.ttlGameMinutes,
+        expires_at_game_time: expiresAt,
+        source: 'cron',
+      },
+    },
+  ];
 }
 
 /** Worlds holding any marker history — the boot sweep's list. */

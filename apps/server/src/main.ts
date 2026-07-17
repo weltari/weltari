@@ -33,7 +33,13 @@ import {
 } from './engine/invitation.js';
 import { OUTREACH_FREEZE_CAP } from './engine/outreach.js';
 import { SOCIAL_POST_SKIP_CAP } from './engine/social.js';
-import { createMarkerEngine, markerWorlds } from './engine/markers.js';
+import { planMovementEvents } from './engine/locations.js';
+import type { NewEvent } from './storage/repositories/event-log.js';
+import {
+  createMarkerEngine,
+  markerWorlds,
+  planCronMarkerDrop,
+} from './engine/markers.js';
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { squareOf } from './engine/sublocations.js';
 import { createTurnEngine } from './engine/scene-turn.js';
@@ -575,6 +581,38 @@ const runner = createRunner({
       storage,
       sink,
       logger,
+      // The living-world occurrences (M7 part 4, Rev 4 §14): movement moves
+      // the DM roster (presence-checked, materialized targets only); the
+      // encounter drop plans at most one marker per occurrence, stamped
+      // with the scheduled fictional time. Both PURE — appended atomically
+      // with world_cron.completed inside the handler.
+      occurrenceEvents: (worldId, cronType, scheduledFor): NewEvent[] => {
+        if (cronType === 'world_movement') {
+          return planMovementEvents(
+            storage,
+            dmRoster.map((p) => ({
+              character_id: p.character_id,
+              name: p.name,
+            })),
+            worldId,
+            scheduledFor,
+          );
+        }
+        if (cronType === 'encounter_marker') {
+          return planCronMarkerDrop(
+            storage,
+            {
+              min: env.markerMin,
+              max: env.markerMax,
+              ttlGameMinutes: env.markerTtlGameMinutes,
+            },
+            knownCharacters,
+            worldId,
+            scheduledFor,
+          );
+        }
+        return [];
+      },
       ...(faultPoint === undefined ? {} : { faultPoint }),
     }),
     'world_cron.llm': createWorldCronLlmHandler({
