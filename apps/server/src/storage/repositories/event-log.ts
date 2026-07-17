@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { WeltariEventSchema, type WeltariEvent } from '@weltari/protocol';
 import { CorruptStateError } from '../../errors.js';
+import type { MarkersRepository } from './markers.js';
 import type { MemoryIndexRepository } from './memory-index.js';
 import type { ObjectsRepository } from './objects.js';
 
@@ -71,6 +72,9 @@ export function createEventLogRepository(
   /** Folds object events into the objects table inside the append's own
    * transaction (M7 part 3). */
   objects?: ObjectsRepository,
+  /** Folds marker events into the markers table inside the append's own
+   * transaction (M7 part 4). */
+  markers?: MarkersRepository,
 ): EventLogRepository {
   const insert = db.prepare(
     'INSERT INTO events (world_id, actor_id, type, payload, ts) VALUES (?, ?, ?, ?, ?)',
@@ -112,6 +116,14 @@ export function createEventLogRepository(
         persisted.type === 'object.swept'
       ) {
         objects?.apply(persisted);
+      }
+      // The markers table too (M7 part 4).
+      if (
+        persisted.type === 'marker.dropped' ||
+        persisted.type === 'marker.instantiated' ||
+        persisted.type === 'marker.expired'
+      ) {
+        markers?.apply(persisted);
       }
       return persisted;
     },

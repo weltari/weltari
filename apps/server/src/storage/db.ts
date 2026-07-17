@@ -23,6 +23,10 @@ import {
   type MemoryIndexRepository,
 } from './repositories/memory-index.js';
 import {
+  createMarkersRepository,
+  type MarkersRepository,
+} from './repositories/markers.js';
+import {
   createObjectsRepository,
   type ObjectsRepository,
 } from './repositories/objects.js';
@@ -52,6 +56,10 @@ export interface Storage {
   /** Durable objects (M7 part 3, Rev 4 §7) — a projection of the object.*
    * events, fed by the append in-transaction and rebuilt at boot. */
   readonly objects: ObjectsRepository;
+  /** Chance-encounter markers (M7 part 4, Rev 4 §14/§17) — a projection of
+   * the marker.* events, fed by the append in-transaction and rebuilt at
+   * boot; terminal rows stay (join race + audit trail). */
+  readonly markers: MarkersRepository;
   /**
    * The WriteGate: every multi-statement durable write goes through here so it
    * commits or vanishes atomically (crash-only design, Brief §2.4). better-sqlite3
@@ -163,7 +171,14 @@ export function openStorage(options: StorageOptions): Storage {
   const nowIso = options.nowIso ?? ((): string => new Date().toISOString());
   const memoryIndex = createMemoryIndexRepository(db);
   const objects = createObjectsRepository(db);
-  const eventLog = createEventLogRepository(db, nowIso, memoryIndex, objects);
+  const markers = createMarkersRepository(db);
+  const eventLog = createEventLogRepository(
+    db,
+    nowIso,
+    memoryIndex,
+    objects,
+    markers,
+  );
   const ledger = createLedgerRepository(db, nowIso);
   const gateway = createGatewayRepository(db, nowIso);
   const userProfile = createUserProfileRepository(db, nowIso);
@@ -174,6 +189,7 @@ export function openStorage(options: StorageOptions): Storage {
   // rows.
   memoryIndex.rebuild();
   objects.rebuild();
+  markers.rebuild();
 
   return {
     eventLog,
@@ -182,6 +198,7 @@ export function openStorage(options: StorageOptions): Storage {
     memoryIndex,
     userProfile,
     objects,
+    markers,
     transact<T>(fn: () => T): T {
       const run = db.transaction(fn);
       return run();
