@@ -57,6 +57,15 @@ const envSchema = z.object({
    * 0 = disabled. Each fire is one chat-class LLM call on a real backend;
    * fires per advance are additionally capped at the freeze cap. */
   WELTARI_CRON_DM_GAME_MINUTES: z.coerce.number().nonnegative().default(1440),
+  /** Chance-encounter marker floor/ceiling (Rev 4 §15: default 1–5) and the
+   * default game-time TTL in minutes (M7 part 4). */
+  WELTARI_MARKER_MIN: z.coerce.number().int().nonnegative().default(1),
+  WELTARI_MARKER_MAX: z.coerce.number().int().positive().default(5),
+  WELTARI_MARKER_TTL_GAME_MINUTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(180),
   /** Group-chat turn budget (M6 part 4, Rev 4 §8; owner ruling 2026-07-11:
    * default 3, user-tunable): max character turns the Group-chat Narrator
    * may route per user turn — the engine cuts it off, preventing infinite
@@ -147,6 +156,9 @@ export interface Env {
   leaseSeconds: number;
   chatIdleMinutes: number;
   cronDmGameMinutes: number;
+  markerMin: number;
+  markerMax: number;
+  markerTtlGameMinutes: number;
   groupTurnBudget: number;
   socialPostsPerDay: number;
   socialReactionCap: number;
@@ -211,6 +223,9 @@ export function readEnv(
       leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
       chatIdleMinutes: parsed.data.WELTARI_CHAT_IDLE_MINUTES,
       cronDmGameMinutes: parsed.data.WELTARI_CRON_DM_GAME_MINUTES,
+      markerMin: parsed.data.WELTARI_MARKER_MIN,
+      markerMax: parsed.data.WELTARI_MARKER_MAX,
+      markerTtlGameMinutes: parsed.data.WELTARI_MARKER_TTL_GAME_MINUTES,
       groupTurnBudget: parsed.data.WELTARI_GROUP_TURN_BUDGET,
       socialPostsPerDay: parsed.data.WELTARI_SOCIAL_POSTS_PER_DAY,
       socialReactionCap: parsed.data.WELTARI_SOCIAL_REACTION_CAP,

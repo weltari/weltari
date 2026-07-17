@@ -54,6 +54,8 @@ export type StagedToolEffect =
   | {
       kind: 'end_scene';
       endType: 'rest' | 'continuation' | 'travel';
+      /** M7 part 4 (Rev 4 §14): the ending scene's follow-up marker. */
+      followUpMarker?: { sublocationId: string; premiseSeed: string };
       dividerText: string | undefined;
       /** Present exactly when endType is `continuation` (gate-enforced). */
       nextScene?: { sublocationId: string; premiseSeed?: string };
@@ -478,7 +480,23 @@ export function createToolStage(
               ),
             );
           }
+          // The follow-up marker's anchor must exist (M7 part 4, Rev 4 §14)
+          // — a teaching refusal here; the drop gate re-checks materialized-
+          // only at commit (a stub anchor is silently refused there and the
+          // top-up keeps the map alive instead).
+          if (
+            call.input.follow_up_marker !== undefined &&
+            findKnown(call.input.follow_up_marker.sublocation_id) === undefined
+          ) {
+            return err(
+              new OperationalError(
+                'unknown_sublocation',
+                `follow_up_marker names ${call.input.follow_up_marker.sublocation_id}, which is not a sublocation of this world`,
+              ),
+            );
+          }
           const next = call.input.next_scene;
+          const followUp = call.input.follow_up_marker;
           const effect: StagedToolEffect = {
             kind: 'end_scene',
             endType: call.input.type,
@@ -491,6 +509,14 @@ export function createToolStage(
                     ...(next.premise_seed === undefined
                       ? {}
                       : { premiseSeed: next.premise_seed }),
+                  },
+                }),
+            ...(followUp === undefined
+              ? {}
+              : {
+                  followUpMarker: {
+                    sublocationId: followUp.sublocation_id,
+                    premiseSeed: followUp.premise_seed,
                   },
                 }),
           };

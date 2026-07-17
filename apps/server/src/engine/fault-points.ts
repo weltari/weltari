@@ -56,7 +56,21 @@ export type FaultPoint =
    * (object.swept tombstones + their same-transaction row deletions) not yet
    * written. Candidates are recomputed INSIDE the transaction, so a retry
    * converges: already-swept strays are simply no longer candidates. */
-  | 'mid_object_gc';
+  | 'mid_object_gc'
+  /** M7 part 4: inside the marker expiry sweep — a marker is due, the
+   * marker.expired append not yet written. A kill heals at the boot sweep;
+   * the fused re-check keeps the expiry single (the invitation pattern). */
+  | 'mid_marker_sweep'
+  /** M7 part 4: inside the marker click's instantiate window — every gate
+   * passed, the atomic append (marker.instantiated + scene.started + roster
+   * + backdrop) not yet written. A retried click must converge to exactly
+   * ONE scene per marker (the version race through the fused re-check). */
+  | 'mid_marker_click'
+  /** M7 part 4: inside the engine top-up window — the live count is below
+   * the minimum, the generated marker.dropped not yet appended. A kill
+   * heals at the next top-up site (boot / sweep / click / scene end); the
+   * in-transaction live recount keeps the map at or under the maximum. */
+  | 'mid_marker_topup';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;

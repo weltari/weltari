@@ -66,6 +66,7 @@ const SCRIPT: Record<string, string> = {
  * harness and a browser all script tool calls by typing:
  *   !end [rest|continuation|travel]      → end_scene
  *   !endnext <sublocation_id>            → end_scene continuation + next_scene (M6 part 1)
+ *   !endfollow <sublocation_id> [text]   → end_scene + follow_up_marker (M7 part 4)
  *   !move <sublocation_id>               → change_sublocation
  *   !art <character_id> <art_id>         → switch_art
  *   !create <name-slug> <parent_id>      → create_sublocation (interior; hyphens become spaces)
@@ -145,9 +146,27 @@ function scriptedToolCalls(prompt: string): RawToolCall[] {
       },
     });
   }
-  // \b keeps "!endnext" from also matching as a bare "!end".
+  // !endfollow <sublocation_id> [premise…] → end_scene + follow_up_marker
+  // (M7 part 4, Rev 4 §14: the ending scene leaves a lazy "!" on the map).
+  const endFollow = /!endfollow\s+(\S+)(?:\s+(.+))?/.exec(prompt);
+  if (endFollow !== null) {
+    calls.push({
+      tool: 'end_scene',
+      input: {
+        type: 'rest',
+        divider_text: '— the rain eases —',
+        follow_up_marker: {
+          sublocation_id: endFollow[1] ?? '',
+          premise_seed:
+            (endFollow[2] ?? '').trim() ||
+            'Someone lingers here, waiting for the next passer-by.',
+        },
+      },
+    });
+  }
+  // \b keeps "!endnext"/"!endfollow" from also matching as a bare "!end".
   const end = /!end\b(?:\s+(rest|continuation|travel))?/.exec(prompt);
-  if (end !== null && endNext === null) {
+  if (end !== null && endNext === null && endFollow === null) {
     calls.push({
       tool: 'end_scene',
       input: { type: end[1] ?? 'rest', divider_text: '— the rain eases —' },

@@ -207,6 +207,21 @@ describe('HTTP layer (SSE + commands)', () => {
                 clickId: command.request_id,
                 jobKey: `map_click:${command.world_id}:${command.request_id}`,
               }),
+      // marker 'gone' exercises the 409 path; 'seen' the join answer.
+      markerClick: (command) =>
+        Promise.resolve(
+          command.marker_id === 'gone'
+            ? err(new OperationalError('marker_expired', 'expired'))
+            : ok({
+                outcome:
+                  command.marker_id === 'seen'
+                    ? ('join' as const)
+                    : ('instantiated' as const),
+                marker_id: command.marker_id,
+                scene_id: `s-marker-${command.marker_id}`,
+                sublocation_id: 'subloc:common_room',
+              }),
+        ),
       // 'disabled' exercises the 409 path (no verification key configured).
       applyUpdate: (command) =>
         command.version === 'disabled'
@@ -859,6 +874,48 @@ describe('HTTP layer (SSE + commands)', () => {
 
     const fog = await post(0.95, 'c3');
     expect(fog.status).toBe(409);
+  });
+
+  it('marker-click -> 202 instantiated / join, 409 expired, 400 on extras (M7 part 4)', async () => {
+    const ctx = await setup();
+    const post = async (markerId: string, extra: object = {}) =>
+      fetchRetry(`${ctx.baseUrl}/v1/commands/marker-click`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          marker_id: markerId,
+          ...extra,
+        }),
+      });
+    const won = await post('m1');
+    expect(won.status).toBe(202);
+    expect(await won.json()).toMatchObject({
+      accepted: true,
+      outcome: 'instantiated',
+      marker_id: 'm1',
+      scene_id: 's-marker-m1',
+      sublocation_id: 'subloc:common_room',
+    });
+
+    const joined = await post('seen');
+    expect(joined.status).toBe(202);
+    expect(await joined.json()).toMatchObject({
+      accepted: true,
+      outcome: 'join',
+      scene_id: 's-marker-seen',
+    });
+
+    const expired = await post('gone');
+    expect(expired.status).toBe(409);
+    expect(await expired.json()).toMatchObject({
+      accepted: false,
+      error: 'marker_expired',
+    });
+
+    const smuggled = await post('m1', { force: true });
+    expect(smuggled.status).toBe(400); // strictObject rejects extras (B5)
   });
 
   it('malformed command body -> 400 and nothing appended (B-http)', async () => {

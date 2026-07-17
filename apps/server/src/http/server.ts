@@ -27,6 +27,8 @@ import {
   MapClickCommandSchema,
   MapEditAcceptedSchema,
   MapEditCommandSchema,
+  MarkerClickAcceptedSchema,
+  MarkerClickCommandSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
@@ -75,6 +77,8 @@ import {
   type MapClickCommand,
   type MapEditAccepted,
   type MapEditCommand,
+  type MarkerClickAccepted,
+  type MarkerClickCommand,
   type OpenSceneAccepted,
   type OpenSceneCommand,
   type PaintRegionAccepted,
@@ -154,6 +158,17 @@ export interface HttpDeps {
   ) => Result<
     | { outcome: 'enter'; clickId: string; sublocationId: string; name: string }
     | { outcome: 'classify'; clickId: string; jobKey: string }
+  >;
+  /** The marker-click seam (M7 part 4, Rev 4 §14/§17): first click wins into
+   * exactly one scene, a racing second click joins it; an expired-but-
+   * unswept marker's click 409s `marker_expired` and settles the marker. */
+  markerClick: (command: MarkerClickCommand) => Promise<
+    Result<{
+      outcome: 'instantiated' | 'join';
+      marker_id: string;
+      scene_id: string;
+      sublocation_id: string;
+    }>
   >;
   /** Updater seam (FINAL item 12): enqueue the update_apply job — 409 when
    * updates are disabled (no verification key / Docker notify-only mode). */
@@ -631,6 +646,40 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
               click_id: result.value.clickId,
               job_key: result.value.jobKey,
             };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/marker-click',
+    {
+      schema: {
+        body: MarkerClickCommandSchema,
+        response: {
+          202: MarkerClickAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await deps.markerClick(request.body);
+      if (!result.ok) {
+        deps.logger.warn({ code: result.error.code }, 'marker-click rejected');
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: MarkerClickAccepted = {
+        accepted: true,
+        outcome: result.value.outcome,
+        marker_id: result.value.marker_id,
+        scene_id: result.value.scene_id,
+        sublocation_id: result.value.sublocation_id,
+      };
       return accepted;
     },
   );

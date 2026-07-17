@@ -33,6 +33,7 @@ import {
 } from './engine/invitation.js';
 import { OUTREACH_FREEZE_CAP } from './engine/outreach.js';
 import { SOCIAL_POST_SKIP_CAP } from './engine/social.js';
+import { createMarkerEngine, markerWorlds } from './engine/markers.js';
 import { createSceneLifecycle } from './engine/scene-lifecycle.js';
 import { squareOf } from './engine/sublocations.js';
 import { createTurnEngine } from './engine/scene-turn.js';
@@ -277,6 +278,22 @@ const faultPoint: FaultPointHook | undefined = env.emitFaultPoints
     }
   : undefined;
 
+// The marker engine (M7 part 4, Rev 4 §14/§17): the living-world loop —
+// 1–5 live markers as an engine invariant, lazy game-time expiry, first
+// click wins. Its scene-end fan-out rides both end paths (HTTP + tool).
+const markerEngine = createMarkerEngine({
+  storage,
+  eventBus,
+  logger,
+  knownCharacters,
+  config: {
+    min: env.markerMin,
+    max: env.markerMax,
+    ttlGameMinutes: env.markerTtlGameMinutes,
+  },
+  ...(faultPoint === undefined ? {} : { faultPoint }),
+});
+
 const engine = createTurnEngine({
   storage,
   sink,
@@ -292,6 +309,7 @@ const engine = createTurnEngine({
   kickRunner: (): void => {
     catchAndLog(drainLedger(), logger, 'ledger.drain');
   },
+  markerFanOut: markerEngine,
   ...(faultPoint === undefined ? {} : { faultPoint }),
 });
 
@@ -300,6 +318,7 @@ const lifecycle = createSceneLifecycle({
   eventBus,
   logger,
   knownCharacters,
+  markerFanOut: markerEngine,
 });
 
 // Weltari Chat (M6 part 2, Rev 4 §8): DMs outside any scene. The idle sweep
@@ -709,6 +728,23 @@ for (const pendingWorld of pendingInvitationWorlds(storage)) {
   );
 }
 
+// The marker boot pass (M7 part 4, Rev 4 §14): recovery path = startup path.
+// Sweep every world with marker history (a kill inside mid_marker_sweep
+// heals here), then top the fixture world up to the minimum — the very first
+// boot drops the world's first marker right here.
+for (const markerWorld of markerWorlds(storage)) {
+  catchAndLog(
+    markerEngine.sweepExpired(markerWorld),
+    logger,
+    'marker.sweep.boot',
+  );
+}
+catchAndLog(
+  markerEngine.ensureMinimum(FIXTURE_WORLD_ID),
+  logger,
+  'marker.topup.boot',
+);
+
 // Memory maintenance boot sweep (M7 part 1, Rev 4 §11): heal any compaction
 // or CACHE-retention pass a kill delayed — the event-driven checks (after
 // each reflection / CACHE growth) are the fast path, this is the recovery
@@ -769,6 +805,7 @@ const app = createHttpServer({
   interruptTurn: (command) => engine.interruptTurn(command),
   endScene: (command) => lifecycle.endScene(command),
   openScene: (command) => lifecycle.openScene(command),
+  markerClick: (command) => markerEngine.click(command),
   advanceTime: (command) => {
     const fromGameTime = worldClock.currentTime(command.world_id);
     const advanced = worldClock.advanceTime(command);
@@ -780,6 +817,14 @@ const app = createHttpServer({
         invitationExpiry.expireDue(command.world_id),
         logger,
         'invitation.expire.advance',
+      );
+      // The marker sweep rides every clock advance (M7 part 4, Rev 4 §14):
+      // the ONLY way a game-time TTL can newly pass — expired pins settle,
+      // then the top-up keeps the map at the minimum.
+      catchAndLog(
+        markerEngine.sweepExpired(command.world_id),
+        logger,
+        'marker.sweep.advance',
       );
       // Proactive CRON DMs ride the SAME advance (M6 part 4, owner ruling
       // 2026-07-10/11: fires only when the world clock moves — a paused
