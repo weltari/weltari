@@ -85,6 +85,13 @@ export const FIXTURE_ART_SETS: ReadonlyMap<string, readonly string[]> = new Map(
 export const FIXTURE_WORLD_CRON: readonly WorldCronDefinition[] = [
   { pattern: '0 6 * * *', cronType: 'lamplighter', jobClass: 'code' },
   { pattern: '0 18 * * *', cronType: 'evening_rumor', jobClass: 'llm' },
+  // The living world (M7 part 4, Rev 4 §14): movement every 3 fictional
+  // hours (mailbox-routed pointer updates, presence-checked, materialized
+  // targets only); a chance-encounter drop every 4 at half past (2–4 h per
+  // the governance table) — both pure code, always executing in
+  // scheduled-timestamp order on a skip, zero LLM cost until clicked.
+  { pattern: '0 */3 * * *', cronType: 'world_movement', jobClass: 'code' },
+  { pattern: '30 */4 * * *', cronType: 'encounter_marker', jobClass: 'code' },
 ];
 
 const TOPICS = [
