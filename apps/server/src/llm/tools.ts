@@ -30,6 +30,19 @@ export const EndSceneToolSchema = z.strictObject({
       premise_seed: z.string().min(1).max(500).optional(),
     })
     .optional(),
+  /**
+   * The follow-up chance-encounter marker (M7 part 4, Rev 4 §14): the ending
+   * scene may leave a lazy "!" on the map — a place and a premise seed,
+   * nothing generated until clicked. Valid with every end type; a scene that
+   * leaves none still keeps the map alive via the engine top-up.
+   */
+  follow_up_marker: z
+    .strictObject({
+      sublocation_id: z.string().min(1),
+      /** The intent seed the click-time Narrator grounds in current state. */
+      premise_seed: z.string().min(1).max(500),
+    })
+    .optional(),
 });
 export type EndSceneToolInput = z.infer<typeof EndSceneToolSchema>;
 
@@ -113,7 +126,7 @@ export type NarratorToolName = (typeof NARRATOR_TOOL_NAMES)[number];
 /** Static descriptions the real client hands the SDK (stable strings — never scene state). */
 export const NARRATOR_TOOL_DESCRIPTIONS: Record<NarratorToolName, string> = {
   end_scene:
-    'Softly close the current scene. type: rest (a natural pause), continuation (a next scene follows), travel (the party moves elsewhere). Optionally give a short divider line like "— evening falls —". A continuation MUST include next_scene: the sublocation_id the follow-up scene opens at (it may be a stub you created this turn) and optionally a premise_seed.',
+    'Softly close the current scene. type: rest (a natural pause), continuation (a next scene follows), travel (the party moves elsewhere). Optionally give a short divider line like "— evening falls —". A continuation MUST include next_scene: the sublocation_id the follow-up scene opens at (it may be a stub you created this turn) and optionally a premise_seed. Optionally leave a follow_up_marker: a sublocation_id plus a one-line premise_seed for a later chance encounter growing out of this scene — it becomes a lazy "!" on the map the user may visit (or ignore) while its window lasts.',
   change_sublocation:
     'Move the scene to another sublocation of this location. Use a sublocation_id offered in the scene context (a sublocation you created this turn works too).',
   switch_art:

@@ -114,6 +114,10 @@ describe('GET /* (the SPA wildcard route)', () => {
           clickId: 'c1',
           jobKey: 'map_click:w1:c1',
         }),
+      markerClick: () =>
+        Promise.resolve(
+          err(new OperationalError('unknown_marker', 'test stub')),
+        ),
       applyUpdate: () =>
         err(new OperationalError('updates_disabled', 'test stub')),
       sendChatMessage: () =>

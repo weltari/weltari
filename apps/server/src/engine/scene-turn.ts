@@ -57,6 +57,7 @@ import type { FaultPointHook } from './fault-points.js';
 import {
   appendSceneEndWithFanOut,
   type KnownCharacter,
+  type SceneEndMarkerFanOut,
 } from './scene-lifecycle.js';
 import {
   createToolStage,
@@ -99,6 +100,9 @@ export interface TurnEngineOptions {
    * start on the spot instead of waiting out the runner's 1 s poll (the
    * same immediacy explore/map-edit get). Absent in tests: they tick. */
   kickRunner?: () => void;
+  /** M7 part 4: the marker engine's scene-end fan-out — the Narrator's
+   * end_scene follow-up (or the top-up fallback) rides the end transaction. */
+  markerFanOut?: SceneEndMarkerFanOut;
 }
 
 export interface TurnEngine {
@@ -847,26 +851,39 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
           }
           const end = stage.endScene();
           if (end?.kind === 'end_scene') {
-            const core = appendSceneEndWithFanOut(storage, knownCharacters, {
-              world_id: command.world_id,
-              actor_id: narrator.character_id,
-              scene_id: command.scene_id,
-              end_type: end.endType,
-              ...(end.dividerText === undefined
-                ? {}
-                : { divider_text: end.dividerText }),
-              ...(end.nextScene === undefined
-                ? {}
-                : {
-                    next_scene: {
-                      sublocation_id: end.nextScene.sublocationId,
-                      ...(end.nextScene.premiseSeed === undefined
-                        ? {}
-                        : { premise_seed: end.nextScene.premiseSeed }),
-                    },
-                  }),
-            });
-            appended.push(core.event);
+            const core = appendSceneEndWithFanOut(
+              storage,
+              knownCharacters,
+              {
+                world_id: command.world_id,
+                actor_id: narrator.character_id,
+                scene_id: command.scene_id,
+                end_type: end.endType,
+                ...(end.dividerText === undefined
+                  ? {}
+                  : { divider_text: end.dividerText }),
+                ...(end.nextScene === undefined
+                  ? {}
+                  : {
+                      next_scene: {
+                        sublocation_id: end.nextScene.sublocationId,
+                        ...(end.nextScene.premiseSeed === undefined
+                          ? {}
+                          : { premise_seed: end.nextScene.premiseSeed }),
+                      },
+                    }),
+                ...(end.followUpMarker === undefined
+                  ? {}
+                  : {
+                      follow_up_marker: {
+                        sublocation_id: end.followUpMarker.sublocationId,
+                        premise_seed: end.followUpMarker.premiseSeed,
+                      },
+                    }),
+              },
+              options.markerFanOut,
+            );
+            appended.push(core.event, ...core.markerEvents);
           }
         });
         turn.closed = true;

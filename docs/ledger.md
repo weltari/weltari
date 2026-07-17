@@ -50,7 +50,7 @@ Emits `job.failed`, `job.parked` (actor `system:ledger`); handlers emit `reflect
 
 ## Configuration
 
-`WELTARI_LEASE_SECONDS` (default 60) — job lease length; the kill harness shortens it so a killed-mid-job lease expires within one cycle. `WELTARI_CRON_DM_GAME_MINUTES` (default 1440 = once per fictional day, ON by default — owner ruling 2026-07-11; 0 = disabled) — the proactive-DM cadence in GAME minutes: occurrences enqueue only when the world clock advances (owner ruling 2026-07-10/11 — never on wall time), capped at the newest 3 per advance (the freeze cap makes more pure spend).
+`WELTARI_LEASE_SECONDS` (default 60) — job lease length; the kill harness shortens it so a killed-mid-job lease expires within one cycle. `WELTARI_CRON_DM_GAME_MINUTES` (default 1440 = once per fictional day, ON by default — owner ruling 2026-07-11; 0 = disabled) — the proactive-DM cadence in GAME minutes: occurrences enqueue only when the world clock advances (owner ruling 2026-07-10/11 — never on wall time), capped at the newest 3 per advance (the freeze cap makes more pure spend). `WELTARI_MARKER_MIN` / `WELTARI_MARKER_MAX` (defaults 1 / 5, Rev 4 §15) — the chance-encounter marker floor/ceiling the engine enforces structurally; `WELTARI_MARKER_TTL_GAME_MINUTES` (default 180) — the default GAME-time TTL stamped at drop (M7 part 4, [engine.md](engine.md) markers.ts).
 
 ## Tests
 

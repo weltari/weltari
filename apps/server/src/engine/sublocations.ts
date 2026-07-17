@@ -103,6 +103,41 @@ export function knownSublocations(
 }
 
 /**
+ * The map's mechanical registry (M7 part 4, Rev 4 §14 "materialized-only
+ * anchoring"): CRON movement, chance-encounter markers and Hang Around land
+ * only where the painter has landed. Known minus stub-only entries — a stub
+ * that later materialized counts (its latest definer is the materialize
+ * event); interiors stay excluded even though they inherit their parent's
+ * anchor (they never touch the map's loops).
+ */
+export function materializedSublocations(
+  storage: Storage,
+  worldId: string,
+): SublocationDefinition[] {
+  const stubOnly = new Set<string>();
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (event.world_id !== worldId) continue;
+    if (event.type === 'sublocation.stub_created') {
+      stubOnly.add(event.payload.sublocation_id);
+    } else if (
+      event.type === 'sublocation.materialized' ||
+      event.type === 'sublocation.created'
+    ) {
+      stubOnly.delete(event.payload.sublocation_id);
+    } else if (
+      event.type === 'map_click.resolved' &&
+      event.payload.outcome === 'created' &&
+      event.payload.sublocation_id !== undefined
+    ) {
+      stubOnly.delete(event.payload.sublocation_id);
+    }
+  }
+  return knownSublocations(storage, worldId).filter(
+    (s) => !stubOnly.has(s.sublocation_id),
+  );
+}
+
+/**
  * The Flow-B enter radius (Rev 4 §14 step 1): half a fog square around a
  * sublocation's anchor. Clicks inside it enter the existing sublocation with
  * ZERO model calls; a square's corners fall outside on purpose — that is the

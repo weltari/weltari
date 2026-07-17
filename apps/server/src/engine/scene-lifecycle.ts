@@ -31,6 +31,8 @@ export interface SceneLifecycleOptions {
   logger: Logger;
   /** Resolves turn-step speaker names to character ids (fixture world for now). */
   knownCharacters: readonly KnownCharacter[];
+  /** M7 part 4: the marker engine's scene-end fan-out (follow-up / top-up). */
+  markerFanOut?: SceneEndMarkerFanOut;
 }
 
 /**
@@ -101,6 +103,26 @@ export interface SceneEndRequest {
    * scene" opens. Present exactly when end_type is `continuation` — the
    * tool stage gates that; the bare HTTP command never carries it. */
   next_scene?: { sublocation_id: string; premise_seed?: string };
+  /** The ending scene's follow-up chance-encounter marker (M7 part 4, Rev 4
+   * §14): present when the Narrator's end_scene tool proposed one. The
+   * marker fan-out drops it in the SAME transaction as scene.ended; absent =
+   * the engine top-up keeps the world above the marker minimum instead. */
+  follow_up_marker?: {
+    sublocation_id: string;
+    premise_seed: string;
+    involved_characters?: string[];
+    ttl_game_minutes?: number;
+  };
+}
+
+/**
+ * The scene-end marker fan-out seam (M7 part 4, Rev 4 §14): implemented by
+ * the marker engine, declared here so scene-lifecycle never imports it (no
+ * cycle). Runs INSIDE the end transaction, after scene.ended is appended —
+ * so presence reads the scene as closed and the 1–5 fold sees final truth.
+ */
+export interface SceneEndMarkerFanOut {
+  appendSceneEndMarkers(request: SceneEndRequest): WeltariEvent[];
 }
 
 /**
@@ -114,7 +136,10 @@ export function appendSceneEndWithFanOut(
   storage: Storage,
   knownCharacters: readonly KnownCharacter[],
   request: SceneEndRequest,
-): { event: WeltariEvent; jobsEnqueued: number } {
+  /** M7 part 4: the marker engine's fan-out — follow-up drop or top-up in
+   * the SAME transaction. Optional so storage-only tests stay lean. */
+  markerFanOut?: SceneEndMarkerFanOut,
+): { event: WeltariEvent; jobsEnqueued: number; markerEvents: WeltariEvent[] } {
   const idByName = new Map(
     knownCharacters.map((c) => [c.name, c.character_id]),
   );
@@ -194,7 +219,120 @@ export function appendSceneEndWithFanOut(
     serial_group: `object_gc:${request.world_id}`,
   });
   if (objectGc !== null) jobsEnqueued += 1;
-  return { event, jobsEnqueued };
+  // The marker loop rides the same transaction (M7 part 4, Rev 4 §6/§14):
+  // the ending scene's follow-up becomes a live marker atomically with
+  // scene.ended, and a scene that left nothing still leaves the world above
+  // the marker minimum via the top-up path.
+  const markerEvents = markerFanOut?.appendSceneEndMarkers(request) ?? [];
+  return { event, jobsEnqueued, markerEvents };
+}
+
+/**
+ * The scoped blocking rule (Brief §4), shared by the HTTP open and the
+ * marker click: a new scene waits only on THIS world's World-Agent work and
+ * THIS scene's participants; painter/cron never block.
+ */
+export function sceneOpenBlockers(
+  storage: Storage,
+  worldId: string,
+  participants: readonly string[],
+): number {
+  const involved = new Set(participants);
+  return storage.ledger.listActive(worldId).filter((job) => {
+    if (job.type === 'world_agent') return true; // world-scoped
+    if (job.type === 'reflection') {
+      const payload = reflectionPayloadSchema.safeParse(job.payload);
+      return payload.success && involved.has(payload.data.character_id);
+    }
+    return false;
+  }).length;
+}
+
+/**
+ * The scene-open append core (M7 part 4 refactor): scene.started + one
+ * character.joined per known participant + the sublocation.changed backdrop
+ * move, in append order. MUST run inside storage.transact — callers are
+ * openScene and the marker click's instantiate window (which commits it in
+ * the same transaction as marker.instantiated). Gates stay with the caller;
+ * the caller publishes the returned events AFTER its transaction commits.
+ */
+export function appendSceneOpen(
+  storage: Storage,
+  knownCharacters: readonly KnownCharacter[],
+  command: OpenSceneRequest,
+  /** The resolved open-at sublocation (gate result), when one was named. */
+  openAt?: {
+    sublocation_id: string;
+    name: string;
+    map_position?: { x: number; y: number };
+  },
+  /** The engine-stamped invitation (openScene's chat-bridge path only). */
+  invitation?: {
+    character_id: string;
+    place: string;
+    wait_hours: number;
+    expires_at_game: string;
+  },
+): WeltariEvent[] {
+  const idByName = new Map(
+    knownCharacters.map((c) => [c.character_id, c.name]),
+  );
+  const events = [
+    storage.eventLog.append({
+      world_id: command.world_id,
+      actor_id: command.actor_id,
+      type: 'scene.started',
+      payload: {
+        scene_id: command.scene_id,
+        title: command.title,
+        ...(command.premise === undefined ? {} : { premise: command.premise }),
+        ...(command.place_request === undefined
+          ? {}
+          : { place_request: command.place_request }),
+        ...(invitation === undefined ? {} : { invitation }),
+      },
+    }),
+  ];
+  for (const characterId of command.participants) {
+    const name = idByName.get(characterId);
+    if (name === undefined) continue;
+    events.push(
+      storage.eventLog.append({
+        world_id: command.world_id,
+        actor_id: command.actor_id,
+        type: 'character.joined',
+        payload: {
+          scene_id: command.scene_id,
+          character_id: characterId,
+          name,
+        },
+      }),
+    );
+  }
+  // The scene opens AT the named sublocation: the backdrop move is part of
+  // the same transaction, so a kill leaves no scene stranded halfway.
+  if (openAt !== undefined) {
+    const backdropPath = latestBackdropPath(storage, openAt.sublocation_id);
+    events.push(
+      storage.eventLog.append({
+        world_id: command.world_id,
+        actor_id: command.actor_id,
+        type: 'sublocation.changed',
+        payload: {
+          scene_id: command.scene_id,
+          sublocation_id: openAt.sublocation_id,
+          name: openAt.name,
+          ...(openAt.map_position === undefined
+            ? {}
+            : { map_position: openAt.map_position }),
+          ...(backdropPath === undefined
+            ? {}
+            : { backdrop_path: backdropPath }),
+        },
+      }),
+    );
+  }
+  return events;
 }
 
 export function createSceneLifecycle(
@@ -223,11 +361,21 @@ export function createSceneLifecycle(
         );
       }
 
-      const { event: persisted, jobsEnqueued } = storage.transact(() =>
-        appendSceneEndWithFanOut(storage, knownCharacters, command),
+      const {
+        event: persisted,
+        jobsEnqueued,
+        markerEvents,
+      } = storage.transact(() =>
+        appendSceneEndWithFanOut(
+          storage,
+          knownCharacters,
+          command,
+          options.markerFanOut,
+        ),
       );
       // Publish AFTER the transaction committed — the bus mirrors durable truth.
       eventBus.publish(persisted);
+      for (const markerEvent of markerEvents) eventBus.publish(markerEvent);
       logger.info(
         {
           world_id: command.world_id,
@@ -265,22 +413,16 @@ export function createSceneLifecycle(
         );
       }
 
-      const involved = new Set(command.participants);
-      const blocking = storage.ledger
-        .listActive(command.world_id)
-        .filter((job) => {
-          if (job.type === 'world_agent') return true; // world-scoped
-          if (job.type === 'reflection') {
-            const payload = reflectionPayloadSchema.safeParse(job.payload);
-            return payload.success && involved.has(payload.data.character_id);
-          }
-          return false; // painter/cron never block scene opens (Brief §4)
-        });
-      if (blocking.length > 0) {
+      const blocking = sceneOpenBlockers(
+        storage,
+        command.world_id,
+        command.participants,
+      );
+      if (blocking > 0) {
         return err(
           new OperationalError(
             'blocked_on_pending_jobs',
-            `waiting on ${String(blocking.length)} job(s) for this world/participants`,
+            `waiting on ${String(blocking)} job(s) for this world/participants`,
           ),
         );
       }
@@ -315,71 +457,11 @@ export function createSceneLifecycle(
                 Math.round(command.invitation.wait_hours * 60),
               ),
             };
-      const persisted = storage.transact(() => {
-        const events = [
-          storage.eventLog.append({
-            world_id: command.world_id,
-            actor_id: command.actor_id,
-            type: 'scene.started',
-            payload: {
-              scene_id: command.scene_id,
-              title: command.title,
-              ...(command.premise === undefined
-                ? {}
-                : { premise: command.premise }),
-              ...(command.place_request === undefined
-                ? {}
-                : { place_request: command.place_request }),
-              ...(invitation === undefined ? {} : { invitation }),
-            },
-          }),
-        ];
-        for (const characterId of command.participants) {
-          const name = idByName.get(characterId);
-          if (name === undefined) continue;
-          events.push(
-            storage.eventLog.append({
-              world_id: command.world_id,
-              actor_id: command.actor_id,
-              type: 'character.joined',
-              payload: {
-                scene_id: command.scene_id,
-                character_id: characterId,
-                name,
-              },
-            }),
-          );
-        }
-        // The scene opens AT the named sublocation: the backdrop move is part
-        // of the same transaction, so a kill leaves no scene stranded halfway.
-        // Stubs open too (M6 part 1 — that is the "Jump to the next scene"
-        // payoff): position-less until materialized, backdrop when painted.
-        if (openAt !== undefined) {
-          const backdropPath = latestBackdropPath(
-            storage,
-            openAt.sublocation_id,
-          );
-          events.push(
-            storage.eventLog.append({
-              world_id: command.world_id,
-              actor_id: command.actor_id,
-              type: 'sublocation.changed',
-              payload: {
-                scene_id: command.scene_id,
-                sublocation_id: openAt.sublocation_id,
-                name: openAt.name,
-                ...(openAt.map_position === undefined
-                  ? {}
-                  : { map_position: openAt.map_position }),
-                ...(backdropPath === undefined
-                  ? {}
-                  : { backdrop_path: backdropPath }),
-              },
-            }),
-          );
-        }
-        return events;
-      });
+      // Stubs open too (M6 part 1 — that is the "Jump to the next scene"
+      // payoff): position-less until materialized, backdrop when painted.
+      const persisted = storage.transact(() =>
+        appendSceneOpen(storage, knownCharacters, command, openAt, invitation),
+      );
       // Publish AFTER the transaction committed, in append order.
       for (const event of persisted) eventBus.publish(event);
       return ok({ opened: true });
