@@ -10,6 +10,10 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 200
+    },
+    "scene_id": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "required": [

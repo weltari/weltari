@@ -43,5 +43,9 @@ export type PluginList = z.infer<typeof PluginListSchema>;
 export const MapJumpDetailSchema = z.strictObject({
   sublocation_id: z.string().min(1),
   name: z.string().min(1).max(200),
+  /** 0.19.0 (M7 part 4): present = the scene is ALREADY open server-side
+   * (a marker click instantiated or joined it) — the host enters it instead
+   * of minting a new one. Absent = the classic pin jump. */
+  scene_id: z.string().min(1).optional(),
 });
 export type MapJumpDetail = z.infer<typeof MapJumpDetailSchema>;

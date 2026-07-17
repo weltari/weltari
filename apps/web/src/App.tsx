@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapJumpDetailSchema, type PluginInfo } from '@weltari/protocol';
 import {
   postOpenScene,
+  postEndScene,
   postStartTurn,
   type OpenSceneOptions,
 } from './commands.js';
@@ -129,6 +130,47 @@ export function App(): React.JSX.Element {
     }
   }, [cover, liveTurnId, liveSentenceCount, dismissCover]);
 
+  // Enter a scene the SERVER already opened (0.19.0, M7 part 4: a marker
+  // click instantiated or joined it) — same cover, no open-scene mint; the
+  // still-open previous scene is ended first (one active scene).
+  const enterSceneCovered = useCallback(
+    (title: string, sceneId: string): void => {
+      if (coverActiveRef.current) return;
+      coverActiveRef.current = true;
+      setCover({ reason: 'map-jump', label: title, leaving: false });
+      coverShownAtRef.current = Date.now();
+      coverTurnRef.current = null;
+      for (const timer of coverTimersRef.current) window.clearTimeout(timer);
+      coverTimersRef.current = [
+        window.setTimeout(() => {
+          dismissCover();
+        }, 30000),
+      ];
+      const current = useSceneStore.getState();
+      const endPrevious =
+        current.sceneId !== null &&
+        current.sceneEnd === null &&
+        current.sceneId !== sceneId
+          ? postEndScene(current.sceneId)
+          : Promise.resolve();
+      endPrevious
+        // The opening narration generates against the marker's premise —
+        // this first turn's 5–10 s window is what the cover masks.
+        .then(async () => postStartTurn(sceneId, ''))
+        .then((started) => {
+          if (started === null) {
+            dismissCover();
+            return;
+          }
+          coverTurnRef.current = started.turnId;
+        })
+        .catch(() => {
+          dismissCover(); // CATCH-OK: a failed entry just uncovers the old scene
+        });
+    },
+    [dismissCover],
+  );
+
   // The map plugin's jump surface (wl-map-jump, validated like any boundary).
   // Jumps land on the Scene route from anywhere — modal or Map page alike.
   useEffect(() => {
@@ -139,6 +181,11 @@ export function App(): React.JSX.Element {
       if (!detail.success) return;
       setMapOpen(false);
       navigate('/');
+      // 0.19.0: a marker jump carries the already-open scene — enter it.
+      if (detail.data.scene_id !== undefined) {
+        enterSceneCovered(detail.data.name, detail.data.scene_id);
+        return;
+      }
       // 0.8.0: the jump opens the scene AT the pin's sublocation.
       openSceneCovered(detail.data.name, 'map-jump', {
         sublocationId: detail.data.sublocation_id,
@@ -148,7 +195,7 @@ export function App(): React.JSX.Element {
     return (): void => {
       window.removeEventListener('wl-map-jump', onJump);
     };
-  }, [openSceneCovered]);
+  }, [openSceneCovered, enterSceneCovered]);
 
   useEffect(() => connectStream(DEV_MODE), []);
   useEffect(() => {
