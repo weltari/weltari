@@ -108,8 +108,24 @@
  * (ProposalObjectDiff: name + holder_sublocation_id + optional payload) —
  * GM-authored objects ride the existing consent seam and are never GC
  * candidates (no creating scene).
+ * 0.19.0 (M7 part 4, Rev 4 §14/§17, the living-world loop): chance-encounter
+ * markers — marker.dropped (a LAZY intent: sublocation + involved characters
+ * + premise seed + game-time TTL; nothing generates until clicked; the map
+ * holds 1–5 live markers — engine top-up below the minimum, drops refused at
+ * the maximum, born-expired markers never dropped) / marker.instantiated
+ * (first click wins: flips dropped → instantiated atomically with
+ * scene.started; a racing second click joins the same scene, never twins) /
+ * marker.expired (lazy expiry against the world clock — the sweep at every
+ * clock advance + boot, or a click on an expired-but-unswept marker refusing
+ * and settling it; a skipped encounter never happened — I1 tombstone
+ * semantics). CRON world movement — character.location_changed (code-class
+ * pointer updates at world-cron occurrences: presence-checked, materialized
+ * targets only, idempotent per occurrence; the map's position bubbles read
+ * these). The markers table is a same-transaction fold owned by a
+ * sole-writer repository (the objects-table pattern). Command: marker-click
+ * (202 outcome instantiated | join).
  */
-export const PROTOCOL_VERSION = '0.18.0';
+export const PROTOCOL_VERSION = '0.19.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -141,6 +157,10 @@ export {
   JobParkedEventSchema,
   MapClickResolvedEventSchema,
   MapEditRequestedEventSchema,
+  MarkerDroppedEventSchema,
+  MarkerExpiredEventSchema,
+  MarkerInstantiatedEventSchema,
+  CharacterLocationChangedEventSchema,
   MemoryCompactedEventSchema,
   MemoryCoreUpdatedEventSchema,
   MemoryDeltaCommittedEventSchema,
@@ -243,6 +263,8 @@ export {
   MapClickCommandSchema,
   MapEditAcceptedSchema,
   MapEditCommandSchema,
+  MarkerClickAcceptedSchema,
+  MarkerClickCommandSchema,
   OpenSceneAcceptedSchema,
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
@@ -288,6 +310,8 @@ export {
   type MapClickCommand,
   type MapEditAccepted,
   type MapEditCommand,
+  type MarkerClickAccepted,
+  type MarkerClickCommand,
   type OpenSceneAccepted,
   type OpenSceneCommand,
   type PaintRegionAccepted,

@@ -1818,3 +1818,124 @@ describe('object event family (0.18.0, M7 part 3, Rev 4 §7)', () => {
     expect(WeltariEventSchema.safeParse(smuggled).success).toBe(false);
   });
 });
+
+describe('marker event family (0.19.0, M7 part 4, Rev 4 §14/§17)', () => {
+  const droppedBase = {
+    marker_id: 'marker:harbor-1',
+    kind: 'map_event',
+    sublocation_id: 'subloc:tide-bell',
+    involved_characters: ['char:elias'],
+    premise_seed: 'Elias is unloading crates and something rattles inside one.',
+    dropped_at_game_time: '2000-01-01T12:00:00.000Z',
+    ttl_game_minutes: 180,
+    expires_at_game_time: '2000-01-01T15:00:00.000Z',
+    source: 'cron',
+  };
+
+  it('accepts marker.dropped from each source, including an empty cast', () => {
+    for (const payload of [
+      droppedBase,
+      { ...droppedBase, source: 'scene_end', scene_id: 's1' },
+      { ...droppedBase, source: 'engine_topup', involved_characters: [] },
+    ]) {
+      const event: unknown = { ...envelope, type: 'marker.dropped', payload };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    }
+  });
+
+  it('rejects marker.dropped with a bad kind, TTL, oversized seed, or extra key (B5/B7)', () => {
+    for (const payload of [
+      { ...droppedBase, kind: 'chat_dm' }, // V2 (§17) — not on the V1 wire
+      { ...droppedBase, ttl_game_minutes: 0 },
+      { ...droppedBase, premise_seed: 'x'.repeat(501) },
+      { ...droppedBase, involved_characters: Array.from({ length: 9 }, (_, i) => `char:${String(i)}`) },
+      { ...droppedBase, state: 'instantiated' }, // state is a fold, never wire input
+    ]) {
+      const event: unknown = { ...envelope, type: 'marker.dropped', payload };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts marker.instantiated and requires its one scene', () => {
+    const valid: unknown = {
+      ...envelope,
+      type: 'marker.instantiated',
+      payload: {
+        marker_id: 'marker:harbor-1',
+        scene_id: 's-marker-harbor-1',
+        game_time: '2000-01-01T13:00:00.000Z',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(valid).success).toBe(true);
+    for (const payload of [
+      { marker_id: 'marker:harbor-1', game_time: '2000-01-01T13:00:00.000Z' },
+      {
+        marker_id: 'marker:harbor-1',
+        scene_id: 's1',
+        game_time: 'yesterday teatime',
+      },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'marker.instantiated',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+
+  it('accepts marker.expired via sweep and click, rejects other paths (B5)', () => {
+    for (const expired_via of ['sweep', 'click']) {
+      const event: unknown = {
+        ...envelope,
+        type: 'marker.expired',
+        payload: {
+          marker_id: 'marker:harbor-1',
+          game_time: '2000-01-01T15:30:00.000Z',
+          expired_via,
+        },
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    }
+    const invalid: unknown = {
+      ...envelope,
+      type: 'marker.expired',
+      payload: {
+        marker_id: 'marker:harbor-1',
+        game_time: '2000-01-01T15:30:00.000Z',
+        expired_via: 'gc',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it('accepts character.location_changed with and without a from pointer', () => {
+    const base = {
+      character_id: 'char:elias',
+      to_sublocation_id: 'subloc:long-pier',
+      game_time: '2000-01-01T14:00:00.000Z',
+    };
+    for (const payload of [
+      base,
+      { ...base, from_sublocation_id: 'subloc:tide-bell' },
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'character.location_changed',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    }
+    for (const payload of [
+      { character_id: 'char:elias', game_time: '2000-01-01T14:00:00.000Z' },
+      { ...base, in_scene: true }, // presence is a fold, never wire input
+    ]) {
+      const event: unknown = {
+        ...envelope,
+        type: 'character.location_changed',
+        payload,
+      };
+      expect(WeltariEventSchema.safeParse(event).success).toBe(false);
+    }
+  });
+});

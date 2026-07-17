@@ -913,6 +913,14 @@ function applyOne(
     case 'object.moved':
     case 'object.swept':
       return;
+    // The living-world loop (0.19.0, M7 part 4): markers and character
+    // positions are the map plugin's business — <wl-map> reads the stream
+    // directly (structure.md: pins and fog never live in this store).
+    case 'marker.dropped':
+    case 'marker.instantiated':
+    case 'marker.expired':
+    case 'character.location_changed':
+      return;
     // The GM consent cards (0.17.0, Rev 4 §16): pending = submitted minus
     // resolved — a pure fold, so replay rebuilds the open cards exactly.
     case 'proposal.submitted': {
