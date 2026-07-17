@@ -199,6 +199,37 @@ export const MapClickAcceptedSchema = z.strictObject({
 export type MapClickAccepted = z.infer<typeof MapClickAcceptedSchema>;
 
 /**
+ * POST /v1/commands/marker-click — the §1.8 marker flow (0.19.0, Rev 4
+ * §14/§17): the user clicked a live chance-encounter marker. First click
+ * instantiates the ONE scene (marker.instantiated + scene.started in one
+ * transaction; premise from the marker's seed, re-validated against CURRENT
+ * state); a concurrent or later click on an instantiated marker answers
+ * `join` with the same scene — never a duplicate parallel scene. A click on
+ * an expired-but-unswept marker is refused 409 `marker_expired` and settles
+ * the marker expired. 409 `unknown_marker` when no live or instantiated
+ * marker has this id; scene-open blocking rules apply as on any open.
+ */
+export const MarkerClickCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  marker_id: z.string().min(1),
+});
+export type MarkerClickCommand = z.infer<typeof MarkerClickCommandSchema>;
+
+/** 202 response: `instantiated` = this click won and opened the scene;
+ * `join` = the scene already runs — enter it, don't twin it. */
+export const MarkerClickAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  outcome: z.enum(['instantiated', 'join']),
+  marker_id: z.string().min(1),
+  /** The one scene this marker instantiated into. */
+  scene_id: z.string().min(1),
+  /** The marker's sublocation — the client's scene-open context. */
+  sublocation_id: z.string().min(1),
+});
+export type MarkerClickAccepted = z.infer<typeof MarkerClickAcceptedSchema>;
+
+/**
  * POST /v1/commands/advance-time — move the fictional world clock forward
  * (a time skip). Due world-cron occurrences replay in scheduled-game-timestamp
  * order: code-class instantly, LLM-class in background under the per-skip

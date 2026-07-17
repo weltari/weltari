@@ -21,6 +21,8 @@ import {
   InterruptTurnCommandSchema,
   MapClickCommandSchema,
   MapEditCommandSchema,
+  MarkerClickAcceptedSchema,
+  MarkerClickCommandSchema,
   PaintRegionCommandSchema,
   OpenSceneCommandSchema,
   StartTurnAcceptedSchema,
@@ -353,6 +355,44 @@ describe('map-click command', () => {
         ...base,
         point: { x: 1.3, y: 0.3 },
       }).success,
+    ).toBe(false);
+  });
+});
+
+describe('marker-click command (0.19.0, M7 part 4)', () => {
+  it('accepts a valid click and rejects a missing marker or extra key (B5)', () => {
+    const base = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      marker_id: 'marker:harbor-1',
+    };
+    expect(MarkerClickCommandSchema.safeParse(base).success).toBe(true);
+    expect(
+      MarkerClickCommandSchema.safeParse({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+      }).success,
+    ).toBe(false);
+    expect(
+      MarkerClickCommandSchema.safeParse({ ...base, force: true }).success,
+    ).toBe(false);
+  });
+
+  it('202 answers instantiated or join with the one scene, never other outcomes', () => {
+    const base = {
+      accepted: true,
+      marker_id: 'marker:harbor-1',
+      scene_id: 's-marker-harbor-1',
+      sublocation_id: 'subloc:tide-bell',
+    };
+    for (const outcome of ['instantiated', 'join']) {
+      expect(
+        MarkerClickAcceptedSchema.safeParse({ ...base, outcome }).success,
+      ).toBe(true);
+    }
+    expect(
+      MarkerClickAcceptedSchema.safeParse({ ...base, outcome: 'twin' })
+        .success,
     ).toBe(false);
   });
 });

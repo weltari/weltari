@@ -714,6 +714,115 @@ export const ObjectSweptEventSchema = z.strictObject({
 });
 
 /**
+ * A chance-encounter marker was dropped on the map (0.19.0, M7 part 4, Rev 4
+ * §14/§17): a LAZY intent — metadata + premise only; nothing generates,
+ * nothing enters any log or memory, until clicked. The map holds 1–5 live
+ * markers at all times: the engine tops up below the minimum and refuses
+ * drops above the maximum (a refused drop appends NOTHING — I8). TTLs are
+ * game time against the world clock; a marker already past its TTL at drop
+ * time is never dropped at all (born-expired suppression). V1 kind is
+ * `map_event` only; `chat_dm` (§17) joins when proactive DMs go marker-lazy
+ * (V2). Emitted by: the marker engine (scene-end follow-up, CRON drop,
+ * engine top-up). Consumed by: the markers repository (same-transaction
+ * fold), map renderers.
+ */
+export const MarkerDroppedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('marker.dropped'),
+  payload: z.strictObject({
+    marker_id: z.string().min(1),
+    kind: z.literal('map_event'),
+    /** Materialized sublocations only (Rev 4 §14: nothing CRON-driven
+     * anchors to a stub). */
+    sublocation_id: z.string().min(1),
+    involved_characters: z.array(z.string().min(1)).max(8),
+    /** The intent seed the Narrator grounds in CURRENT state on click —
+     * late generation beats stale content (Rev 4 §14). */
+    premise_seed: z.string().min(1).max(500),
+    /** Fictional drop timestamp — the occurrence's SCHEDULED time on CRON
+     * drops (governance: stamped with scheduled time, Rev 4 §14). */
+    dropped_at_game_time: z.iso.datetime(),
+    ttl_game_minutes: z.int().positive(),
+    /** Engine-computed dropped_at + ttl; the sweep and click re-validation
+     * compare this lexicographically against the world clock (the
+     * invitation-expiry convention). */
+    expires_at_game_time: z.iso.datetime(),
+    /** Provenance: which loop dropped it. */
+    source: z.enum(['scene_end', 'cron', 'engine_topup']),
+    /** `scene_end` only: the ending scene that proposed the follow-up. */
+    scene_id: z.string().min(1).optional(),
+  }),
+});
+
+/**
+ * A marker's first click instantiated its scene (0.19.0, Rev 4 §14/§17):
+ * first click wins — this event flips state dropped → instantiated and names
+ * the ONE scene; a concurrent second click loses the version race through
+ * the fused re-check and is answered "join scene in progress" instead of
+ * twinning. Emitted by: the marker-click seam, atomic with scene.started in
+ * ONE transaction. Consumed by: the markers repository (same-transaction
+ * fold), map renderers (the pin settles).
+ */
+export const MarkerInstantiatedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('marker.instantiated'),
+  payload: z.strictObject({
+    marker_id: z.string().min(1),
+    /** The scene the click opened (deterministic per marker — a racing
+     * duplicate would collide on scene_already_open by construction). */
+    scene_id: z.string().min(1),
+    /** World-clock time at the click. */
+    game_time: z.iso.datetime(),
+  }),
+});
+
+/**
+ * A marker expired against the world clock (0.19.0, Rev 4 §14/§17): expiry
+ * is LAZY — judged at every clock advance (the sweep), at boot (recovery
+ * path = startup path), and at click time (an expired-but-unswept marker's
+ * click is refused and settles it here). The marker leaves the live set but
+ * the log stays append-only (I1) — a skipped encounter "never happened":
+ * no scene, no memory, no CACHE, by construction. Emitted by: the marker
+ * sweep or the click re-validation. Consumed by: the markers repository
+ * (same-transaction fold), map renderers (the pin disappears).
+ */
+export const MarkerExpiredEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('marker.expired'),
+  payload: z.strictObject({
+    marker_id: z.string().min(1),
+    /** World-clock time at expiry judgment. */
+    game_time: z.iso.datetime(),
+    /** Which lazy path settled it. */
+    expired_via: z.enum(['sweep', 'click']),
+  }),
+});
+
+/**
+ * A character moved between sublocations (0.19.0, M7 part 4, Rev 4 §14):
+ * CRON world movement — a code-class pointer update, mailbox-routed through
+ * the engine (one of §4.5's deliberate hot-path exceptions: map, CRON and
+ * chat need locations fresh). Constraints enforced at emit: never a
+ * character currently `in_scene` (presence check), targets MATERIALIZED
+ * sublocations only, idempotent per CRON occurrence (the world_cron.completed
+ * natural key gates the replay). Consumed by: the character-locations fold,
+ * map renderers (position bubbles).
+ */
+export const CharacterLocationChangedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('character.location_changed'),
+  payload: z.strictObject({
+    character_id: z.string().min(1),
+    /** Absent on the character's first placement. */
+    from_sublocation_id: z.string().min(1).optional(),
+    to_sublocation_id: z.string().min(1),
+    /** The fictional moment the move happened (the occurrence's scheduled
+     * time — positions read true on landing after a skip). */
+    game_time: z.iso.datetime(),
+  }),
+});
+
+/**
  * One place inside a proposal diff (0.17.0, M7 part 2, Rev 4 §9/§16): what
  * the GM wants to create — applied as a materialized sublocation row (plus an
  * opening wiki entry when given) only after approval. `space` feeds the
@@ -1528,6 +1637,10 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   ObjectPayloadWrittenEventSchema,
   ObjectMovedEventSchema,
   ObjectSweptEventSchema,
+  MarkerDroppedEventSchema,
+  MarkerInstantiatedEventSchema,
+  MarkerExpiredEventSchema,
+  CharacterLocationChangedEventSchema,
   ProposalSubmittedEventSchema,
   ProposalResolvedEventSchema,
   CharacterCreatedEventSchema,
