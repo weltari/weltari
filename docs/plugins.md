@@ -85,6 +85,19 @@ drops the pin and auto-jumps (this client's clicks only), `transient`
 shows a dismissable discovery card (`data-wl-map-discovery`); a
 `job.parked` carrying the click's job_key clears the ring. A server
 `enter` answer (the authoritative radius) also jumps directly.
+0.6.0 (M7 part 4, Rev 4 §14/§17, protocol 0.19.0): the living-world
+overlays — live chance-encounter markers render as red "!" discs above
+their anchor pin (`data-wl-map-marker=<marker_id>`, folded from
+`marker.dropped` minus `marker.instantiated`/`marker.expired` — replay
+rebuilds the exact live set); a marker click POSTs the public
+`/v1/commands/marker-click` and dispatches `wl-map-jump` WITH the 202's
+`scene_id` (the host enters the already-open scene — first click wins,
+second joins server-side); a 409 (expired) drops the pin honestly.
+CRON-moved characters render as initial-in-disc position bubbles under
+their current sublocation's pin (`data-wl-map-character=<character_id>`,
+folded latest-wins from `character.location_changed`), fanned out when
+several share an anchor. New tokens: `--wl-map-marker`,
+`--wl-map-character` (inline fallbacks as ever).
 The web client cache-busts plugin
 asset URLs with the provenance hash (`?v=…`), so a plugin update is picked
 up on the next reload despite header-less asset serving.

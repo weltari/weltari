@@ -42,6 +42,10 @@ class WlMap extends HTMLElement {
     this._footprints = new Map(); // sublocation_id -> [{x,y}] Flow-A shapes
     this._clicks = new Map(); // click_id -> {x,y} Flow-B classify in flight
     this._discovery = null; // {name, description} transient outcome card
+    // M7 part 4 (Rev 4 §14/§17): the living-world overlays.
+    this._markers = new Map(); // marker_id -> {sublocationId} live "!" pins
+    this._positions = new Map(); // character_id -> sublocation_id bubbles
+    this._markerBusy = new Set(); // marker_id with a click POST in flight
   }
 
   connectedCallback() {
@@ -418,6 +422,45 @@ class WlMap extends HTMLElement {
       });
       this._paint();
     }
+    // The living-world loop (M7 part 4, Rev 4 §14/§17): a live marker is a
+    // lazy "!" pin; instantiation and expiry both settle it off the map.
+    // Replay rebuilds the exact live set — settled markers arrive with
+    // their settling event right behind them.
+    if (
+      event.type === 'marker.dropped' &&
+      event.payload &&
+      typeof event.payload.marker_id === 'string' &&
+      typeof event.payload.sublocation_id === 'string'
+    ) {
+      this._markers.set(event.payload.marker_id, {
+        sublocationId: event.payload.sublocation_id,
+      });
+      this._paint();
+    }
+    if (
+      (event.type === 'marker.instantiated' ||
+        event.type === 'marker.expired') &&
+      event.payload &&
+      typeof event.payload.marker_id === 'string'
+    ) {
+      this._markers.delete(event.payload.marker_id);
+      this._markerBusy.delete(event.payload.marker_id);
+      this._paint();
+    }
+    // CRON world movement: the character position bubbles fold the same
+    // stream the engine wrote — latest sublocation per character.
+    if (
+      event.type === 'character.location_changed' &&
+      event.payload &&
+      typeof event.payload.character_id === 'string' &&
+      typeof event.payload.to_sublocation_id === 'string'
+    ) {
+      this._positions.set(
+        event.payload.character_id,
+        event.payload.to_sublocation_id,
+      );
+      this._paint();
+    }
     // A parked materialize job never completes — stop its spinner instead of
     // spinning forever (job.failed keeps it: the runner will retry).
     if (
@@ -548,6 +591,57 @@ class WlMap extends HTMLElement {
       })
       .catch(() => {
         this._clicks.delete(clickId);
+        this._paint();
+      });
+  }
+
+  // The §1.8 marker flow (M7 part 4): first click wins into exactly one
+  // scene, a racing second click joins it — either way the 202 names THE
+  // scene and the plugin dispatches a jump carrying it (the host enters the
+  // already-open scene instead of minting one). A 409 means expired (the
+  // click settled it server-side) — drop the pin; the durable
+  // marker.expired frame confirms right behind.
+  _markerClick(markerId) {
+    if (this._markerBusy.has(markerId)) return;
+    this._markerBusy.add(markerId);
+    fetch('/v1/commands/marker-click', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: this._worldId,
+        actor_id: this._actorId,
+        marker_id: markerId,
+      }),
+    })
+      .then(async (response) => {
+        this._markerBusy.delete(markerId);
+        if (!response.ok) {
+          this._markers.delete(markerId);
+          this._paint();
+          return;
+        }
+        const body = await response.json();
+        if (
+          body &&
+          typeof body.scene_id === 'string' &&
+          typeof body.sublocation_id === 'string'
+        ) {
+          const pin = this._pins.get(body.sublocation_id);
+          this.dispatchEvent(
+            new CustomEvent('wl-map-jump', {
+              bubbles: true,
+              composed: true,
+              detail: {
+                sublocation_id: body.sublocation_id,
+                name: pin ? pin.name : body.sublocation_id,
+                scene_id: body.scene_id,
+              },
+            }),
+          );
+        }
+      })
+      .catch(() => {
+        this._markerBusy.delete(markerId);
         this._paint();
       });
   }
@@ -906,6 +1000,84 @@ class WlMap extends HTMLElement {
         );
       });
       this._overlay.appendChild(el);
+    }
+
+    // Chance-encounter "!" pins (M7 part 4, UI Spec §1.8): a distinct
+    // affordance above the sublocation pin — click runs the marker flow,
+    // never the plain pin jump. Only markers whose anchor has a pin render
+    // (position comes from the anchor; unpainted anchors have no pin yet).
+    for (const [markerId, marker] of this._markers) {
+      const anchor = this._pins.get(marker.sublocationId);
+      if (anchor === undefined) continue;
+      const el = document.createElement('div');
+      el.setAttribute('data-wl-map-marker', markerId);
+      el.style.position = 'absolute';
+      el.style.left = `${anchor.x * 100}%`;
+      el.style.top = `${anchor.y * 100}%`;
+      el.style.transform = 'translate(-50%, -170%)';
+      el.style.width = '1.15rem';
+      el.style.height = '1.15rem';
+      el.style.borderRadius = '999px';
+      el.style.display = 'flex';
+      el.style.alignItems = 'center';
+      el.style.justifyContent = 'center';
+      el.style.background = 'var(--wl-map-marker, #c8503c)';
+      el.style.border = '1px solid var(--wl-panel, #1e2128)';
+      el.style.color = 'var(--wl-text, #e8e4da)';
+      el.style.fontFamily = 'var(--wl-font-ui, sans-serif)';
+      el.style.fontSize = '0.78rem';
+      el.style.fontWeight = '700';
+      el.textContent = '!';
+      el.title = `Something is happening at ${anchor.name}`;
+      el.style.pointerEvents = 'auto';
+      el.style.cursor = 'pointer';
+      if (this._markerBusy.has(markerId)) el.style.opacity = '0.5';
+      el.addEventListener('click', (click) => {
+        click.stopPropagation();
+        this._markerClick(markerId);
+      });
+      this._overlay.appendChild(el);
+    }
+
+    // Character position bubbles (M7 part 4, Rev 4 §14 overlay layer):
+    // CRON-moved characters show at their current sublocation — an initial
+    // in a small disc, fanned out when several share an anchor.
+    const byAnchor = new Map(); // sublocation_id -> character_id[]
+    for (const [characterId, sublocationId] of this._positions) {
+      const list = byAnchor.get(sublocationId) ?? [];
+      list.push(characterId);
+      byAnchor.set(sublocationId, list);
+    }
+    for (const [sublocationId, characterIds] of byAnchor) {
+      const anchor = this._pins.get(sublocationId);
+      if (anchor === undefined) continue;
+      characterIds.forEach((characterId, index) => {
+        const short = characterId.startsWith('char:')
+          ? characterId.slice(5)
+          : characterId;
+        const el = document.createElement('div');
+        el.setAttribute('data-wl-map-character', characterId);
+        el.style.position = 'absolute';
+        el.style.left = `calc(${anchor.x * 100}% + ${(index - (characterIds.length - 1) / 2) * 1.2}rem)`;
+        el.style.top = `${anchor.y * 100}%`;
+        el.style.transform = 'translate(-50%, 30%)';
+        el.style.width = '1.05rem';
+        el.style.height = '1.05rem';
+        el.style.borderRadius = '999px';
+        el.style.display = 'flex';
+        el.style.alignItems = 'center';
+        el.style.justifyContent = 'center';
+        el.style.background = 'var(--wl-map-character, #3d6a9e)';
+        el.style.border = '1px solid var(--wl-panel, #1e2128)';
+        el.style.color = 'var(--wl-text, #e8e4da)';
+        el.style.fontFamily = 'var(--wl-font-ui, sans-serif)';
+        el.style.fontSize = '0.62rem';
+        el.style.fontWeight = '700';
+        el.style.textTransform = 'uppercase';
+        el.textContent = short.slice(0, 1);
+        el.title = `${short} is at ${anchor.name}`;
+        this._overlay.appendChild(el);
+      });
     }
   }
 }

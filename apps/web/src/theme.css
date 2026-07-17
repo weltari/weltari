@@ -126,6 +126,10 @@
   --wl-map-pending-fill: rgba(120, 120, 120, 0.35);
   --wl-map-spinner-duration: 1.1s;
   --wl-map-reveal-duration: 600ms;
+  /* ---- the living-world overlays (M7 part 4, Rev 4 §14): the "!" marker
+         pin and the character position bubble ---- */
+  --wl-map-marker: #c8503c;
+  --wl-map-character: #3d6a9e;
 }
 
 /* ============================== app shell ============================== */

@@ -55,6 +55,13 @@ describe('PluginListSchema', () => {
   it('wl-map-jump detail validates; extra key rejected (B5)', () => {
     const detail: unknown = { sublocation_id: 'sub:cellar', name: 'Cellar' };
     expect(MapJumpDetailSchema.safeParse(detail).success).toBe(true);
+    // 0.19.0 (M7 part 4): a marker jump carries the already-open scene.
+    const markerJump: unknown = {
+      sublocation_id: 'sub:cellar',
+      name: 'Cellar',
+      scene_id: 's-marker-abc123',
+    };
+    expect(MapJumpDetailSchema.safeParse(markerJump).success).toBe(true);
     const extra: unknown = {
       sublocation_id: 'sub:cellar',
       name: 'Cellar',

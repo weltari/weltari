@@ -123,7 +123,9 @@
  * targets only, idempotent per occurrence; the map's position bubbles read
  * these). The markers table is a same-transaction fold owned by a
  * sole-writer repository (the objects-table pattern). Command: marker-click
- * (202 outcome instantiated | join).
+ * (202 outcome instantiated | join). MapJumpDetail gains optional scene_id
+ * (additive): a marker click's jump enters the already-open scene instead
+ * of minting one.
  */
 export const PROTOCOL_VERSION = '0.19.0';
 
