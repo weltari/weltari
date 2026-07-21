@@ -23,7 +23,10 @@
 // gm-followup-/gm-discuss-<proposal_id> (the natural key — an eager trigger
 // plus the boot sweep converge to exactly one, the invitation pattern).
 import { randomUUID } from 'node:crypto';
-import type { SendChatMessageCommand } from '@weltari/protocol';
+import type {
+  DiscussProposalCommand,
+  SendChatMessageCommand,
+} from '@weltari/protocol';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
 import type { DevBus, StreamBus } from '../http/bus.js';
@@ -99,6 +102,16 @@ export interface ProposalOutcomeNote {
 
 export interface GmChatEngine {
   sendMessage(command: SendChatMessageCommand): Result<GmSendResult>;
+  /**
+   * The chat-about-this signal (0.20.0): appends proposal.discussed — a
+   * DURABLE signal, not an input prefill — and enqueues the GM's
+   * acknowledgement turn. NOT a resolution: the card stays pending and
+   * resolvable later. Refused for unknown/resolved/already-discussed
+   * proposals and non-approvers (zero rows on refusal, I8).
+   */
+  discussProposal(
+    command: DiscussProposalCommand,
+  ): Result<{ proposalId: string; completion: Promise<void> }>;
   /**
    * The durable tool-result turn: enqueue exactly ONE GM follow-up
    * generation for a proposal outcome. Natural key = the deterministic
@@ -659,6 +672,77 @@ export function createGmChatEngine(options: GmChatEngineOptions): GmChatEngine {
         presence: 'available',
         completion,
       });
+    },
+
+    discussProposal(
+      command: DiscussProposalCommand,
+    ): Result<{ proposalId: string; completion: Promise<void> }> {
+      // The §16 pipeline stays untouched — this seam only reads its events:
+      // the same fold shape as resolve's gates, plus the discussed latch.
+      let approvers: readonly string[] | undefined;
+      let resolved = false;
+      let discussed = false;
+      for (const event of storage.eventLog.readSince(0, 100000)) {
+        if (event.world_id !== command.world_id) continue;
+        if (
+          event.type === 'proposal.submitted' &&
+          event.payload.proposal_id === command.proposal_id
+        ) {
+          approvers = event.payload.approvers;
+        } else if (
+          event.type === 'proposal.resolved' &&
+          event.payload.proposal_id === command.proposal_id
+        ) {
+          resolved = true;
+        } else if (
+          event.type === 'proposal.discussed' &&
+          event.payload.proposal_id === command.proposal_id
+        ) {
+          discussed = true;
+        }
+      }
+      if (approvers === undefined) {
+        return err(
+          new OperationalError('unknown_proposal', 'no such proposal'),
+        );
+      }
+      if (resolved) {
+        return err(
+          new OperationalError(
+            'already_resolved',
+            'this proposal is already settled — nothing to discuss',
+          ),
+        );
+      }
+      if (!approvers.includes(command.actor_id)) {
+        return err(
+          new OperationalError(
+            'not_an_approver',
+            'only a listed approver may discuss this proposal',
+          ),
+        );
+      }
+      if (discussed) {
+        return err(
+          new OperationalError(
+            'already_discussed',
+            'the talk is already on — the GM knows',
+          ),
+        );
+      }
+      sink.append({
+        world_id: command.world_id,
+        actor_id: command.actor_id,
+        type: 'proposal.discussed',
+        payload: { proposal_id: command.proposal_id },
+      });
+      const { completion } = this.noteProposalOutcome({
+        world_id: command.world_id,
+        actor_id: command.actor_id,
+        proposal_id: command.proposal_id,
+        outcome: 'discuss',
+      });
+      return ok({ proposalId: command.proposal_id, completion });
     },
 
     noteProposalOutcome(note: ProposalOutcomeNote): {

@@ -49,6 +49,8 @@ import {
   StartTurnCommandSchema,
   DeleteProfileAcceptedSchema,
   DeleteProfileCommandSchema,
+  DiscussProposalAcceptedSchema,
+  DiscussProposalCommandSchema,
   ResolveProposalAcceptedSchema,
   ResolveProposalCommandSchema,
   SetCharacterLockAcceptedSchema,
@@ -98,6 +100,8 @@ import {
   type StartTurnCommand,
   type DeleteProfileAccepted,
   type DeleteProfileCommand,
+  type DiscussProposalAccepted,
+  type DiscussProposalCommand,
   type ResolveProposalAccepted,
   type ResolveProposalCommand,
   type SetCharacterLockAccepted,
@@ -200,6 +204,12 @@ export interface HttpDeps {
   resolveProposal: (
     command: ResolveProposalCommand,
   ) => Promise<Result<{ applied: number }>>;
+  /** The chat-about-this signal (0.20.0, the UX contract): durable
+   * proposal.discussed + the GM's acknowledgement turn; the card stays
+   * pending and resolvable. */
+  discussProposal: (
+    command: DiscussProposalCommand,
+  ) => Result<{ proposalId: string }>;
   /** World flags as latest-wins folds (M7 part 2, Rev 4 §15). */
   setConfigFlag: (
     command: SetConfigFlagCommand,
@@ -814,6 +824,40 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         proposal_id: request.body.proposal_id,
         resolution: request.body.resolution,
         applied: result.value.applied,
+      };
+      return accepted;
+    },
+  );
+
+  app.post(
+    '/v1/commands/discuss-proposal',
+    {
+      schema: {
+        body: DiscussProposalCommandSchema,
+        response: {
+          202: DiscussProposalAcceptedSchema,
+          409: CommandRejectedSchema,
+        },
+      },
+    },
+    (request, reply) => {
+      const result = deps.discussProposal(request.body);
+      if (!result.ok) {
+        deps.logger.warn(
+          { code: result.error.code },
+          'discuss-proposal rejected',
+        );
+        reply.code(409);
+        const rejected: CommandRejected = {
+          accepted: false,
+          error: result.error.code,
+        };
+        return rejected;
+      }
+      reply.code(202);
+      const accepted: DiscussProposalAccepted = {
+        accepted: true,
+        proposal_id: result.value.proposalId,
       };
       return accepted;
     },

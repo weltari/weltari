@@ -1021,6 +1021,14 @@ const app = createHttpServer({
     }
     return result;
   },
+  discussProposal: (command) => {
+    const result = gmChatEngine.discussProposal(command);
+    if (!result.ok) return result;
+    // The GM's acknowledgement turn runs detached (A8) — natural-keyed
+    // (gm-discuss-<proposal_id>), healed by the boot sweep on a kill.
+    catchAndLog(result.value.completion, logger, 'gm.discuss');
+    return { ok: true, value: { proposalId: result.value.proposalId } };
+  },
   setConfigFlag: createSetConfigFlagCommand({ sink }),
   deleteProfile: createDeleteProfileCommand({ storage, eventBus }),
   profileView: (worldId, actorId) => profileView(storage, worldId, actorId),

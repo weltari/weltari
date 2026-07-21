@@ -262,6 +262,11 @@ describe('HTTP layer (SSE + commands)', () => {
             ? err(new OperationalError('unknown_proposal', 'no such proposal'))
             : ok({ applied: command.resolution === 'approved' ? 3 : 0 }),
         ),
+      // 'prop-ghost' exercises the 409 path here too (0.20.0).
+      discussProposal: (command) =>
+        command.proposal_id === 'prop-ghost'
+          ? err(new OperationalError('unknown_proposal', 'no such proposal'))
+          : ok({ proposalId: command.proposal_id }),
       setConfigFlag: (command) =>
         ok({ flag: command.flag, value: command.value }),
       // 'char:ghost' exercises the 409 path (unknown character).

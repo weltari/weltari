@@ -7,7 +7,7 @@
 // comes back on the stream — the verdict renders where the buttons were,
 // and the store, never local state, decides what it shows.
 import { useState } from 'react';
-import { postResolveProposal } from '../commands.js';
+import { postDiscussProposal, postResolveProposal } from '../commands.js';
 import { t } from '../i18n.js';
 import type { GmProposal, ProposalPayload } from '../store.js';
 
@@ -145,8 +145,15 @@ export function ProposalCard(props: {
           <button
             type="button"
             className="wl-proposal-discuss"
-            disabled={busy}
+            disabled={busy || discussed}
             onClick={() => {
+              // A REAL signal (0.20.0): the command appends
+              // proposal.discussed — the GM's next turn knows and stops
+              // proposing — while the prefilled draft invites the user to
+              // say what is on their mind. The card stays pending.
+              if (!discussed) {
+                postDiscussProposal(payload.proposal_id).catch(() => null);
+              }
               props.onDiscuss(
                 `${t('proposal.discussDraft')}${t(`proposal.action.${payload.action}`)}: `,
               );
