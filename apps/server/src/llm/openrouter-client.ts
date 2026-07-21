@@ -143,7 +143,11 @@ const GATED_STEP_LIMIT = 4;
  * several rounds plus queries and creates in one narrator call. The ENGINE's
  * turn budget is the real cap (over-budget charactercalls answer with an
  * error string); this ceiling only stops a runaway step loop. */
-const LOOP_STEP_LIMIT = 12;
+// Week 19 (audit item 9): 16, up from 12 — a worst-case legal turn (three
+// declare+call pairs, goals, a query, an end_scene correction round) runs
+// ~11 steps; the bump buys correction headroom. The ENGINE's turn/context
+// budgets stay the semantic caps; this ceiling only stops runaway loops.
+const LOOP_STEP_LIMIT = 16;
 
 /** The narrator toolset, wired to the engine's executors the call offers.
  * query_sublocations runs mid-call (Rev 4 §6). With `gate` (M6 part 2) the
