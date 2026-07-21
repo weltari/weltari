@@ -64,6 +64,29 @@ export function sceneTranscript(storage: Storage, sceneId: string): TurnLine[] {
   return lines;
 }
 
+/**
+ * Narration-only view of a scene (week 19, Rev 4 §10 source-typing):
+ * `character` steps — spoken words and acted attempts — are excluded by the
+ * committed step's own `call` label, so a consumer that writes world
+ * knowledge can never source from speech. Code, not prompt wording: speech
+ * is hearsay and stays wiki-ineligible by construction.
+ */
+export function sceneNarrationTranscript(
+  storage: Storage,
+  sceneId: string,
+): TurnLine[] {
+  const lines: TurnLine[] = [];
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (event.type === 'turn.committed' && event.payload.scene_id === sceneId) {
+      for (const step of event.payload.steps) {
+        if (step.call === 'character') continue;
+        lines.push({ speaker: step.speaker, text: step.text });
+      }
+    }
+  }
+  return lines;
+}
+
 export function createReflectionHandler(
   options: ReflectionHandlerOptions,
 ): JobHandler {

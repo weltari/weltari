@@ -207,6 +207,74 @@ describe('world agent job handler', () => {
     ).toHaveLength(1);
   });
 
+  it('the wiki calls read a NARRATION-ONLY transcript — speech never enters the prompt (week 19, Rev 4 §10 source-typing)', async () => {
+    const prompts: { kind: string; prompt: string }[] = [];
+    const capturingLlm: LlmClient = {
+      streamCall: async (call): Promise<Result<LlmCallResult>> => {
+        prompts.push({ kind: call.kind, prompt: call.prompt });
+        return Promise.resolve(
+          ok({
+            text: 'The loft hangs quiet under its hooks.',
+            usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+            model: 'fake/capture',
+            durationMs: 0,
+            toolCalls: [],
+          }),
+        );
+      },
+    };
+    const ctx = setup(capturingLlm);
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'sublocation.stub_created',
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-the-drying-loft',
+        name: 'the drying loft',
+        description: 'Hooks and hams under the rafters.',
+      },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'turn.committed',
+      payload: {
+        scene_id: 's1',
+        turn_id: 't1',
+        steps: [
+          {
+            call: 'narrator',
+            speaker: 'Narrator',
+            text: 'The loft smells of smoke and old rope.',
+          },
+          {
+            call: 'character',
+            speaker: 'Elias',
+            text: 'I poisoned the mayor, and the ledger proves it.',
+          },
+          {
+            call: 'narration',
+            speaker: 'Narrator',
+            text: 'Elias tucks something out of sight.',
+          },
+        ],
+      },
+    });
+
+    await ctx.handler(jobWith({ scene_id: 's1' }));
+
+    // Call 1 = the summary note (whole scene — a summary may mention claims);
+    // call 2 = the wiki entry (narration-only, by construction).
+    expect(prompts).toHaveLength(2);
+    const summary = prompts[0];
+    const wiki = prompts[1];
+    expect(summary?.prompt).toContain('poisoned the mayor');
+    expect(wiki?.prompt).not.toContain('poisoned');
+    expect(wiki?.prompt).toContain('smells of smoke');
+    expect(wiki?.prompt).toContain('tucks something out of sight');
+  });
+
   it('a scene with no participating stubs writes no subwiki entries', async () => {
     const ctx = setup();
     await ctx.handler(jobWith({ scene_id: 's1' }));
