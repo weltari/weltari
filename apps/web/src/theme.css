@@ -1863,6 +1863,36 @@ body {
   cursor: default;
 }
 
+/* A settled card stays in the transcript (the UX contract): dimmed, the
+   verdict chip where the buttons were. */
+.wl-proposal-card[data-status='approved'],
+.wl-proposal-card[data-status='rejected'] {
+  opacity: 0.75;
+}
+
+.wl-proposal-verdict {
+  align-self: center;
+  border-radius: var(--wl-radius);
+  border: 1px solid var(--wl-border);
+  padding: 0.25rem 0.7rem;
+  font-size: var(--wl-font-size-ui);
+  color: var(--wl-text-dim);
+}
+
+.wl-proposal-verdict[data-verdict='approved'] {
+  border-color: var(--wl-ok);
+  color: var(--wl-ok);
+}
+
+.wl-proposal-verdict[data-verdict='rejected'] {
+  border-color: var(--wl-danger);
+  color: var(--wl-danger);
+}
+
+.wl-proposal-verdict[data-verdict='discussing'] {
+  border-color: var(--wl-proposal-border);
+}
+
 /* Group speaker label (0.14.0): names the member inside its bubble. */
 .wl-chat-speaker {
   color: var(--wl-text-dim);

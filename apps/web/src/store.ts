@@ -85,6 +85,9 @@ export interface ChatMessage {
   text: string;
   /** Wall-clock append time from the event envelope (ISO). */
   ts: string;
+  /** Log id of the carrying event (0.20.0) — the GM thread interleaves
+   * messages and proposal cards by this order. */
+  event_id: number;
 }
 
 /**
@@ -164,10 +167,18 @@ export type ProposalPayload = Extract<
   { type: 'proposal.submitted' }
 >['payload'];
 
-export interface PendingProposal {
+/** One GM consent card (0.17.0 → 0.20.0): kept in the fold forever — a
+ * resolution settles the card in place instead of removing it, so the GM
+ * thread's interleaved transcript replays exactly. */
+export interface GmProposal {
+  /** Log id of proposal.submitted — the card's exact position between the
+   * thread's messages (the transcript interleaves by event order). */
   event_id: number;
   ts: string;
   payload: ProposalPayload;
+  status: 'pending' | 'approved' | 'rejected';
+  /** The user clicked "Chat about this" while the card was pending. */
+  discussed: boolean;
 }
 
 /** A scene-side stream frame: `call: 'gm'` frames ride the GM thread's own
@@ -270,9 +281,10 @@ export interface SceneStore {
   /** Highest subwiki.updated event id (World Agent writes only — the blue
    * dot announces the world writing, not the user's own edits). */
   wikiLastEventId: number;
-  /** Unresolved proposals in submit order (0.17.0, Rev 4 §16) — the consent
-   * cards in the GM conversation; proposal.resolved removes its card. */
-  pendingProposals: PendingProposal[];
+  /** Every proposal in submit order (0.17.0 → 0.20.0, Rev 4 §16) — the
+   * consent cards inline in the GM conversation; proposal.resolved settles
+   * a card in place (status), proposal.discussed marks the talk. */
+  gmProposals: GmProposal[];
   /** The profiling_enabled fold (0.17.0, Rev 4 §15) — latest config.flag_set
    * wins; false until one arrives (consent-first default). */
   profilingEnabled: boolean;
@@ -605,6 +617,7 @@ function applyOne(
           sender: event.payload.sender,
           text: event.payload.text,
           ts: event.ts,
+          event_id: event.id,
         };
         const thread: ChatThread = {
           conversation_id: event.payload.conversation_id,
@@ -680,6 +693,7 @@ function applyOne(
                   sender: event.payload.sender,
                   text: event.payload.text,
                   ts: event.ts,
+                  event_id: event.id,
                   ...(event.payload.character_id === undefined
                     ? {}
                     : { speaker_id: event.payload.character_id }),
@@ -724,6 +738,7 @@ function applyOne(
           sender: 'notice',
           text: event.payload.text,
           ts: event.ts,
+          event_id: event.id,
         };
         return {
           chatThreads: {
@@ -940,30 +955,47 @@ function applyOne(
     case 'marker.expired':
     case 'character.location_changed':
       return;
-    // The GM consent cards (0.17.0, Rev 4 §16): pending = submitted minus
-    // resolved — a pure fold, so replay rebuilds the open cards exactly.
+    // The GM consent cards (0.17.0 → 0.20.0, Rev 4 §16, the UX contract):
+    // every card stays in the fold forever — a resolution SETTLES it in
+    // place (status flips, the verdict renders under the diff) instead of
+    // removing it, so replay rebuilds the interleaved transcript exactly.
     case 'proposal.submitted': {
       set((state) => ({
-        pendingProposals: [
-          ...state.pendingProposals,
-          { event_id: event.id, ts: event.ts, payload: event.payload },
+        gmProposals: [
+          ...state.gmProposals,
+          {
+            event_id: event.id,
+            ts: event.ts,
+            payload: event.payload,
+            status: 'pending' as const,
+            discussed: false,
+          },
         ],
       }));
       return;
     }
     case 'proposal.resolved': {
       set((state) => ({
-        pendingProposals: state.pendingProposals.filter(
-          (p) => p.payload.proposal_id !== event.payload.proposal_id,
+        gmProposals: state.gmProposals.map((p) =>
+          p.payload.proposal_id === event.payload.proposal_id
+            ? { ...p, status: event.payload.resolution }
+            : p,
         ),
       }));
       return;
     }
-    // The "Chat about this" signal (0.20.0): consumed server-side by the GM
-    // follow-up turn; the card-side discussed flag folds in with the inline
-    // proposal rework.
-    case 'proposal.discussed':
+    // The "Chat about this" signal (0.20.0): the card shows the talk is on;
+    // the GM's durable follow-up turn consumes it server-side.
+    case 'proposal.discussed': {
+      set((state) => ({
+        gmProposals: state.gmProposals.map((p) =>
+          p.payload.proposal_id === event.payload.proposal_id
+            ? { ...p, discussed: true }
+            : p,
+        ),
+      }));
       return;
+    }
     case 'config.flag_set': {
       // flag → store field; a new wire flag fails to compile until mapped.
       const field = { profiling_enabled: 'profilingEnabled' } as const;
@@ -1036,7 +1068,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
   feedNotifications: [],
   feedLastEventId: 0,
   wikiLastEventId: 0,
-  pendingProposals: [],
+  gmProposals: [],
   profilingEnabled: false,
   characterLocks: {},
   worldSeeded: false,

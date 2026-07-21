@@ -1,14 +1,15 @@
-// The consent card (M7 part 2, Rev 4 §16, owner UX ruling 2026-07-11):
-// a pending proposal renders inside the GM conversation with three buttons —
-// Consent / Reject / Chat about this — like a permission prompt. The card is
-// a pure projection of proposal.submitted (the diff arrives complete on the
-// wire); resolving posts the command and the card settles when
-// proposal.resolved comes back on the stream — the store, never local
-// state, decides when it disappears.
+// The consent card (M7 part 2 → the UX contract, Rev 4 §16, owner rulings
+// 2026-07-11): a proposal renders INLINE at its exact position in the GM
+// conversation with three buttons — Consent / Reject / Chat about this —
+// like a coding agent's permission prompt. The card is a pure projection of
+// proposal.submitted (the diff arrives complete on the wire); resolving
+// posts the command and the card SETTLES IN PLACE when proposal.resolved
+// comes back on the stream — the verdict renders where the buttons were,
+// and the store, never local state, decides what it shows.
 import { useState } from 'react';
 import { postResolveProposal } from '../commands.js';
 import { t } from '../i18n.js';
-import type { PendingProposal, ProposalPayload } from '../store.js';
+import type { GmProposal, ProposalPayload } from '../store.js';
 
 function Diff({ payload }: { payload: ProposalPayload }): React.JSX.Element {
   switch (payload.action) {
@@ -91,12 +92,12 @@ function Diff({ payload }: { payload: ProposalPayload }): React.JSX.Element {
 }
 
 export function ProposalCard(props: {
-  proposal: PendingProposal;
+  proposal: GmProposal;
   /** "Chat about this": prefill the GM input — the card stays pending. */
   onDiscuss: (draft: string) => void;
 }): React.JSX.Element {
-  const { payload } = props.proposal;
-  // Busy only guards double-clicks; the truth (card removal) is the stream.
+  const { payload, status, discussed } = props.proposal;
+  // Busy only guards double-clicks; the truth (card settling) is the stream.
   const [busy, setBusy] = useState(false);
 
   function resolve(resolution: 'approved' | 'rejected'): void {
@@ -109,46 +110,65 @@ export function ProposalCard(props: {
   }
 
   return (
-    <div className="wl-proposal-card" data-action={payload.action}>
+    <div
+      className="wl-proposal-card"
+      data-action={payload.action}
+      data-status={status}
+    >
       <div className="wl-proposal-head">
         {t('proposal.title')} {t(`proposal.action.${payload.action}`)}
       </div>
       <Diff payload={payload} />
       <p className="wl-proposal-rationale">{payload.rationale}</p>
-      <div className="wl-proposal-actions">
-        <button
-          type="button"
-          className="wl-proposal-approve"
-          disabled={busy}
-          onClick={() => {
-            resolve('approved');
-          }}
-        >
-          {t('proposal.approve')}
-        </button>
-        <button
-          type="button"
-          className="wl-proposal-reject"
-          disabled={busy}
-          onClick={() => {
-            resolve('rejected');
-          }}
-        >
-          {t('proposal.reject')}
-        </button>
-        <button
-          type="button"
-          className="wl-proposal-discuss"
-          disabled={busy}
-          onClick={() => {
-            props.onDiscuss(
-              `${t('proposal.discussDraft')}${t(`proposal.action.${payload.action}`)}: `,
-            );
-          }}
-        >
-          {t('proposal.discuss')}
-        </button>
-      </div>
+      {status === 'pending' ? (
+        <div className="wl-proposal-actions">
+          <button
+            type="button"
+            className="wl-proposal-approve"
+            disabled={busy}
+            onClick={() => {
+              resolve('approved');
+            }}
+          >
+            {t('proposal.approve')}
+          </button>
+          <button
+            type="button"
+            className="wl-proposal-reject"
+            disabled={busy}
+            onClick={() => {
+              resolve('rejected');
+            }}
+          >
+            {t('proposal.reject')}
+          </button>
+          <button
+            type="button"
+            className="wl-proposal-discuss"
+            disabled={busy}
+            onClick={() => {
+              props.onDiscuss(
+                `${t('proposal.discussDraft')}${t(`proposal.action.${payload.action}`)}: `,
+              );
+            }}
+          >
+            {t('proposal.discuss')}
+          </button>
+          {discussed ? (
+            <span className="wl-proposal-verdict" data-verdict="discussing">
+              {t('proposal.discussing')}
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        // Settled in place (the UX contract): the verdict renders where the
+        // buttons were — the card never disappears from the transcript.
+        <div className="wl-proposal-actions">
+          <span className="wl-proposal-verdict" data-verdict={status}>
+            {t(`proposal.verdict.${status}`)}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

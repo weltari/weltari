@@ -309,10 +309,10 @@ describe('the GM consent projection (0.17.0, Rev 4 §16)', () => {
     };
   }
 
-  it('pending = submitted minus resolved', () => {
+  it('a resolution settles the card in place; a discuss marks it (0.20.0)', () => {
     apply(proposalSubmitted('p-a'));
     apply(proposalSubmitted('p-b'));
-    expect(useSceneStore.getState().pendingProposals).toHaveLength(2);
+    expect(useSceneStore.getState().gmProposals).toHaveLength(2);
     apply({
       id: nextId++,
       world_id: 'w1',
@@ -321,9 +321,25 @@ describe('the GM consent projection (0.17.0, Rev 4 §16)', () => {
       type: 'proposal.resolved',
       payload: { proposal_id: 'p-a', resolution: 'rejected' },
     });
-    const pending = useSceneStore.getState().pendingProposals;
-    expect(pending).toHaveLength(1);
-    expect(pending[0]?.payload.proposal_id).toBe('p-b');
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'proposal.discussed',
+      payload: { proposal_id: 'p-b' },
+    });
+    // The UX contract: NOTHING disappears — the resolved card settles with
+    // its verdict, the discussed card stays pending with the talk marked.
+    const proposals = useSceneStore.getState().gmProposals;
+    expect(proposals).toHaveLength(2);
+    expect(proposals[0]?.status).toBe('rejected');
+    expect(proposals[1]?.status).toBe('pending');
+    expect(proposals[1]?.discussed).toBe(true);
+    // Cards carry their exact log position for the inline interleave.
+    expect(proposals.map((p) => p.event_id)).toEqual(
+      [...proposals.map((p) => p.event_id)].sort((a, b) => a - b),
+    );
   });
 
   it('config.flag_set folds latest-wins; character.lock_set per character; world.seeded latches', () => {

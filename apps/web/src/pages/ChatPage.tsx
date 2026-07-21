@@ -87,8 +87,10 @@ export function ChatPage({
     selected === undefined ? undefined : threads[selected.character_id];
   const isGm = selected?.character_id === GM_CHARACTER_ID;
   const inScene = useIsInScene(selected?.character_id ?? '') && !isGm;
-  // The consent cards (0.17.0, Rev 4 §16) live in the GM conversation.
-  const pendingProposals = useSceneStore((s) => s.pendingProposals);
+  // The consent cards (0.17.0 → 0.20.0, Rev 4 §16) live INLINE in the GM
+  // conversation — interleaved with the messages by event-log order, settled
+  // cards staying in place with their verdict.
+  const gmProposals = useSceneStore((s) => s.gmProposals);
   // The GM reply streaming right now (0.20.0): display-only sentences; the
   // committed message replaces them the moment it lands (B6).
   const gmLiveSentences = useSceneStore((s) => s.gmLiveSentences);
@@ -121,7 +123,7 @@ export function ChatPage({
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const typingTimerRef = useRef<number | null>(null);
-  const proposalCount = isGm ? pendingProposals.length : 0;
+  const proposalCount = isGm ? gmProposals.length : 0;
   const gmLiveCount = gmLiveSentences.length;
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -342,28 +344,46 @@ export function ChatPage({
           ) : null}
 
           <div className="wl-chat-messages" ref={scrollRef}>
-            {(thread?.messages ?? []).map((message) => (
-              <div
-                key={message.message_id}
-                className="wl-chat-bubble"
-                data-sender={message.sender}
-              >
-                {message.text}
-              </div>
-            ))}
-            {isGm
-              ? pendingProposals.map((proposal) => (
-                  <ProposalCard
-                    key={proposal.payload.proposal_id}
-                    proposal={proposal}
-                    onDiscuss={(discussDraft) => {
-                      // The card stays PENDING while you talk it over —
-                      // only Consent/Reject settle it (owner UX ruling).
-                      setDraft(discussDraft);
-                    }}
-                  />
-                ))
-              : null}
+            {/* The GM transcript interleaves prose and proposal blocks in
+                event-log order (the UX contract): a card sits at its exact
+                position in the flow and SETTLES in place when resolved —
+                replay rebuilds the identical interleaving. */}
+            {(isGm
+              ? [
+                  ...(thread?.messages ?? []).map((message) => ({
+                    at: message.event_id,
+                    message,
+                  })),
+                  ...gmProposals.map((proposal) => ({
+                    at: proposal.event_id,
+                    proposal,
+                  })),
+                ].sort((a, b) => a.at - b.at)
+              : (thread?.messages ?? []).map((message) => ({
+                  at: message.event_id,
+                  message,
+                }))
+            ).map((item) =>
+              'message' in item ? (
+                <div
+                  key={item.message.message_id}
+                  className="wl-chat-bubble"
+                  data-sender={item.message.sender}
+                >
+                  {item.message.text}
+                </div>
+              ) : (
+                <ProposalCard
+                  key={item.proposal.payload.proposal_id}
+                  proposal={item.proposal}
+                  onDiscuss={(discussDraft) => {
+                    // The card stays PENDING while you talk it over —
+                    // only Consent/Reject settle it (owner UX ruling).
+                    setDraft(discussDraft);
+                  }}
+                />
+              ),
+            )}
             {thread !== undefined && thread.lastEnded !== null ? (
               <div className="wl-chat-divider">
                 — chat ended ({thread.lastEnded.reason}) —
