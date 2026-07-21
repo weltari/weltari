@@ -1069,6 +1069,89 @@ if (imagesDir) {
   }
 }
 
+// 4q. The GM proposal UX contract (0.20.0, Rev 4 §9/§16): the durable
+//     tool-result turn is SINGLE — at most ONE GM follow-up message per
+//     resolution (message_id gm-followup-<proposal_id>) and per discuss
+//     signal (gm-discuss-<proposal_id>); every follow-up is a GM character
+//     line whose outcome exists and PRECEDES it in the log (a missing
+//     follow-up is legal mid-kill — the boot sweep heals it; a duplicate or
+//     an orphan never is); a proposal is discussed at most once, only while
+//     it existed unresolved.
+{
+  const submittedAt = new Map(); // proposal_id -> submit event id
+  const resolvedAt = new Map(); // proposal_id -> first resolution event id
+  const discussedAt = new Map(); // proposal_id -> [discuss event ids]
+  const followups = new Map(); // message_id -> [event ids]
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'proposal.submitted') {
+      submittedAt.set(payload.proposal_id, event.id);
+    } else if (event.type === 'proposal.resolved') {
+      if (!resolvedAt.has(payload.proposal_id)) {
+        resolvedAt.set(payload.proposal_id, event.id);
+      }
+    } else if (event.type === 'proposal.discussed') {
+      discussedAt.set(
+        payload.proposal_id,
+        (discussedAt.get(payload.proposal_id) ?? []).concat(event.id),
+      );
+    } else if (
+      event.type === 'chat.message_committed' &&
+      typeof payload.message_id === 'string' &&
+      (payload.message_id.startsWith('gm-followup-') ||
+        payload.message_id.startsWith('gm-discuss-'))
+    ) {
+      followups.set(
+        payload.message_id,
+        (followups.get(payload.message_id) ?? []).concat(event.id),
+      );
+      if (event.actor_id !== 'char:gm' || payload.sender !== 'character') {
+        failures.push(
+          `follow-up ${payload.message_id} (event ${event.id}) is not a GM character line`,
+        );
+      }
+    }
+  }
+  for (const [proposalId, list] of discussedAt) {
+    if (!submittedAt.has(proposalId)) {
+      failures.push(`proposal.discussed ${proposalId}: no such proposal`);
+    }
+    if (list.length > 1) {
+      failures.push(
+        `proposal ${proposalId} discussed ${list.length} times (once while pending)`,
+      );
+    }
+    const resolved = resolvedAt.get(proposalId);
+    if (resolved !== undefined && list.some((id) => id > resolved)) {
+      failures.push(`proposal ${proposalId} discussed after its resolution`);
+    }
+  }
+  for (const [messageId, list] of followups) {
+    if (list.length > 1) {
+      failures.push(
+        `follow-up ${messageId} committed ${list.length} times (the natural key is single)`,
+      );
+      continue;
+    }
+    const discuss = messageId.startsWith('gm-discuss-');
+    const proposalId = messageId.slice(
+      discuss ? 'gm-discuss-'.length : 'gm-followup-'.length,
+    );
+    const outcomeAt = discuss
+      ? (discussedAt.get(proposalId) ?? [])[0]
+      : resolvedAt.get(proposalId);
+    if (outcomeAt === undefined) {
+      failures.push(
+        `follow-up ${messageId}: no ${discuss ? 'discuss signal' : 'resolution'} exists for ${proposalId}`,
+      );
+    } else if (list[0] < outcomeAt) {
+      failures.push(
+        `follow-up ${messageId} (event ${list[0]}) precedes its outcome (event ${outcomeAt})`,
+      );
+    }
+  }
+}
+
 // 5. Ledger rows are in legal states with legal shapes
 const badStates = db
   .prepare(
