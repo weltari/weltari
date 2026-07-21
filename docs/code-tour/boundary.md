@@ -1,5 +1,7 @@
 # Code tour — boundary (trust checks at the edges)
 
+(Checked against the V1 close-out codebase — week 19, 2026-07-21.)
+
 The boundary is the codebase's border control. Anywhere untrusted data
 crosses into the app — a setting from an environment variable, a folder full
 of someone else's plugin code, a downloaded update package, an odd payload
@@ -52,19 +54,45 @@ exactly one place that can leak a secret value into a log by mistake — and
 this file is careful not to.
 
 - `readEnv(raw)` — validates the whole environment against a strict
-  template covering every setting the app understands (network port,
-  database path, log level, the Telegram bot's secret token, which AI model
-  to use, plugin folder location, update-channel settings, and more). If
-  anything is malformed it returns the list of offending setting *names*
-  only — never their values, so a bad `OPENROUTER_API_KEY` never ends up
-  printed anywhere. Notably, a missing (but optional) secret like the AI
-  provider key is treated as a perfectly legal state — a freshly unpacked
-  install has to be able to start up before it's been configured; it just
-  runs on a stand-in "fake" AI backend until a real key is added.
+  template covering every setting the app understands. If anything is
+  malformed it returns the list of offending setting *names* only — never
+  their values, so a bad `OPENROUTER_API_KEY` never ends up printed
+  anywhere. Notably, a missing (but optional) secret like the AI provider
+  key is treated as a perfectly legal state — a freshly unpacked install
+  has to be able to start up before it's been configured; it just runs on
+  a stand-in "fake" AI backend until a real key is added.
 - `readEnvOrExplain()` — the version actually called at startup: it prints a
   one-line, names-only error to the console (not a full logger, because the
   logger doesn't exist yet this early) and returns `null` on failure, or the
   validated settings on success.
+
+The list of settings has grown to several dozen by the V1 close-out, but
+they all fall into a few plain families:
+
+- **The basics** — network port and listen address, database file path,
+  log level, and where images, plugins, and the built web app live on
+  disk.
+- **AI choices** — which AI model handles ordinary conversation; an
+  optional *separate* model for the Game Master role (so the GM can be
+  swapped independently, or left to share the main model); which image
+  model paints map tiles; a pricier image model reserved for the rare
+  player-drawn map edits; and a vision model for interpreting map clicks.
+  Plus the switches that route everything to the free, deterministic
+  fake backend so tests and automated checks never spend money.
+- **Gameplay pacing dials** — numbers the owner can tune without touching
+  code: how many character turns one player message may set off in a
+  scene or a group chat before the narrator has to wrap things up; how
+  large a scene's accumulated context may grow before it must end; how
+  often (measured in *game* time, never real-world time — a paused world
+  stays silent) characters send proactive messages or post to the social
+  feed, and how many characters get to react to a post; how many
+  chance-encounter markers can be live on the map at once and how long
+  each lasts; and how many recent memory-cache entries each character
+  keeps in view.
+- **Self-update settings** — where to check for new releases and on what
+  schedule, an override slot for the signing key, a hard cap on download
+  size, and the "notify only" switch — all described under `update/`
+  below.
 
 ### config/app-version.ts
 
@@ -170,6 +198,19 @@ key — something a checksum alone can't prove, since anyone could publish a
 matching checksum for a fake file). Only after both checks pass does the app
 consider "flipping the pointer" to make the new version the one that runs
 next time it restarts.
+
+Where does the key for that signature check come from? The *public* half of
+the project's signing key ships baked inside every packaged copy of the app
+(a small file called `minisign.pub`), so a normal install can verify
+updates out of the box with nothing to configure — the same approach used
+by well-known auto-updaters. The `WELTARI_UPDATE_PUBKEY` setting exists
+only as an override, for a fork of the project that signs releases with
+its own key; if neither the baked-in file nor the override is present,
+self-update simply stays switched off. And the Docker flavor of the app
+runs in "notify only" mode: it still checks for and announces new
+versions, but never downloads anything — updating a container is the host
+machine's job (pulling a fresh image), not the running app's, so the
+apply command is always politely refused there.
 
 ### update/version.ts
 

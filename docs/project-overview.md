@@ -44,10 +44,12 @@ Everything lives in one repository with three kinds of code:
 "Strict rooms" is enforced by the linter, not politeness: code outside
 `storage` cannot write SQL, code outside `llm` cannot call an AI, and so on.
 
-## Where the project stands (2026-07-10)
+## Where the project stands (2026-07-21)
 
-Built in ten weekly sessions, each ending with measured pass/fail criteria
-(`docs/week1-results.md` … `week10-results.md`):
+**V1 is complete.** Built in nineteen weekly sessions, each ending with
+measured pass/fail criteria (`docs/week1-results.md` …
+`week19-results.md`); week 19 was a dedicated verification week that
+audited the whole spec against the code before declaring V1 done:
 
 | Milestone | What it delivered | Status |
 | --- | --- | --- |
@@ -57,28 +59,29 @@ Built in ten weekly sessions, each ending with measured pass/fail criteria
 | M4 — The UI shell (weeks 5–6) | App shell, Map/Gameday/Config pages, fog + Explore, scene lifecycle | ✅ |
 | M5 — The painted map (weeks 7–8) | Real image backends paint/extend the map; draw on it, click into it | ✅ |
 | M6 — Creation + Chat + Social (weeks 9–13) | In-scene creation loop, Chat DM core + character-led startscene, proactive DMs, invitation expiry, group chats, the Telegram bridge, the Feed + wiki manual edits | ✅ |
+| M7 — GM + memory + objects + the living world (weeks 14–17 + the GM-UX session) | The real memory store (deltas + search + compaction), the GM agent (guided world creation, Proposal-gated authoring, profiling with GDPR controls), objects at places, chance-encounter markers + world movement | ✅ |
+| The agentic scene (week 18) | ONE narrator call drives the whole turn: it decides who speaks, calls characters, can mint new ones mid-scene, moves people, tracks story goals, and registers the next scene as a true continuation | ✅ |
+| Verification & close-out (week 19) | Line-by-line spec audit with per-line evidence, eight fixes, packaging re-verified, docs refreshed — **V1 declared done** | ✅ |
 
-Total real-AI spending across all thirteen weeks: **under $10**, tracked to
-the cent. Recent weeks cost cents (week 13: $0.006; one chat-class call
-≈ $0.003) because everything runs against free fakes by default and real AI
-is used only for final proof demos.
+Total real-AI spending across all nineteen weeks: **under $10**, tracked
+to the cent. Recent weeks cost cents (week 18: $0.048; a full agentic
+turn ≈ $0.015–0.02) because everything runs against free fakes by default
+and real AI is used only for final proof demos.
 
-## What's left to build
+## What's next (V1 is done)
 
-- **M7** — the GM agent (guided world creation, consent-gated world
-  authoring through the Proposal pipeline deferred from week 13, user
-  profiling) and the real long-term memory store for characters.
-- **V1 wrap-up** — polish, a one-command playable build for strangers
-  (packaging and self-update already exist and are proven).
-- **V1.5 (noted)** — user posting on the Feed; the CLI client.
+Nothing is *required* — the app is a complete, packaged, self-updating
+V1. The agreed follow-up lists (owner rulings, details in
+[week19-results.md](week19-results.md)):
 
-## How long until it's finished?
-
-At the established pace — one focused session per week, each shipping a
-proven slice — the remaining list above is roughly **2–3 sessions**: one or
-two for M7, and a wrap-up. It's an estimate, not a promise: every week so
-far has also surfaced one or two real-world surprises (that's what the
-sessions are for).
+- **V1.5** — private character "attempts" (the player sees only what an
+  onlooker would); the GM actually *using* what it learns about you;
+  generated art for characters minted mid-story; weather; posting on the
+  Feed yourself; a settings panel for the knobs that are
+  environment-variables today.
+- **V2** — backpacks and item hand-overs, multiplayer, and the
+  longer-horizon storytelling machinery (planned future events, a
+  Director).
 
 ## How to run and try it
 

@@ -46,6 +46,21 @@ weltari-win-x64/
    See docs/update.md "Public-key distribution").
 4. Attach zip + artifact + `.sha256` + `.minisig` to the GitHub Release.
 
+## Verified by (week 19 close-out, 2026-07-21 — macOS, no Docker on the machine)
+
+- Packaged-shape boot from the built dists on a FRESH profile dir
+  (fake-first, `PORT=7778`): `GET /` 200 text/html, `/v1/events` 200
+  text/event-stream, the hash-verified wl-map asset 200; SIGTERM → exit 0
+  (the exit-code contract); a second boot on the same data dir recovers
+  without re-seeding. Idle RSS 157.5 MB (< 170).
+- Self-update (B12): `tests/invariants/update-path.test.ts` +
+  `update-jobs.test.ts` — 24 tests against local release fixtures (tamper,
+  rogue key, tar traversal, wrong hash, staging, pointer flip); the kill
+  harness `mid_update` point re-proves the crash window.
+- Docker image + Windows zip: unchanged since the 2026-07-07 verification
+  below (no commit has touched Dockerfile/.dockerignore/package-win/
+  release.yml since) — that proof stands.
+
 ## Verified by (M3 part-2 criterion b + d, 2026-07-07)
 
 - Windows: zip extracted to a clean directory → `weltari.cmd` boots; `GET /`

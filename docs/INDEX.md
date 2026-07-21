@@ -4,10 +4,10 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 
 ## Orientation & handover
 
-- [handover.md](handover.md) — for the next AI agent: state at handover, the working contract, how to continue from the Week 11 kickoff.
+- [handover.md](handover.md) — for the next AI agent: the V1-done state, the working contract, the V1.5/V2 backlog and how to start a new week.
 - [project-overview.md](project-overview.md) — for humans: what the app is, where it stands, what's left, how to run and test it.
 - [code-tour/](code-tour/README.md) — plain-language tour of every source module, with a suggested reading order.
-- [kickoffs/](kickoffs/) — the historical weekly kickoff prompts (weeks 1–12 + debug sessions); the CURRENT week's prompt lives at the repo root.
+- [kickoffs/](kickoffs/) — the historical weekly kickoff prompts; recent weeks' prompts still sit at the repo root (weeks 13–19 + GM UX).
 
 ## Module wiki (grows with the code, same-commit rule)
 
@@ -41,4 +41,11 @@ One line per wiki page (builder.md §2). Spec/session documents (Coding Guide, S
 - [week11-results.md](week11-results.md) — Milestone 6 part-3 results (Weltari Chat part two: character-led startscene, proactive CRON DMs + freeze, query escalation, the Wiki page — all criteria PASS at $0.03).
 - [week12-results.md](week12-results.md) — Milestone 6 part-4 results (the time-structure re-ruling, invitation expiry, group chats, the Telegram chat bridge — all criteria PASS at $0.033).
 - [week13-results.md](week13-results.md) — Milestone 6 part-5 results (the Feed: game-time posts, acquaintance delivery, reactions, reply threads, the bell + dots; wiki manual edits, Proposals dropped to M7 — all criteria PASS at $0.006).
+- [week14-results.md](week14-results.md) — Milestone 7 part-1 results (the real memory store: deltas + core + FTS5 + compaction + cache prune, memoryquery — all criteria PASS).
+- [week15-results.md](week15-results.md) — Milestone 7 part-2 results (the GM agent: cold-boot interview, Proposal pipeline, profiling + GDPR trio — all criteria PASS).
+- [week16-results.md](week16-results.md) — Milestone 7 part-3 results (objects, sublocation-only: interact_object, explore, describe_object, object GC, propose_object; backpacks ruled V2 — all criteria PASS).
+- [week17-results.md](week17-results.md) — Milestone 7 part-4 results (the living-world loop: chance-encounter markers, CRON world movement, position bubbles — all criteria PASS).
+- [gm-ux-results.md](gm-ux-results.md) — the GM proposal UX contract session (proposal cards, diff rendering, consent flow — all criteria PASS).
+- [week18-results.md](week18-results.md) — the agentic scene (Rev 4 §6: the Narrator drives the turn, protocol 0.21.0, 26 fault points — all criteria PASS at $0.048).
+- [week19-results.md](week19-results.md) — **the V1 close-out**: the Rev 4 §18 + module-contract audit tables, the fixes, the documented-known list, packaging verification, the V1-done declaration.
 - [dependencies.md](dependencies.md) — the dependency ledger (one `##` heading per package; CI keys on headings).

@@ -1,66 +1,240 @@
 # Code tour — llm (talking to the AI)
 
-This folder is the only place in the whole app that is allowed to talk to an AI provider (currently OpenRouter, a service that resells access to many different AI models). Every other part of the app — the game engine, the storage layer, the web UI — never calls an AI model directly. Instead it talks to a small, fixed "menu" of functions defined here, called the **LlmClient seam** (a *seam* is a deliberate joint in the code where one side can be swapped out without the other side noticing — like a phone jack, not a soldered wire). Because of that seam, tests and the automated "kill the process and see if it recovers" harness can plug in a `FakeLlmClient` that behaves exactly like a real AI but costs nothing and never surprises anyone, while production plugs in the real OpenRouter client. This folder also carries one more hard rule everywhere: whatever the AI says back is never trusted or saved directly. It first has to pass a **schema gate** (a check that the AI's answer has the right shape — right fields, right types, nothing extra) and then an **engine-state gate** (a check that the request actually makes sense given what's really going on in the game world right now, since the AI can't be trusted to know the current state for certain). Only after both gates does anything become permanent.
+*Accurate as of the V1 close-out (week 19, 2026-07-21).*
+
+This folder is the only place in the whole app that is allowed to talk to an
+AI provider (currently OpenRouter, a service that resells access to many
+different AI models). Every other part of the app — the game engine, the
+storage layer, the web UI — never calls an AI model directly. Instead it
+talks to a small, fixed "menu" of functions defined here, called the
+**LlmClient seam** (a *seam* is a deliberate joint in the code where one side
+can be swapped out without the other side noticing — like a phone jack, not a
+soldered wire). Because of that seam, tests and the automated "kill the
+process and see if it recovers" harness can plug in a `FakeLlmClient` that
+behaves exactly like a real AI but costs nothing and never surprises anyone,
+while production plugs in the real OpenRouter client.
+
+This folder also carries one hard rule everywhere: whatever the AI says back
+is never trusted or saved directly. It first has to pass a **schema gate** (a
+check that the AI's answer has the right shape — right fields, right types,
+nothing extra) and then an **engine-state gate** (a check that the request
+actually makes sense given what's really going on in the game world right
+now). Only after both gates does anything become permanent. Since the middle
+of the project this double gate can also run *live, mid-reply*: the engine
+can hand the client a `gate` function, so when the AI asks to change the
+world it immediately reads back either "staged: ..." or an error it can
+correct in the same breath — but nothing becomes durable until the whole
+turn commits.
 
 ## `apps/server/src/llm/types.ts`
 
-This file defines the LlmClient seam itself — the "phone jack" every other AI call plugs into. It doesn't talk to any AI provider; it just describes the shape of a request and a response so both the real client and the fake client agree on the contract.
+This file defines the LlmClient seam itself — the "phone jack" every other
+AI call plugs into. It doesn't talk to any AI provider; it just describes the
+shape of a request and a response so the real client and the fake client
+agree on the contract.
 
-- `LlmCall` (a data shape, not a function) describes one request to the AI: which "kind" of call it is (e.g. narrator, character reply, chat DM), the character it's speaking as, the fixed instructions block plus the changing conversation text, and a callback that receives streamed text as it arrives.
-- `LlmClient.streamCall` is the one function every AI-talking code path calls: send a request, get back either a successful result or a clearly-labeled failure — it is written so a provider going down never crashes the app, it just reports the failure as a normal value.
+- `LlmCall` describes one request: which "kind" of call it is (narrator
+  turn, character reply, chat DM, reflection, GM conversation, social post,
+  and so on), which character it speaks as, the fixed instructions block
+  plus the changing conversation text, and a callback that receives streamed
+  text as it arrives.
+- A call can also carry three optional "live helpers" the engine offers:
+  `queries` (read-only lookups the AI may run mid-reply, like searching the
+  wiki or its own memories), `gate` (the live double-gate described above),
+  and — new with the agentic scene — `loop` (a pair of helpers that lets the
+  Narrator hand the microphone to a character *inside its own reply*; more
+  under `openrouter-client.ts` below).
+- `LlmClient.streamCall` is the one function everything calls: send a
+  request, get back either a successful result (full text, token counts,
+  any tool calls returned as plain data) or a clearly-labeled failure — a
+  provider going down never crashes the app, it just reports the failure as
+  a normal value.
 
 ## `apps/server/src/llm/model-registry.ts`
 
-This is the **ModelRegistry** — a lookup table that decides which specific AI model and settings to use for a given character and a given kind of call (this is called **model pinning**: locking a character to one specific model on purpose).
+The **ModelRegistry** — a lookup table deciding which specific AI model and
+settings to use for a given character and kind of call (**model pinning**:
+locking a character to one model on purpose, because providers cache the
+fixed instructions block per model — switching models throws that cheap
+cache away).
 
-- `createModelRegistry` builds the lookup table from environment configuration (a default model, optional per-character overrides, and an optional preferred provider order) and returns an object with one method.
-- `routeFor` looks up the right model, provider preference, and generation settings (like "creativity" temperature) for a given character and call kind. Pinning a character to one model matters because AI providers can cache (remember and reuse, cheaply) the fixed instructions block for a model — switching models for the same character throws that cache away and the next call becomes slower and pricier until it warms back up.
+- `createModelRegistry` builds the table from environment configuration (a
+  default model, per-character overrides, an optional preferred provider
+  order) and returns one method, `routeFor`.
+- The GM (the behind-the-scenes "game master" persona) gets its own optional
+  model override through the same per-character mechanism — no special
+  machinery, it's just pinned like any character would be.
 
 ## `apps/server/src/llm/openrouter-client.ts`
 
-This is the real, production AI client — the only file that actually imports the AI SDK library and creates network requests to OpenRouter. Every OpenRouter-specific quirk (streaming format, usage reporting, tool-calling mechanics) is handled here so nothing outside this file ever needs to know OpenRouter exists.
+The real, production AI client — the only file that imports the AI SDK
+library and makes network requests to OpenRouter. Every provider quirk
+(streaming format, usage reporting, tool-calling mechanics) is handled here
+so nothing outside this file needs to know OpenRouter exists.
 
-- `createOpenRouterClient` builds the real `LlmClient`. Its one method, `streamCall`, sends the fixed instructions and the changing conversation to the chosen model, streams the reply back word-by-word through the callback, and once done reports how many tokens (roughly, word-pieces) were used — including how many were served from the provider's cache, which is cheaper.
-- Internally it builds the toolset the AI is allowed to use for a given call. `narratorToolsFor` wires up the narrator's tools (end a scene, move to another sublocation, switch a character's art, create a new place, or look up existing places) so that some of them can be run immediately during the call itself if the engine has offered special mid-call helper functions — read-only lookups always run immediately, but *changing* the world (creating a place, ending a scene) only happens immediately if the engine has explicitly opted into that by supplying a `gate` function (the double-gate check described above, offered as a live "may I?" the AI can ask mid-reply and read the answer to before finishing its response). Without that opt-in, those tool calls are just handed back as plain data for the caller to check afterward.
-- Any provider failure (timeout, network error, malformed stream) is caught here and turned into a normal "this failed" result rather than a crash — nothing above this file ever needs a `try/catch` for a broken AI provider.
+- `createOpenRouterClient` builds the real `LlmClient`: `streamCall` sends
+  the instructions and conversation to the chosen model, streams the reply
+  back word-by-word, and reports token usage afterward — including how much
+  came from the provider's cache, which is cheaper.
+- For each kind of call it wires up the matching toolset (see `tools.ts`).
+  Read-only queries always execute immediately mid-reply; world-*changing*
+  tools execute mid-reply only when the engine supplied its `gate` function,
+  otherwise they come back as plain data for the caller to check afterward.
+- The newest wiring is the **narrator loop**: when the engine offers
+  `LlmCall.loop`, the Narrator's single call can run `determine_who_next`
+  (declare which character speaks next) and then `charactercall` — whose
+  execution actually runs a *whole inner AI call* as that character, feeding
+  the character's reply back into the Narrator's still-open turn. A
+  loop-bearing call runs under a step ceiling of 16 (`LOOP_STEP_LIMIT`,
+  raised in week 19 to leave headroom for correction rounds); the engine's
+  own per-turn budget is the real cap — the ceiling only stops runaway
+  loops.
+- Any provider failure (timeout, network error, malformed stream) is caught
+  here and turned into a normal "this failed" result rather than a crash.
 
 ## `apps/server/src/llm/structured.ts`
 
-A tiny, single-purpose helper: turning AI text output that is supposed to be JSON (a common machine-readable text format) into an actual JavaScript value, safely.
+A tiny, single-purpose helper: turning AI text that is supposed to be JSON
+(a machine-readable text format) into an actual value, safely.
 
-- `parseLlmJson` looks for a fenced ```json code block in the AI's reply (models often wrap their JSON in one even when told not to) or falls back to the whole reply, then tries to parse it. If parsing fails it returns nothing rather than trying to guess or repair the broken text — a broken answer is always rejected outright, never patched up, because guessing at broken AI output is exactly the kind of thing that leads to corrupted game state.
+- `parseLlmJson` looks for a fenced ```json block in the reply (models often
+  wrap their JSON in one even when told not to) or falls back to the whole
+  reply, then tries to parse it. If parsing fails it returns nothing rather
+  than guessing or repairing — a broken answer is rejected outright, never
+  patched up.
 
 ## `apps/server/src/llm/image-source.ts`
 
-The real backend for the world-map painting system (covered in `painter.md`), living in this folder specifically because it's the only other place that's allowed to talk to the AI SDK — the actual image-compositing logic stays over in `apps/server/src/painter`.
+The real backend for the world-map painting system (covered in
+`painter.md`), living here because this folder is the only place allowed to
+talk to the AI SDK — the actual image-compositing logic stays in
+`apps/server/src/painter`.
 
-- `createOpenRouterImageSource` builds an image generator that plugs into the painter's own seam. When it's given a "context window" (a crop of the already-painted map around the area being filled in), it sends that image along as a reference so the AI continues the existing painting instead of inventing something disconnected — this keeps neighboring map tiles visually consistent. It has two modes: continuing a foggy, unpainted area (told to preserve everything and just fill the gaps) versus editing an already-painted area on purpose (told to actually change the marked area, using a bigger, more capable and more expensive model since a cheaper model was found — by actually looking at results — to refuse to draw an obviously edited feature).
-- Any generation failure here is converted into the same kind of "this failed, please retry later" signal used elsewhere, so a flaky image provider never leaves a half-painted map visible.
+- `createOpenRouterImageSource` builds an image generator that plugs into
+  the painter's own seam. Given a "context window" (a crop of the
+  already-painted map around the area being filled), it sends that image
+  along as a reference so the AI continues the existing painting rather
+  than inventing something disconnected. Two modes: continuing foggy,
+  unpainted ground (preserve everything, fill the gaps) versus deliberately
+  editing painted ground (actually change the marked area, using a bigger,
+  pricier model — a cheaper one was found, by looking at results, to refuse
+  to draw the edit).
+- Generation failures become the standard "failed, retry later" signal, so
+  a flaky image provider never leaves a half-painted map visible.
 
 ## `apps/server/src/llm/vlm.ts`
 
-The seam for a **VLM** — a "vision language model," an AI that can look at an image and describe or classify what it sees, as opposed to only reading text.
+The seam for a **VLM** — a "vision language model," an AI that can look at
+an image and describe or classify what it sees.
 
-- `VlmClient.describe` sends one image plus a text prompt to the model and gets raw text back — like the main LlmClient, its output is never trusted directly; whoever calls it has to run it through the same schema-then-state double gate before doing anything permanent with the answer.
-- `createOpenRouterVlmClient` builds the real version of this client, used today for two jobs: quality-checking generated map art, and figuring out what a player clicked on when they click an unexplored spot on the map.
-- `mapQaVerdictSchema` is the expected shape of the map quality-check answer (is the feature visible, how confident, why) — defined here so both the tool that asks the question and the tests that check it agree on exactly what a valid answer looks like.
+- `VlmClient.describe` sends one image plus a text prompt and gets raw text
+  back — never trusted directly; callers run the same schema-then-state
+  double gate before doing anything permanent with it.
+- `createOpenRouterVlmClient` builds the real version, used for two jobs:
+  quality-checking generated map art, and figuring out what a player
+  clicked on an unexplored spot of the map.
+- `mapQaVerdictSchema` is the expected shape of the map quality-check
+  answer, defined here so the asking tool and the tests agree exactly.
 
 ## `apps/server/src/llm/tools.ts`
 
-Defines every "tool" the AI is allowed to call — a tool is a specific, named action (like "end the scene" or "create a new place") the AI can invoke instead of just replying with text — and runs **gate 1** of the double-gate system: checking that a tool call the AI made actually has the right shape before it's allowed anywhere near the game state.
+Defines every "tool" the AI is allowed to call — a tool is a specific,
+named action (like "end the scene") the AI can invoke instead of just
+replying with text — plus the plain-English descriptions shown to the model,
+plus **gate 1** of the double gate: the `parse*ToolCall` functions that
+check each call has exactly the right shape before it goes anywhere near
+game state. This file has grown into the app's full "verb catalogue,"
+organized as one toolset per situation:
 
-- The various `*ToolSchema` exports (`EndSceneToolSchema`, `CreateSublocationToolSchema`, `ChangeSublocationToolSchema`, `SwitchArtToolSchema`, `QuerySublocationsToolSchema`, `CacheToolSchema`, `StartSceneToolSchema`) each describe the exact required fields for one tool call, so a malformed or nonsensical call from the AI is rejected before it can do anything.
-- `NARRATOR_TOOL_DESCRIPTIONS` and `CHAT_TOOL_DESCRIPTIONS` are the plain-English instructions actually shown to the AI model explaining what each tool does and when to use it.
-- `parseToolCall` is gate 1 for the narrator's tools: given a raw tool call the AI made, it checks the call is for a known tool and that the input matches that tool's required shape, rejecting it as "just didn't happen" if not (gate 2 — checking the request makes sense given the actual game state — happens elsewhere, in the engine).
-- `parseChatToolCall` is the same gate-1 check, but for the two tools available during a private chat conversation: `cache` (a mandatory short private note the character leaves itself after every reply) and `startscene` (the character's way of proposing to meet up in person, which hands control back to the full scene engine).
+- **Narrator toolset** (running a scene): `end_scene` — now with an
+  optional but *complete* `next_scene` registration (when the characters
+  agree to meet again, the Narrator must register the follow-up scene in
+  full: how many in-world hours later, who's expected, a brief history, and
+  the goals carried forward — a partial registration is rejected with the
+  missing fields named) and an optional `follow_up_marker` (a lazy "!"
+  left on the map for later); `change_sublocation`, `switch_art`,
+  `create_sublocation`, `query_sublocations`; `describe_object` (the
+  Narrator's once-only improvisation of what's written on an object the
+  first time someone reads it); the **cast tools** from the agentic scene —
+  `make_character` (an existing character joins, or a brand-new one is
+  minted on the spot), `character_leave`, `move_character`, and
+  `update_goals` (a full structured snapshot of the story's current
+  subgoals); `query_wiki` (a read-only wiki lookup); and the **loop pair**
+  `determine_who_next` + `charactercall` described above. The loop pair and
+  every query are mid-call-only — one arriving as after-the-fact data is
+  rejected as a bug, not obeyed.
+- **Chat toolset** (private messages with a character): `cache` (a
+  mandatory one-line private note the character leaves itself after every
+  reply), `startscene` (the character's own way of proposing to meet in
+  person — with a *required* `wait_hours`, the character's decision of how
+  many in-world hours it will wait before giving up; a call without it
+  fails gate 1 and triggers a correction round), and `stay_silent` (an
+  explicit decline of a proactive message — never just an empty reply).
+  Chat replies can also escalate mid-call through the query tools
+  `wikiquery`, `sessionquery`, and `memoryquery` (a full-text search of the
+  character's own memories).
+- **Character-scene toolset** (a character's own turn in a scene): one
+  mutating tool, `interact_object` (touch, write on, or move an object,
+  within strict caps), plus the read-only `explore` listing and the same
+  memory/wiki queries.
+- **Reflection toolset** (after a scene or chat ends): `memory_delta` (one
+  lasting note, up to three per reflection), `update_core` (a full
+  replacement of the character's core memory snapshot), and `evolve`
+  (full personality/goal replacements — described to the model as rare and
+  earned; refused entirely for a locked character).
+- **GM proposal toolset**: `propose_place`, `propose_character`,
+  `propose_wiki_edit`, `propose_world_seed`, and `propose_object` — all
+  pure proposals; nothing the GM suggests becomes real until the user
+  approves the card, and the descriptions teach exactly that consent
+  contract.
+- **Social toolsets** (the in-world feed): `react` (a like, or a one-line
+  comment) with `stay_silent` and `cache` for reaction decisions; the
+  reply toolset carries *only* `cache` — a character answering the user's
+  feed reply physically cannot promise meetings from the thread, because
+  it has no tool to promise with.
+
+Each family has its own gate-1 parser (`parseToolCall`,
+`parseChatToolCall`, `parseCharacterSceneToolCall`,
+`parseReflectionToolCall`, `parseGmToolCall`, `parseSocialToolCall`), and
+the parsers also police cross-contamination — for example the Narrator can
+never call `interact_object`, and a character can never create a place.
 
 ## `apps/server/src/llm/fake-client.ts`
 
-A stand-in AI that behaves completely predictably — same input always gives the same output, no network call, no cost, no randomness — so it can be used everywhere a real AI would introduce flakiness: automated tests, the "kill the server mid-request" resilience harness, and demo/manual testing. It lives in the regular source folder (not in a tests-only folder) specifically so the real server binary can be run against it during those resilience tests.
+A stand-in AI that behaves completely predictably — same input, same
+output, no network, no cost — used by automated tests, the kill-the-server
+resilience harness, and manual demos. It lives in the regular source folder
+(not a tests-only folder) so the real server binary can run against it.
 
-- `createFakeLlmClient` returns a fake `LlmClient` that replies with one fixed, pre-written line of text per call kind (e.g. always the same narrator opening line), and can also be told to simulate tool calls by scanning the incoming text for special typed commands like `!end`, `!move <place>`, `!create <name> <parent>` — this lets a human tester (or an automated script) trigger the exact same tool-calling code paths a real AI would, just by typing a magic phrase.
-- `createFakeVlmClient` is the same idea for the vision model: always returns one fixed, valid-looking classification of "what's at this map click," ignoring the actual image, so vision-dependent features can be tested for free.
+- `createFakeLlmClient` replies with fixed, pre-written text per call kind,
+  and scripts tool calls by scanning the incoming text for typed markers —
+  the vocabulary has grown with the app: `!end`, `!move`, `!create`,
+  `!startscene` (and its misbehaving variants that exercise the correction
+  loop), `!staysilent`, `!wikiquery`/`!sessionquery`/`!memoryquery`, memory
+  markers like `!memcore` and `!evolve`, GM markers like `!proposeplace`
+  and `!proposeobj`, object markers like `!obj` and `!describe`, and the
+  agentic-scene set — `!callchar` (drive the narrator loop through a real
+  inner character call), `!who2`, `!mint`, `!leave`, `!movechar`,
+  `!goals`, `!endnext` (a full next-scene registration), and deliberately
+  malformed variants that exercise both gates. This means every code path
+  a real AI would take can be driven, end to end, at zero dollars.
+- `createFakeVlmClient` is the same idea for the vision model: a fixed,
+  valid-looking classification, image ignored, so vision features test for
+  free.
 
 ## How this connects to the rest of the app
 
-Nothing outside `apps/server/src/llm/` is allowed to import the AI SDK or know that OpenRouter exists — everything talks through `LlmClient`, `VlmClient`, and `ImageSource`-style seams defined in this folder. The game engine (`apps/server/src/engine/`) is the main caller: it builds the fixed instructions and changing conversation text, calls `streamCall`, and is entirely responsible for running the two gates (schema, then game-state) on anything the AI tries to do before any of it becomes a permanent, saved fact. The painter module (`apps/server/src/painter/`, see `painter.md`) uses this folder's `image-source.ts` as its real pixel-generation backend behind its own `ImageSource` seam. Which client gets used — real OpenRouter or the deterministic fake — is decided once, at server startup in `apps/server/src/main.ts`, based on environment variables (`WELTARI_FAKE_LLM`, whether an API key is present), so the rest of the app never has to ask which one it's talking to.
+Nothing outside `apps/server/src/llm/` may import the AI SDK or know
+OpenRouter exists — everything talks through the `LlmClient`, `VlmClient`,
+and image-source seams defined here. The game engine
+(`apps/server/src/engine/`) is the main caller: since the agentic-scene
+rework, a scene turn is no longer a fixed narrator→character→narration
+relay but **one Narrator call that drives the whole turn**, running queries,
+the live double gate, and inner character calls through the loop helpers —
+with everything still committed in a single transaction at the end. The
+ledger's background jobs (`ledger.md`) make their AI calls through the same
+seam, and the painter (`painter.md`) uses `image-source.ts` as its real
+pixel backend. Which client gets used — real OpenRouter or the
+deterministic fake — is decided once, at server startup in
+`apps/server/src/main.ts`, from environment variables, so the rest of the
+app never has to ask which one it's talking to.
