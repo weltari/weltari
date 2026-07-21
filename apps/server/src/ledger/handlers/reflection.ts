@@ -16,7 +16,7 @@ import type {
   TurnLine,
 } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
-import { withLiveLock } from '../../engine/characters.js';
+import { characterProfilesOf, withLiveLock } from '../../engine/characters.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import {
   enqueueCompactionIfDue,
@@ -82,7 +82,12 @@ export function createReflectionHandler(
     }
     const { scene_id, character_id } = payload.data;
 
-    const profile = profiles.find((p) => p.character_id === character_id);
+    // The LIVE registry (0.21.0, Rev 4 §6): boot profiles ∪ every
+    // character.created at RUN time — a character minted mid-session by
+    // make_character (or approved via a GM card) reflects like any fixture
+    // character; the boot-time list alone would park the job.
+    const registry = characterProfilesOf(storage, job.world_id, profiles);
+    const profile = registry.find((p) => p.character_id === character_id);
     if (profile === undefined) {
       throw new BugError(
         'unknown_character',

@@ -169,3 +169,75 @@ describe('reflection job handler', () => {
     expect(ctx.storage.eventLog.readSince(0)).toHaveLength(0);
   });
 });
+
+describe('the live-registry lookup (0.21.0, the agentic scene)', () => {
+  let storage: Storage | null = null;
+
+  afterEach(() => {
+    storage?.close();
+    storage = null;
+  });
+
+  it('a character MINTED mid-session (character.created) reflects — the boot list alone would park the job', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-reflection-mint-'));
+    const logger = quietLogger();
+    storage = openStorage({ dbPath: join(dir, 'w.sqlite') });
+    const sink = createEventSink(storage, new Bus(logger));
+    // Boot profiles hold ONLY Elias; Odo arrives via the Narrator's
+    // make_character mint (the same event a GM approval appends).
+    const handler = createReflectionHandler({
+      storage,
+      sink,
+      llm: createFakeLlmClient(),
+      profiles: [ELIAS],
+      logger,
+    });
+    storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'character.created',
+      payload: {
+        character_id: 'char:odo',
+        name: 'Odo',
+        personality: 'Slow-spoken, superstitious.',
+        goals: ['See the ferry through storm season.'],
+        core: [],
+        skills: [],
+      },
+    });
+    storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'turn.committed',
+      payload: {
+        scene_id: 's1',
+        turn_id: 't1',
+        steps: [{ call: 'character', speaker: 'Odo', text: '"Aye."' }],
+      },
+    });
+    const job: LedgerJob = {
+      id: 9,
+      idempotency_key: 'reflection:char:odo:s1',
+      world_id: 'w1',
+      type: 'reflection',
+      payload: { scene_id: 's1', character_id: 'char:odo' },
+      state: 'running',
+      attempts: 1,
+      max_attempts: 5,
+      run_at: '2026-07-21T12:00:00.000Z',
+      lease_until: '2026-07-21T12:01:00.000Z',
+      worker_id: 'w',
+      serial_group: null,
+      last_error: null,
+    };
+    await handler(job);
+    const committed = storage.eventLog
+      .readSince(0)
+      .filter(
+        (e) =>
+          e.type === 'reflection.committed' &&
+          e.payload.character_id === 'char:odo',
+      );
+    expect(committed).toHaveLength(1);
+  });
+});
