@@ -985,12 +985,16 @@ if (imagesDir) {
   }
 }
 
-// 4p. CRON world movement (M7 part 4, Rev 4 §14): every
-//     character.location_changed carries the world-cron system actor, lands
-//     on a sublocation known at that point (materialized-only anchoring —
-//     stubs never receive CRON traffic), never moves a character who was in
-//     an open scene, and chains exactly (from = the character's previous
-//     folded location; absent only on the first move).
+// 4p. World movement (M7 part 4 + 0.21.0, Rev 4 §14/§6): every
+//     character.location_changed carries the world-cron system actor OR the
+//     narrator (move_character — the agentic scene's deliberate extension);
+//     CRON moves land on materialized anchors only (stubs never receive
+//     CRON traffic) while narrator moves may land on any sublocation known
+//     at that point (stubs included — the same set change_sublocation
+//     accepts); neither ever moves a character who was in an open scene at
+//     that point (character.left releases mid-scene — 0.21.0), and the
+//     chain holds (from = the character's previous folded location; absent
+//     only on the first move).
 {
   const knownAnchors = new Map(); // world_id -> Set of materialized ids
   const stubOnly = new Map(); // world_id -> Set of stub-only ids
@@ -1034,21 +1038,29 @@ if (imagesDir) {
       const scenes = openScenes.get(key) ?? new Set();
       scenes.add(payload.scene_id);
       openScenes.set(key, scenes);
+    } else if (event.type === 'character.left') {
+      // 0.21.0: a mid-scene leave releases THIS character from THAT scene —
+      // the narrator may move them afterwards while the scene stays open.
+      const key = `${event.world_id}|${payload.character_id}`;
+      openScenes.get(key)?.delete(payload.scene_id);
     } else if (event.type === 'scene.ended' || event.type === 'scene.expired') {
       for (const scenes of openScenes.values()) scenes.delete(payload.scene_id);
     } else if (event.type === 'character.location_changed') {
-      if (event.actor_id !== 'system:world_cron') {
+      const narratorMove = event.actor_id === 'char:narrator';
+      if (event.actor_id !== 'system:world_cron' && !narratorMove) {
         failures.push(
-          `location change (event ${event.id}) from actor ${event.actor_id} — V1's only mover is system:world_cron`,
+          `location change (event ${event.id}) from actor ${event.actor_id} — movers are system:world_cron and char:narrator (0.21.0)`,
         );
       }
       const target = payload.to_sublocation_id;
-      if (
-        !anchorSet(event.world_id).has(target) ||
-        stubSet(event.world_id).has(target)
-      ) {
+      const knownTarget = narratorMove
+        ? anchorSet(event.world_id).has(target) ||
+          stubSet(event.world_id).has(target)
+        : anchorSet(event.world_id).has(target) &&
+          !stubSet(event.world_id).has(target);
+      if (!knownTarget) {
         failures.push(
-          `movement (event ${event.id}) landed ${payload.character_id} on ${target}, not a materialized sublocation at that point`,
+          `movement (event ${event.id}) landed ${payload.character_id} on ${target}, ${narratorMove ? 'not a sublocation known' : 'not a materialized sublocation'} at that point`,
         );
       }
       const key = `${event.world_id}|${payload.character_id}`;
@@ -1148,6 +1160,77 @@ if (imagesDir) {
       failures.push(
         `follow-up ${messageId} (event ${list[0]}) precedes its outcome (event ${outcomeAt})`,
       );
+    }
+  }
+}
+
+// 4r. The agentic scene (0.21.0, Rev 4 §6): the loop's durable rows are
+//     consistent — a scene.goals_updated names a turn.committed that
+//     PRECEDES it in the log (they share one transaction, committed first);
+//     the per-scene cast never tears (a character.left names someone in the
+//     roster at that point; a character.joined never doubles an already-
+//     present member); and a scene.started carrying brief_history was a
+//     CONSUMED registration (some earlier scene.ended in the same world
+//     registered exactly that history).
+{
+  const committedTurns = new Set(); // turn_id
+  const roster = new Map(); // scene_id -> Set of character ids
+  const registeredHistories = new Map(); // world_id -> Set of brief_history
+  const rosterOf = (sceneId) => {
+    let set = roster.get(sceneId);
+    if (set === undefined) {
+      set = new Set();
+      roster.set(sceneId, set);
+    }
+    return set;
+  };
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'turn.committed') {
+      committedTurns.add(payload.turn_id);
+    } else if (event.type === 'scene.goals_updated') {
+      if (!committedTurns.has(payload.turn_id)) {
+        failures.push(
+          `goals snapshot (event ${event.id}) for turn ${payload.turn_id} without a preceding turn.committed — the pair is one transaction`,
+        );
+      }
+    } else if (event.type === 'character.joined') {
+      const cast = rosterOf(payload.scene_id);
+      if (cast.has(payload.character_id)) {
+        failures.push(
+          `character.joined (event ${event.id}) doubles ${payload.character_id} in scene ${payload.scene_id}`,
+        );
+      }
+      cast.add(payload.character_id);
+    } else if (event.type === 'character.left') {
+      const cast = rosterOf(payload.scene_id);
+      if (!cast.has(payload.character_id)) {
+        failures.push(
+          `character.left (event ${event.id}) removes ${payload.character_id} who was not in scene ${payload.scene_id}`,
+        );
+      }
+      cast.delete(payload.character_id);
+    } else if (
+      event.type === 'scene.ended' &&
+      payload.next_scene?.brief_history !== undefined
+    ) {
+      let set = registeredHistories.get(event.world_id);
+      if (set === undefined) {
+        set = new Set();
+        registeredHistories.set(event.world_id, set);
+      }
+      set.add(payload.next_scene.brief_history);
+    } else if (
+      event.type === 'scene.started' &&
+      payload.brief_history !== undefined
+    ) {
+      if (
+        !registeredHistories.get(event.world_id)?.has(payload.brief_history)
+      ) {
+        failures.push(
+          `scene.started (event ${event.id}) carries a brief_history no earlier registration in ${event.world_id} declared`,
+        );
+      }
     }
   }
 }

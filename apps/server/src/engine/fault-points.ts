@@ -76,7 +76,13 @@ export type FaultPoint =
    * with its deterministic id (gm-followup-/gm-discuss-<proposal_id>) not yet
    * appended. A kill heals at the boot sweep; the natural key (message_id)
    * through the fused re-check keeps the follow-up single per resolution. */
-  | 'mid_gm_followup';
+  | 'mid_gm_followup'
+  /** The agentic scene (0.21.0, Rev 4 §6): inside the loop's charactercall
+   * executor — the declaration consumed, staged cast/goal effects in memory,
+   * the inner C-Module call about to run. A kill here voids the WHOLE turn
+   * (started-without-committed): no character.created/joined/left, no goals
+   * snapshot, no turn text — the mid-loop window leaves zero partial rows. */
+  | 'mid_charactercall';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;
