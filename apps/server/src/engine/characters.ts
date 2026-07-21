@@ -29,6 +29,33 @@ export function createdCharactersOf(
   return created;
 }
 
+/**
+ * The light id↔name roster fold (week 19, audit item 2 — the 6a657d9
+ * pattern for KnownCharacter consumers): seeds ∪ every character.created,
+ * folded at USE time so scene opens/ends, markers and CRON movement name
+ * minted characters without a restart. Structural type on purpose — the
+ * scene-lifecycle KnownCharacter and every other {character_id, name}
+ * consumer read it directly.
+ */
+export function knownCharactersOf(
+  storage: Storage,
+  worldId: string,
+  seeds: readonly { character_id: string; name: string }[],
+): { character_id: string; name: string }[] {
+  const byId = new Map<string, { character_id: string; name: string }>(
+    seeds.map((s) => [s.character_id, { ...s }]),
+  );
+  for (const payload of createdCharactersOf(storage, worldId)) {
+    if (!byId.has(payload.character_id)) {
+      byId.set(payload.character_id, {
+        character_id: payload.character_id,
+        name: payload.name,
+      });
+    }
+  }
+  return [...byId.values()];
+}
+
 /** A created character's SEED profile — the event-borne counterpart of a
  * fixture profile. liveProfile() folds durable memory on top exactly like it
  * does for fixtures (M7 part 1: multi-character by construction). */

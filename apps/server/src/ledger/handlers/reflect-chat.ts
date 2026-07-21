@@ -16,7 +16,7 @@ import type {
   TurnLine,
 } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
-import { withLiveLock } from '../../engine/characters.js';
+import { characterProfilesOf, withLiveLock } from '../../engine/characters.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import {
   enqueueCompactionIfDue,
@@ -106,9 +106,13 @@ export function createReflectChatHandler(
         `job ${String(job.id)} payload does not match {conversation_id, character_id, range_end_id}`,
       );
     }
+    // Week 19 (audit item 2, the 6a657d9 pattern): the roster folds LIVE
+    // — seeds ∪ character.created — so minted characters take part
+    // without a restart.
+    const roster = characterProfilesOf(storage, job.world_id, profiles);
     const { conversation_id, character_id, range_end_id } = payload.data;
 
-    const profile = profiles.find((p) => p.character_id === character_id);
+    const profile = roster.find((p) => p.character_id === character_id);
     if (profile === undefined) {
       throw new BugError(
         'unknown_character',
@@ -148,7 +152,7 @@ export function createReflectChatHandler(
         conversation_id,
         range_end_id,
         profile.name,
-        (id) => profiles.find((p) => p.character_id === id)?.name ?? 'Someone',
+        (id) => roster.find((p) => p.character_id === id)?.name ?? 'Someone',
       ),
       wiki: [],
     });

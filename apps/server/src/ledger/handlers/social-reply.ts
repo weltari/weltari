@@ -24,6 +24,7 @@ import { parseSocialToolCall } from '../../llm/tools.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Logger } from '../../observability/logger.js';
 import type { Storage } from '../../storage/db.js';
+import { characterProfilesOf } from '../../engine/characters.js';
 import type { JobHandler } from '../runner.js';
 
 const payloadSchema = z.strictObject({
@@ -54,6 +55,10 @@ export function createSocialReplyHandler(
         `job ${String(job.id)} payload does not match {post_id, reaction_id, reply_id, character_id}`,
       );
     }
+    // Week 19 (audit item 2, the 6a657d9 pattern): the roster folds LIVE
+    // — seeds ∪ character.created — so minted characters take part
+    // without a restart.
+    const roster = characterProfilesOf(storage, job.world_id, profiles);
     const { post_id, reaction_id, reply_id, character_id } = payload.data;
 
     const alreadyAnswered = (): boolean =>
@@ -98,7 +103,7 @@ export function createSocialReplyHandler(
         `reply job ${String(job.id)} names a post/comment not in the log`,
       );
     }
-    const profile = profiles.find((p) => p.character_id === character_id);
+    const profile = roster.find((p) => p.character_id === character_id);
     if (profile === undefined) {
       logger.warn(
         { job_id: job.id, reply_id, character_id },
@@ -107,7 +112,7 @@ export function createSocialReplyHandler(
       return;
     }
     const nameOf = (id: string): string =>
-      profiles.find((p) => p.character_id === id)?.name ?? id;
+      roster.find((p) => p.character_id === id)?.name ?? id;
 
     const thread: TurnLine[] = [
       {

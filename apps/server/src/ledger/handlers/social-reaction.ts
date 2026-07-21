@@ -23,6 +23,7 @@ import { parseSocialToolCall, type ReactToolInput } from '../../llm/tools.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Logger } from '../../observability/logger.js';
 import type { Storage } from '../../storage/db.js';
+import { characterProfilesOf } from '../../engine/characters.js';
 import type { JobHandler } from '../runner.js';
 
 const payloadSchema = z.strictObject({
@@ -51,6 +52,10 @@ export function createSocialReactionHandler(
         `job ${String(job.id)} payload does not match {post_id, character_id}`,
       );
     }
+    // Week 19 (audit item 2, the 6a657d9 pattern): the roster folds LIVE
+    // — seeds ∪ character.created — so minted characters take part
+    // without a restart.
+    const roster = characterProfilesOf(storage, job.world_id, profiles);
     const { post_id, character_id } = payload.data;
 
     // The post is this job's cause — enqueued atomically with it, so a
@@ -88,7 +93,7 @@ export function createSocialReactionHandler(
       return;
     }
 
-    const profile = profiles.find((p) => p.character_id === character_id);
+    const profile = roster.find((p) => p.character_id === character_id);
     if (profile === undefined) {
       logger.warn(
         { job_id: job.id, post_id, character_id },
@@ -97,8 +102,8 @@ export function createSocialReactionHandler(
       return;
     }
     const posterName =
-      profiles.find((p) => p.character_id === post.payload.character_id)
-        ?.name ?? post.payload.character_id;
+      roster.find((p) => p.character_id === post.payload.character_id)?.name ??
+      post.payload.character_id;
 
     // The decision call: the post rides the dynamic tail as an external line
     // (B14 — another character's authored text is never instruction).

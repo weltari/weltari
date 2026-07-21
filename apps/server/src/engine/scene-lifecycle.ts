@@ -16,6 +16,7 @@ import type { EventBus } from '../http/bus.js';
 import { addMinutesIso } from '../ledger/scheduler.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
+import { knownCharactersOf } from './characters.js';
 import { knownSublocations, latestBackdropPath } from './sublocations.js';
 import { worldTimeOf } from './world-clock.js';
 
@@ -446,6 +447,13 @@ export function createSceneLifecycle(
 ): SceneLifecycle {
   const { storage, eventBus, logger, knownCharacters } = options;
 
+  /** Week 19 (audit item 2, the 6a657d9 pattern): the id↔name roster folds
+   * LIVE per call — seeds ∪ character.created — so scene opens and ends
+   * name minted characters without a restart. */
+  function liveKnown(worldId: string): KnownCharacter[] {
+    return knownCharactersOf(storage, worldId, knownCharacters);
+  }
+
   return {
     endScene(command: EndSceneCommand): Result<{ jobsEnqueued: number }> {
       const events = sceneEvents(storage, command.scene_id);
@@ -474,7 +482,7 @@ export function createSceneLifecycle(
       } = storage.transact(() =>
         appendSceneEndWithFanOut(
           storage,
-          knownCharacters,
+          liveKnown(command.world_id),
           command,
           options.markerFanOut,
         ),
@@ -539,7 +547,7 @@ export function createSceneLifecycle(
       // Unknown ids are skipped like any engine-state gate would (B6 ethos):
       // an event may only name a character the engine knows.
       const idByName = new Map(
-        knownCharacters.map((c) => [c.character_id, c.name]),
+        liveKnown(command.world_id).map((c) => [c.character_id, c.name]),
       );
       const unknown = command.participants.filter((id) => !idByName.has(id));
       if (unknown.length > 0) {
@@ -566,7 +574,13 @@ export function createSceneLifecycle(
       // Stubs open too (M6 part 1 — that is the "Jump to the next scene"
       // payoff): position-less until materialized, backdrop when painted.
       const persisted = storage.transact(() =>
-        appendSceneOpen(storage, knownCharacters, command, openAt, invitation),
+        appendSceneOpen(
+          storage,
+          liveKnown(command.world_id),
+          command,
+          openAt,
+          invitation,
+        ),
       );
       // Publish AFTER the transaction committed, in append order.
       for (const event of persisted) eventBus.publish(event);

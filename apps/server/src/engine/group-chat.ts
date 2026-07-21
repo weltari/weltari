@@ -22,6 +22,7 @@ import type { LlmClient } from '../llm/types.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
 import { cacheRecapText, capCacheLine, latestPerOrigin } from './cache.js';
+import { characterProfilesOf } from './characters.js';
 import { CHAT_CONDUCT_SKILL, presenceOf } from './chat.js';
 import {
   assembleContext,
@@ -125,8 +126,16 @@ export function createGroupChatEngine(
    * round just commits (the round reads the transcript fresh per step). */
   const inFlight = new Set<string>();
 
-  function profileFor(characterId: string): CharacterProfile | undefined {
-    return profiles.find((p) => p.character_id === characterId);
+  function profileFor(
+    worldId: string,
+    characterId: string,
+  ): CharacterProfile | undefined {
+    // Week 19 (audit item 2, the 6a657d9 pattern): the group roster folds
+    // LIVE — seeds ∪ character.created — so a minted character can join a
+    // group without a restart.
+    return characterProfilesOf(storage, worldId, profiles).find(
+      (p) => p.character_id === characterId,
+    );
   }
 
   /** Deterministic member resolution (the name→id resolver pattern): real
@@ -135,6 +144,7 @@ export function createGroupChatEngine(
    * case-insensitive match on id tail or profile name — ambiguity resolves
    * to nothing and the round yields (never a guess). */
   function resolveMember(
+    worldId: string,
     routed: string,
     memberIds: readonly string[],
   ): string | undefined {
@@ -143,13 +153,13 @@ export function createGroupChatEngine(
     const prefixed = `char:${lower}`;
     if (memberIds.includes(prefixed)) return prefixed;
     const matches = memberIds.filter((id) => {
-      const name = profileFor(id)?.name.toLowerCase() ?? '';
+      const name = profileFor(worldId, id)?.name.toLowerCase() ?? '';
       return id.toLowerCase().endsWith(`:${lower}`) || name.includes(lower);
     });
     return matches.length === 1 ? matches[0] : undefined;
   }
 
-  function transcript(conversationId: string): TurnLine[] {
+  function transcript(worldId: string, conversationId: string): TurnLine[] {
     const state = groupState(storage, conversationId);
     return state.messages.slice(-GROUP_TRANSCRIPT_LINES).flatMap((event) =>
       event.type === 'chat.group_message_committed'
@@ -158,8 +168,8 @@ export function createGroupChatEngine(
               speaker:
                 event.payload.sender === 'user'
                   ? 'User'
-                  : (profileFor(event.payload.character_id ?? '')?.name ??
-                    'Someone'),
+                  : (profileFor(worldId, event.payload.character_id ?? '')
+                      ?.name ?? 'Someone'),
               text: event.payload.text,
             },
           ]
@@ -215,6 +225,7 @@ export function createGroupChatEngine(
 
   /** One Group-chat Narrator decision: who speaks next, or end, or yield. */
   async function routeNext(
+    worldId: string,
     conversationId: string,
     memberIds: string[],
     availability: string,
@@ -222,7 +233,7 @@ export function createGroupChatEngine(
   ): Promise<
     { kind: 'end' } | { kind: 'yield' } | { kind: 'member'; id: string }
   > {
-    const lines = transcript(conversationId)
+    const lines = transcript(worldId, conversationId)
       .map((l) => `${l.speaker}: ${l.text}`)
       .join('\n');
     for (let attempt = 1; attempt <= ROUTER_SHAPE_RETRIES; attempt++) {
@@ -286,7 +297,7 @@ export function createGroupChatEngine(
         heading: 'Group chat',
         world_clock_text:
           'You are outside any scene, texting in a group chat on your phone.',
-        latest_turns: transcript(conversationId),
+        latest_turns: transcript(worldId, conversationId),
         wiki: [],
         ...(recap === '' ? {} : { cache_recap: recap }),
       },
@@ -374,6 +385,7 @@ export function createGroupChatEngine(
           })
           .join('; ');
         const decision = await routeNext(
+          command.world_id,
           conversationId,
           state.memberIds,
           availability,
@@ -390,8 +402,9 @@ export function createGroupChatEngine(
           return;
         }
         const routedId =
-          resolveMember(decision.id, state.memberIds) ?? decision.id;
-        const profile = profileFor(routedId);
+          resolveMember(command.world_id, decision.id, state.memberIds) ??
+          decision.id;
+        const profile = profileFor(command.world_id, routedId);
         if (
           profile === undefined ||
           !state.memberIds.includes(routedId) ||
@@ -405,7 +418,7 @@ export function createGroupChatEngine(
         }
         const memberNames = state.memberIds
           .filter((id) => id !== routedId)
-          .map((id) => profileFor(id)?.name ?? id)
+          .map((id) => profileFor(command.world_id, id)?.name ?? id)
           .join(', ');
         await generateMemberReply(
           command.world_id,
@@ -437,7 +450,7 @@ export function createGroupChatEngine(
         );
       }
       const unknown = command.member_ids.filter(
-        (id) => profileFor(id) === undefined,
+        (id) => profileFor(command.world_id, id) === undefined,
       );
       if (unknown.length > 0) {
         return err(

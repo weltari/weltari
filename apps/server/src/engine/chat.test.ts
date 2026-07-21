@@ -815,3 +815,42 @@ describe('conversation end (criterion c: exit + idle → ONE reflect_chat job)',
     ctx.storage.close();
   });
 });
+
+describe('the live DM roster (week 19, audit item 2 — the 6a657d9 pattern)', () => {
+  it('a character minted mid-session is DM-able without a restart', async () => {
+    const ctx = setup();
+    // Before the mint: unknown character, refused.
+    const before = ctx.engine.sendMessage({
+      ...SEND,
+      character_id: 'char:odo',
+      request_id: 'm-pre',
+    });
+    expect(before.ok).toBe(false);
+
+    // The mint lands as a durable event — no engine rebuild.
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'character.created',
+      payload: {
+        character_id: 'char:odo',
+        name: 'Odo the Ferryman',
+        personality: 'Weathered, wry, patient.',
+        goals: ['Keep the ferry running.'],
+        core: [],
+        skills: [],
+      },
+    });
+
+    await sendAndAwait(ctx, {
+      ...SEND,
+      character_id: 'char:odo',
+      request_id: 'm-odo',
+    });
+    const replies = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'chat.message_committed')
+      .filter((e) => e.payload.conversation_id.includes('char:odo'));
+    expect(replies.length).toBeGreaterThanOrEqual(2); // user line + reply
+  });
+});
