@@ -169,7 +169,9 @@ describe('markers repository (projection of marker.* events)', () => {
   it('a duplicate marker id refuses at the projection (PRIMARY KEY)', () => {
     const { storage } = tempStorage();
     dropMarker(storage, 'marker:m1');
-    expect(() => dropMarker(storage, 'marker:m1')).toThrow();
+    expect(() => {
+      dropMarker(storage, 'marker:m1');
+    }).toThrow();
   });
 
   it('rebuild after reopen reproduces the identical projection (kill-safety)', () => {

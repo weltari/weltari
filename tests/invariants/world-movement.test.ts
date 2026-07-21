@@ -107,9 +107,7 @@ describe('CRON world movement (Rev 4 §14)', () => {
     if (maraMove !== undefined) {
       if (maraMove.type !== 'character.location_changed') throw new Error('t');
       expect(maraMove.payload.from_sublocation_id).toBe('subloc:common_room');
-      expect(maraMove.payload.to_sublocation_id).not.toBe(
-        'subloc:common_room',
-      );
+      expect(maraMove.payload.to_sublocation_id).not.toBe('subloc:common_room');
     }
     storage.transact(() => {
       for (const event of events) storage.eventLog.append(event);

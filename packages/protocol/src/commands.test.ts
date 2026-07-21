@@ -391,8 +391,7 @@ describe('marker-click command (0.19.0, M7 part 4)', () => {
       ).toBe(true);
     }
     expect(
-      MarkerClickAcceptedSchema.safeParse({ ...base, outcome: 'twin' })
-        .success,
+      MarkerClickAcceptedSchema.safeParse({ ...base, outcome: 'twin' }).success,
     ).toBe(false);
   });
 });

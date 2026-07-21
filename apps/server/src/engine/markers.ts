@@ -124,9 +124,7 @@ export function appendMarkerDrop(
       ttl_game_minutes: request.ttl_game_minutes,
       expires_at_game_time: expiresAt,
       source: request.source,
-      ...(request.scene_id === undefined
-        ? {}
-        : { scene_id: request.scene_id }),
+      ...(request.scene_id === undefined ? {} : { scene_id: request.scene_id }),
     },
   });
   return { outcome: 'dropped', event };
@@ -157,8 +155,7 @@ export function appendTopUpDrops(
     const anchor = anchors[pickIndex(seed, anchors.length)];
     if (anchor === undefined) break;
     const free = knownCharacters.filter(
-      (c) =>
-        presenceOf(storage, worldId, c.character_id).state === 'available',
+      (c) => presenceOf(storage, worldId, c.character_id).state === 'available',
     );
     const picked =
       free.length === 0
@@ -213,7 +210,9 @@ export function planCronMarkerDrop(
     (c) => presenceOf(storage, worldId, c.character_id).state === 'available',
   );
   const picked =
-    free.length === 0 ? undefined : free[pickIndex(`${seed}:cast`, free.length)];
+    free.length === 0
+      ? undefined
+      : free[pickIndex(`${seed}:cast`, free.length)];
   return [
     {
       world_id: worldId,
@@ -312,7 +311,7 @@ export function createMarkerEngine(options: MarkerEngineOptions): MarkerEngine {
         // Fused re-check (the standing triad): a racing sweep, a click that
         // settled it, or a retry that lost the race commits NOTHING.
         const fresh = storage.markers.byId(marker.marker_id);
-        if (fresh === undefined || fresh.state !== 'dropped') return [];
+        if (fresh?.state !== 'dropped') return [];
         return [
           storage.eventLog.append({
             world_id: worldId,
@@ -360,8 +359,7 @@ export function createMarkerEngine(options: MarkerEngineOptions): MarkerEngine {
           involved_characters: followUp.involved_characters ?? [],
           premise_seed: followUp.premise_seed,
           dropped_at_game_time: worldTimeOf(storage, request.world_id),
-          ttl_game_minutes:
-            followUp.ttl_game_minutes ?? config.ttlGameMinutes,
+          ttl_game_minutes: followUp.ttl_game_minutes ?? config.ttlGameMinutes,
           source: 'scene_end',
           scene_id: request.scene_id,
         });
@@ -391,7 +389,7 @@ export function createMarkerEngine(options: MarkerEngineOptions): MarkerEngine {
       command: MarkerClickCommand,
     ): Promise<Result<MarkerClickResult>> {
       const row = storage.markers.byId(command.marker_id);
-      if (row === undefined || row.world_id !== command.world_id) {
+      if (row?.world_id !== command.world_id) {
         return err(
           new OperationalError(
             'unknown_marker',
@@ -426,7 +424,7 @@ export function createMarkerEngine(options: MarkerEngineOptions): MarkerEngine {
         // marker's click is refused AND settles it — no eternal stale pins.
         const persisted = storage.transact((): WeltariEvent[] => {
           const fresh = storage.markers.byId(command.marker_id);
-          if (fresh === undefined || fresh.state !== 'dropped') return [];
+          if (fresh?.state !== 'dropped') return [];
           return [
             storage.eventLog.append({
               world_id: command.world_id,
@@ -450,8 +448,7 @@ export function createMarkerEngine(options: MarkerEngineOptions): MarkerEngine {
       // scenes since the drop are dropped from the roster — the Narrator
       // works with who's here (Rev 4 §14 "adapt").
       const cast = row.involved_characters.filter(
-        (id) =>
-          presenceOf(storage, command.world_id, id).state === 'available',
+        (id) => presenceOf(storage, command.world_id, id).state === 'available',
       );
       const blocking = sceneOpenBlockers(storage, command.world_id, cast);
       if (blocking > 0) {

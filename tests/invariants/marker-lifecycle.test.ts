@@ -96,9 +96,7 @@ describe('the 1–5 live invariant (Rev 4 §14)', () => {
     // …and the sixth drop is refused structurally: ZERO rows, zero events.
     expect(drop(storage).outcome).toBe('refused_at_max');
     expect(markerEvents(storage)).toHaveLength(before);
-    expect(storage.markers.live(WORLD)).toHaveLength(
-      DEFAULT_MARKER_CONFIG.max,
-    );
+    expect(storage.markers.live(WORLD)).toHaveLength(DEFAULT_MARKER_CONFIG.max);
     // ensureMinimum at the ceiling is a no-op.
     expect(await engine.ensureMinimum(WORLD)).toBe(0);
   });
@@ -123,7 +121,11 @@ describe('the 1–5 live invariant (Rev 4 §14)', () => {
 
   it('never drops a born-expired marker (time-skip replay suppression)', () => {
     const { storage } = setup();
-    advanceClock(storage, '2000-01-01T06:00:00.000Z', '2000-01-01T12:00:00.000Z');
+    advanceClock(
+      storage,
+      '2000-01-01T06:00:00.000Z',
+      '2000-01-01T12:00:00.000Z',
+    );
     // Scheduled 06:00 + 60 min TTL = expired 07:00, five hours behind the
     // clock — during skip replay this occurrence never surfaces at all.
     const result = drop(storage, {
@@ -146,7 +148,11 @@ describe('lazy game-time expiry (the sweep + click re-validation)', () => {
         : '';
     // Nothing due yet — the sweep commits nothing.
     expect(await engine.sweepExpired(WORLD)).toBe(0);
-    advanceClock(storage, '2000-01-01T06:00:00.000Z', '2000-01-01T08:00:00.000Z');
+    advanceClock(
+      storage,
+      '2000-01-01T06:00:00.000Z',
+      '2000-01-01T08:00:00.000Z',
+    );
     expect(await engine.sweepExpired(WORLD)).toBe(1);
     expect(storage.markers.byId(markerId)?.state).toBe('expired');
     // Expiry dropped the live set to zero; the sweep's top-up restored it.
@@ -155,8 +161,7 @@ describe('lazy game-time expiry (the sweep + click re-validation)', () => {
     expect(await engine.sweepExpired(WORLD)).toBe(0);
     expect(
       markerEvents(storage).filter(
-        (e) =>
-          e.type === 'marker.expired' && e.payload.marker_id === markerId,
+        (e) => e.type === 'marker.expired' && e.payload.marker_id === markerId,
       ),
     ).toHaveLength(1);
   });
@@ -169,7 +174,11 @@ describe('lazy game-time expiry (the sweep + click re-validation)', () => {
       dropped.event.type === 'marker.dropped'
         ? dropped.event.payload.marker_id
         : '';
-    advanceClock(storage, '2000-01-01T06:00:00.000Z', '2000-01-01T09:00:00.000Z');
+    advanceClock(
+      storage,
+      '2000-01-01T06:00:00.000Z',
+      '2000-01-01T09:00:00.000Z',
+    );
     // No sweep ran — the click IS the lazy judgment.
     const result = await engine.click({
       world_id: WORLD,
@@ -312,8 +321,7 @@ describe('the scene-end fan-out feeds the marker loop (Rev 4 §6/§14)', () => {
       ),
     );
     const followUp = fanOut.find(
-      (e) =>
-        e.type === 'marker.dropped' && e.payload.source === 'scene_end',
+      (e) => e.type === 'marker.dropped' && e.payload.source === 'scene_end',
     );
     expect(followUp).toBeDefined();
     if (followUp?.type !== 'marker.dropped') return;
@@ -371,8 +379,6 @@ describe('the scene-end fan-out feeds the marker loop (Rev 4 §6/§14)', () => {
       ),
     );
     expect(markerEvents(storage)).toHaveLength(before);
-    expect(storage.markers.live(WORLD)).toHaveLength(
-      DEFAULT_MARKER_CONFIG.max,
-    );
+    expect(storage.markers.live(WORLD)).toHaveLength(DEFAULT_MARKER_CONFIG.max);
   });
 });

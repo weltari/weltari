@@ -78,7 +78,10 @@ export function planMovementEvents(
     const candidates = available.filter((c) => !moved.has(c.character_id));
     const character =
       candidates[
-        pickIndex(`${worldId}:${scheduledFor}:mover:${String(i)}`, candidates.length)
+        pickIndex(
+          `${worldId}:${scheduledFor}:mover:${String(i)}`,
+          candidates.length,
+        )
       ];
     if (character === undefined) break;
     moved.add(character.character_id);

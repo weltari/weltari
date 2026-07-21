@@ -100,6 +100,22 @@ const POINTS = [
   // the retried job sweeps the stray EXACTLY once (row gone, ONE
   // object.swept, the object.created stays in the log — I1).
   'mid_object_gc',
+  // M7 part 4 (markers, Rev 4 §14): a 1-day skip pushes the clock past a
+  // live marker's game-time TTL and the sweep is killed BEFORE its
+  // marker.expired commit; convergence = the BOOT sweep (recovery path =
+  // startup path) settles it EXACTLY once and the top-up restores the
+  // 1-marker floor.
+  'mid_marker_sweep',
+  // M7 part 4: a live marker's click is killed inside the instantiate
+  // window — everything decided, the marker.instantiated + scene open
+  // transaction not yet written; convergence = the pair is ATOMIC (either
+  // the marker is still live with zero scenes, or instantiated exactly once
+  // WITH its one scene.started) — never a torn half.
+  'mid_marker_click',
+  // M7 part 4: live markers are clicked down to zero and the engine top-up
+  // is killed BEFORE its generated marker.dropped commits; convergence =
+  // the boot top-up restores 1 ≤ live ≤ 5.
+  'mid_marker_topup',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -189,8 +205,14 @@ for (;;) {
   }
 }
 
+/** The cycle's live server, killed on ANY failure exit — a fail() that
+ * leaves its server running orphans the rotated port and every later run's
+ * matching cycle dies on EADDRINUSE against the ghost. */
+let liveChild = null;
+
 function fail(message) {
   console.error(`KILL-HARNESS FAIL: ${message}`);
+  liveChild?.kill('SIGKILL');
   process.exit(1);
 }
 
@@ -375,6 +397,90 @@ function dbObjectGcState(name) {
   return { liveRows, swept, created: createdRow === undefined ? 0 : 1 };
 }
 
+/** Marker state (M7 part 4): live ids oldest-first + terminal counts.
+ * `fresh`/`due` split the live set against the world clock — a due-but-
+ * unswept marker's click is REFUSED by design (the lazy re-validation), so
+ * cycles that need a clickable marker must pick from `fresh` and wait out
+ * the boot passes (fire-and-forget sweep + top-up) via `due` first. */
+function dbMarkerState() {
+  const db = new Database(dbPath);
+  const clockRow = db
+    .prepare(
+      `SELECT payload FROM events WHERE type = 'world.time_advanced'
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get();
+  const clock = clockRow
+    ? JSON.parse(clockRow.payload).to
+    : '2000-01-01T06:00:00.000Z';
+  const rows = db
+    .prepare(
+      `SELECT marker_id, expires_at_game_time FROM markers
+       WHERE state = 'dropped' ORDER BY created_event_id ASC`,
+    )
+    .all();
+  const instantiated = db
+    .prepare(`SELECT COUNT(*) AS n FROM markers WHERE state = 'instantiated'`)
+    .get().n;
+  const expired = db
+    .prepare(`SELECT COUNT(*) AS n FROM markers WHERE state = 'expired'`)
+    .get().n;
+  db.close();
+  return {
+    live: rows.map((row) => row.marker_id),
+    fresh: rows
+      .filter((row) => row.expires_at_game_time > clock)
+      .map((row) => row.marker_id),
+    due: rows
+      .filter((row) => row.expires_at_game_time <= clock)
+      .map((row) => row.marker_id),
+    instantiated,
+    expired,
+  };
+}
+
+/** Wait until the boot passes settled every due marker and the floor holds
+ * (both are fire-and-forget behind fault windows — the DB lags the boot). */
+async function waitForFreshMarker(deadlineMs = 20000) {
+  const deadline = Date.now() + deadlineMs;
+  for (;;) {
+    const state = dbMarkerState();
+    if (state.due.length === 0 && state.fresh.length >= 1) return state;
+    if (Date.now() > deadline)
+      fail(
+        `no fresh live marker appeared (${state.fresh.length} fresh, ${state.due.length} due)`,
+      );
+    await sleep(300);
+  }
+}
+
+/** One marker's event trail (M7 part 4): transition counts + its scene. */
+function dbMarkerEvents(markerId) {
+  const db = new Database(dbPath);
+  const like = `%"marker_id":"${markerId}"%`;
+  const instantiated = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'marker.instantiated' AND payload LIKE ?`,
+    )
+    .get(like).n;
+  const expired = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'marker.expired' AND payload LIKE ?`,
+    )
+    .get(like).n;
+  const sceneId = `s-marker-${markerId.startsWith('marker:') ? markerId.slice(7) : markerId}`;
+  const scenes = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'scene.started' AND payload LIKE ?`,
+    )
+    .get(`%"scene_id":"${sceneId}"%`).n;
+  db.close();
+  return { instantiated, expired, scenes };
+}
+
 /** The GM card for one harness place name (the reply commits detached —
  * cycles poll until the card lands). */
 function dbProposalIdByPlace(name) {
@@ -526,6 +632,17 @@ function spawnServer(extraEnv = {}) {
     },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
+  // Keep the tail of the server's stdout so an unexpected exit can explain
+  // itself — the harness otherwise consumes the pipe silently and a boot
+  // fatal (its logger writes stdout) would be invisible.
+  child._tailLines = [];
+  child.stdout.on('data', (chunk) => {
+    for (const line of chunk.toString().split('\n')) {
+      if (line.length === 0) continue;
+      child._tailLines.push(line);
+      if (child._tailLines.length > 20) child._tailLines.shift();
+    }
+  });
   return child;
 }
 
@@ -547,7 +664,12 @@ function waitForLine(child, needle, timeoutMs = 15000) {
     child.stdout.on('data', onData);
     child.on('exit', () => {
       clearTimeout(timer);
-      reject(new Error(`server exited while waiting for "${needle}"`));
+      const tail = (child._tailLines ?? []).join('\n');
+      reject(
+        new Error(
+          `server exited while waiting for "${needle}"\n--- server stdout tail ---\n${tail}`,
+        ),
+      );
     });
   });
 }
@@ -817,6 +939,11 @@ let pendingProfile = null;
 let profileSeq = 0;
 let objectGcSeq = 0;
 let pendingObjectGc = null;
+// M7 part 4: the killed sweep's due marker / the killed click's marker /
+// whether a killed top-up must be healed by the boot floor.
+let pendingMarkerSweep = null;
+let pendingMarkerClick = null;
+let pendingMarkerTopup = false;
 
 for (let cycle = 0; cycle < CYCLES; cycle++) {
   const point = POINTS[cycle % POINTS.length];
@@ -826,6 +953,7 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
   // happen when a cycle advances time, and Elias is in_scene during those,
   // so no stray outreach perturbs other cycles.
   const child = spawnServer({});
+  liveChild = child;
   await waitForLine(child, 'weltari listening');
 
   // Resume check (criterion c/d): a reconnecting client gets every event it
@@ -1218,6 +1346,86 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       'mid_object_gc convergence ok: the stray swept exactly once after restart',
     );
     pendingObjectGc = null;
+  }
+
+  // M7 part 4: a kill at mid_marker_sweep must CONVERGE — the BOOT sweep
+  // settles the due marker exactly once and the top-up restores the floor.
+  if (pendingMarkerSweep !== null) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const trail = dbMarkerEvents(pendingMarkerSweep);
+      const state = dbMarkerState();
+      if (trail.expired > 1) {
+        child.kill('SIGKILL');
+        fail(
+          `duplicate expiry for ${pendingMarkerSweep}: ${trail.expired} marker.expired events`,
+        );
+      }
+      // Converged = the pending marker settled, the boot sweep worked
+      // through EVERY due marker, and the top-up restored the floor.
+      if (
+        trail.expired === 1 &&
+        state.due.length === 0 &&
+        state.fresh.length >= 1
+      )
+        break;
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(
+          `lost expiry: ${pendingMarkerSweep} never settled (${trail.expired} expired, ${state.live.length} live)`,
+        );
+      }
+      await sleep(500);
+    }
+    console.log(
+      'mid_marker_sweep convergence ok: expired exactly once, floor restored',
+    );
+    pendingMarkerSweep = null;
+  }
+
+  // M7 part 4: a kill at mid_marker_click left an ATOMIC state — either the
+  // marker is still live with zero scenes (the user re-clicks; crash-only)
+  // or instantiated exactly once WITH its one scene. Never a torn half.
+  if (pendingMarkerClick !== null) {
+    const trail = dbMarkerEvents(pendingMarkerClick);
+    if (trail.instantiated > 1 || trail.scenes > 1) {
+      child.kill('SIGKILL');
+      fail(
+        `marker ${pendingMarkerClick} instantiated ${trail.instantiated}x with ${trail.scenes} scenes (duplicate)`,
+      );
+    }
+    if (trail.instantiated !== trail.scenes) {
+      child.kill('SIGKILL');
+      fail(
+        `torn marker click: ${pendingMarkerClick} has ${trail.instantiated} instantiations but ${trail.scenes} scene.started`,
+      );
+    }
+    console.log(
+      `mid_marker_click convergence ok: ${trail.instantiated === 1 ? 'committed whole' : 'nothing half-written'} (atomic pair)`,
+    );
+    pendingMarkerClick = null;
+  }
+
+  // M7 part 4: a kill at mid_marker_topup must CONVERGE — the boot top-up
+  // (fire-and-forget behind its own fault window) restores 1 ≤ live ≤ 5
+  // (the ceiling itself is 4o's offline sweep).
+  if (pendingMarkerTopup) {
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const state = dbMarkerState();
+      if (state.live.length > 5) {
+        child.kill('SIGKILL');
+        fail(`marker ceiling broken after top-up kill: ${state.live.length}`);
+      }
+      if (state.live.length >= 1) break;
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail('marker floor never restored after top-up kill');
+      }
+      await sleep(500);
+    }
+    console.log('mid_marker_topup convergence ok: boot restored the floor');
+    pendingMarkerTopup = false;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -1705,6 +1913,86 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       needNewScene = true;
       await killAt;
       pendingObjectGc = strayName;
+      break;
+    }
+    case 'mid_marker_sweep': {
+      // Boot guarantees ≥ 1 live marker (the top-up floor). A 1-day skip
+      // pushes the world clock past its 180-game-minute TTL; the sweep runs
+      // inside the advance wrapper and the kill lands before its
+      // marker.expired commit.
+      const markers = await waitForFreshMarker();
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_marker_sweep', 30000);
+      const res = await post('/v1/commands/advance-time', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        minutes: 1440,
+      });
+      if (res.status !== 202) fail(`advance-time returned ${res.status}`);
+      await killAt;
+      pendingMarkerSweep = markers.fresh[0];
+      break;
+    }
+    case 'mid_marker_click': {
+      // A due marker's click is REFUSED by design (lazy re-validation), so
+      // wait out the boot passes and click a genuinely live one.
+      const markers = await waitForFreshMarker();
+      const markerId = markers.fresh[0];
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_marker_click', 30000);
+      // The kill normally lands before the 202 can answer — but a refusal
+      // answers BEFORE the fault window, so surface its code instead of a
+      // blind fault-line timeout.
+      const clicked = post('/v1/commands/marker-click', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        marker_id: markerId,
+      })
+        .then(async (res) => ({
+          status: res.status,
+          body: await res.text().catch(() => ''),
+        }))
+        .catch(() => null);
+      const raced = await Promise.race([killAt.then(() => 'killed'), clicked]);
+      if (raced !== 'killed' && raced !== null && raced.status !== 202) {
+        fail(
+          `mid_marker_click: click on ${markerId} refused ${raced.status} ${raced.body}`,
+        );
+      }
+      await killAt;
+      pendingMarkerClick = markerId;
+      break;
+    }
+    case 'mid_marker_topup': {
+      // Consume live markers one by one (each click opens/joins its scene,
+      // or settles an expired one — every path shrinks the live set). The
+      // click that empties it triggers the engine top-up; the kill lands
+      // inside that window: markers consumed, floor not yet restored.
+      let markers = await waitForFreshMarker();
+      const clickDeadline = Date.now() + 45000;
+      while (markers.live.length > 1) {
+        if (Date.now() > clickDeadline)
+          fail('mid_marker_topup: could not drain the live set');
+        const res = await post('/v1/commands/marker-click', {
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          marker_id: markers.live[0],
+        });
+        if (res.status !== 202 && res.status !== 409)
+          fail(`marker-click returned ${res.status}`);
+        if (res.status === 409) {
+          const body = await res.json().catch(() => null);
+          // Blocked on the previous cycle's fan-out — wait it out.
+          if (body?.error === 'blocked_on_pending_jobs') await sleep(500);
+        }
+        markers = dbMarkerState();
+      }
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_marker_topup', 30000);
+      post('/v1/commands/marker-click', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        marker_id: markers.live[0],
+      }).catch(() => null);
+      await killAt;
+      pendingMarkerTopup = true;
       break;
     }
     case 'mid_update': {

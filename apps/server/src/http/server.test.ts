@@ -208,7 +208,7 @@ describe('HTTP layer (SSE + commands)', () => {
                 jobKey: `map_click:${command.world_id}:${command.request_id}`,
               }),
       // marker 'gone' exercises the 409 path; 'seen' the join answer.
-      markerClick: (command) =>
+      markerClick: async (command) =>
         Promise.resolve(
           command.marker_id === 'gone'
             ? err(new OperationalError('marker_expired', 'expired'))
