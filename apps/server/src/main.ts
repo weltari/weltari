@@ -368,6 +368,7 @@ const gmChatEngine = createGmChatEngine({
   proposals: proposalEngine,
   modelConfigured: env.fakeLlm || env.openrouterApiKey !== undefined,
   streamBus,
+  ...(faultPoint === undefined ? {} : { faultPoint }),
   devBus,
 });
 
@@ -784,6 +785,26 @@ catchAndLog(
   'marker.topup.boot',
 );
 
+// The GM follow-up boot pass (the UX contract): recovery path = startup
+// path — a kill inside mid_gm_followup heals here, and a card resolved
+// moments before a crash still gets its durable tool-result turn.
+const followupWorlds = new Set<string>();
+for (const bootEvent of storage.eventLog.readSince(0, 100000)) {
+  if (
+    bootEvent.type === 'proposal.resolved' ||
+    bootEvent.type === 'proposal.discussed'
+  ) {
+    followupWorlds.add(bootEvent.world_id);
+  }
+}
+for (const followupWorld of followupWorlds) {
+  catchAndLog(
+    gmChatEngine.sweepFollowups(followupWorld),
+    logger,
+    'gm.followup.boot',
+  );
+}
+
 // Memory maintenance boot sweep (M7 part 1, Rev 4 §11): heal any compaction
 // or CACHE-retention pass a kill delayed — the event-driven checks (after
 // each reflection / CACHE growth) are the fast path, this is the recovery
@@ -984,6 +1005,19 @@ const app = createHttpServer({
     if (result.ok) {
       // An approved apply may have enqueued backdrop jobs — start them now.
       catchAndLog(drainLedger(), logger, 'ledger.drain');
+      // The durable tool-result turn (the UX contract): the verdict goes
+      // BACK to the GM as the tool call's result — detached, natural-keyed
+      // (gm-followup-<proposal_id>), healed by the boot sweep on a kill.
+      catchAndLog(
+        gmChatEngine.noteProposalOutcome({
+          world_id: command.world_id,
+          actor_id: command.actor_id,
+          proposal_id: command.proposal_id,
+          outcome: command.resolution,
+        }).completion,
+        logger,
+        'gm.followup',
+      );
     }
     return result;
   },
