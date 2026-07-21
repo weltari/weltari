@@ -16,10 +16,18 @@ import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { Storage } from '../storage/db.js';
 import { objectNameKey } from '../storage/repositories/objects.js';
 import {
+  DetermineWhoNextToolSchema,
   QuerySublocationsToolSchema,
   type ValidatedToolCall,
 } from '../llm/tools.js';
 import type { SublocationDefinition } from './fixture/rainy-inn.js';
+
+/** A world-registry character as the stage needs it (id + display name) —
+ * a local shape so scene-tools stays import-cycle-free (chat.ts imports us). */
+export interface SceneCharacter {
+  character_id: string;
+  name: string;
+}
 
 export interface SceneToolsOptions {
   storage: Storage;
@@ -29,8 +37,23 @@ export interface SceneToolsOptions {
   startSublocationId: string;
   /** character_id → named art poses (fixture art sets). */
   artSets: ReadonlyMap<string, readonly string[]>;
-  /** Character ids present in the scene (the switch_art presence rule). */
+  /** Character ids present in the scene AT TURN START (the roster fold);
+   * staged joins/leaves overlay it inside the stage (0.21.0). */
   presentCharacterIds: readonly string[];
+  /** The world's full character registry (seeds ∪ character.created) —
+   * make_character/move_character resolve ids and names against it. */
+  worldCharacters?: readonly SceneCharacter[];
+  /** World-scoped presence lookup (0.21.0, injected to avoid the chat.ts
+   * import cycle): gates joins and moves — a character reserved by ANOTHER
+   * scene can neither join nor be moved. */
+  presence?: (
+    characterId: string,
+  ) => { state: 'available' } | { state: 'in_scene'; scene_id: string };
+  /** True when the engine's context-budget warning stands for this scene
+   * (0.21.0, Rev 4 §6) — the only state in which end_scene may use type
+   * context_limit_reached. Recomputed per turn from the same estimate that
+   * issues the warning, so it survives restarts for free. */
+  contextWarned?: boolean;
 }
 
 export type StagedToolEffect =
@@ -53,12 +76,45 @@ export type StagedToolEffect =
     }
   | {
       kind: 'end_scene';
-      endType: 'rest' | 'continuation' | 'travel';
+      endType: 'rest' | 'continuation' | 'travel' | 'context_limit_reached';
       /** M7 part 4 (Rev 4 §14): the ending scene's follow-up marker. */
       followUpMarker?: { sublocationId: string; premiseSeed: string };
       dividerText: string | undefined;
-      /** Present exactly when endType is `continuation` (gate-enforced). */
-      nextScene?: { sublocationId: string; premiseSeed?: string };
+      /** Present exactly when endType is `continuation` (gate-enforced) —
+       * the FULL Rev 4 §6 registration since 0.21.0 (gate 1 requires it). */
+      nextScene?: {
+        sublocationId: string;
+        premiseSeed?: string;
+        timeOffsetHours?: number;
+        expectedParticipants?: readonly string[];
+        briefHistory?: string;
+        carriedGoals?: readonly string[];
+      };
+    }
+  // The agentic-scene cast effects (0.21.0, Rev 4 §6) — staged only by the
+  // Narrator's make_character / character_leave / move_character.
+  | { kind: 'character_join'; characterId: string; name: string }
+  | {
+      kind: 'character_mint';
+      characterId: string;
+      name: string;
+      personality: string;
+      goals: readonly string[];
+      core: readonly string[];
+      /** True = the minted character also joins THIS scene. */
+      present: boolean;
+    }
+  | { kind: 'character_leave'; characterId: string; reason?: string }
+  | { kind: 'character_move'; characterId: string; toSublocationId: string }
+  /** The update_goals structured snapshot (0.21.0) — at most one per turn
+   * (a later call replaces the earlier one whole). */
+  | {
+      kind: 'goals';
+      goals: readonly {
+        id: string;
+        text: string;
+        status: 'pending' | 'active' | 'done';
+      }[];
     }
   // The object effects (M7 part 3, Rev 4 §7) — staged ONLY by a character's
   // interact_object; each carries its actor (the touching character) because
@@ -111,6 +167,19 @@ export interface ToolStage {
    * the model can react to; nothing durable ever happens here.
    */
   querySublocations(input: unknown): string;
+  /** The scene's cast as THIS turn sees it (staged joins/leaves included) —
+   * the loop's charactercall validation and switch_art read it (0.21.0). */
+  presentCharacters(): readonly string[];
+  /**
+   * The determine_who_next executor (0.21.0, Rev 4 §6): validates the
+   * Narrator's routing declaration — set-typed input, V1 policy exactly ONE
+   * id, every id present in the scene — and arms the declared set the next
+   * charactercall consumes. Mid-call, teaching error strings, never staged.
+   */
+  declareNext(input: unknown): string;
+  /** Consume a declared speaker for charactercall: ok = the id was declared
+   * (and is removed); an undeclared id gets the teaching refusal. */
+  consumeDeclared(characterId: string): Result<void>;
   /** Interrupt semantics: the user cut the Narrator off — world changes the
    * turn staged never become durable (Guide B6). */
   discard(): void;
@@ -214,6 +283,35 @@ export function createToolStage(
    * interact_object in the same reply sees the first one's world. */
   const stagedObjects = new Map<string, StagedObjectView>();
   let objectOps = 0;
+  /** The cast as this turn sees it (0.21.0): the turn-start roster overlaid
+   * with staged joins/leaves — switch_art, charactercall and the leave gate
+   * all read this live view. */
+  const present = new Set<string>(options.presentCharacterIds);
+  /** Characters minted THIS turn (staged character.created) — resolvable by
+   * make_character/move_character like committed registry entries. */
+  const stagedMints = new Map<string, SceneCharacter>();
+  /** The armed determine_who_next declaration (0.21.0): charactercall
+   * consumes from it; empty = nothing declared. */
+  const declaredNext = new Set<string>();
+  const presence =
+    options.presence ??
+    ((): { state: 'available' } => ({ state: 'available' }));
+
+  /** Resolve a make_character/move_character ref: staged mints, then the
+   * registry — by exact id, then by normalized name (the did-you-mean rule). */
+  function resolveCharacter(ref: string): SceneCharacter | undefined {
+    const minted =
+      stagedMints.get(ref) ??
+      [...stagedMints.values()].find(
+        (c) => slugifyName(c.name) === slugifyName(ref),
+      );
+    if (minted !== undefined) return minted;
+    const known = options.worldCharacters ?? [];
+    return (
+      known.find((c) => c.character_id === ref) ??
+      known.find((c) => slugifyName(c.name) === slugifyName(ref))
+    );
+  }
 
   function findKnown(sublocationId: string): SublocationDefinition | undefined {
     return (
@@ -455,12 +553,25 @@ export function createToolStage(
               ),
             );
           }
+          // context_limit_reached is legal ONLY after the engine's warning
+          // (0.21.0, Rev 4 §6) — recomputed per turn, so it survives kills.
+          if (
+            call.input.type === 'context_limit_reached' &&
+            options.contextWarned !== true
+          ) {
+            return err(
+              new OperationalError(
+                'no_context_warning',
+                'the engine has not warned about the context budget — close with rest, continuation or travel instead',
+              ),
+            );
+          }
           if (call.input.type === 'continuation') {
             if (call.input.next_scene === undefined) {
               return err(
                 new OperationalError(
                   'continuation_needs_next_scene',
-                  'a continuation must register next_scene: the sublocation_id the follow-up scene opens at',
+                  'a continuation must register the full next_scene payload: sublocation_id, time_offset_hours, expected_participants, brief_history, carried_goals (premise_seed optional)',
                 ),
               );
             }
@@ -469,6 +580,20 @@ export function createToolStage(
                 new OperationalError(
                   'unknown_sublocation',
                   `next_scene names ${call.input.next_scene.sublocation_id}, which is not a sublocation of this world (create_sublocation it first)`,
+                ),
+              );
+            }
+            // Every expected participant must be a real character (staged
+            // mints of this very turn included) — the registration opens the
+            // next scene's cast, and an unknown id would ghost-join (B6).
+            const unknown = call.input.next_scene.expected_participants.find(
+              (id) => resolveCharacter(id) === undefined,
+            );
+            if (unknown !== undefined) {
+              return err(
+                new OperationalError(
+                  'unknown_character',
+                  `next_scene expects ${unknown}, which is not a character of this world`,
                 ),
               );
             }
@@ -504,11 +629,17 @@ export function createToolStage(
             ...(next === undefined
               ? {}
               : {
+                  // Gate 1 requires the full registration (0.21.0) — the
+                  // effect carries it whole.
                   nextScene: {
                     sublocationId: next.sublocation_id,
                     ...(next.premise_seed === undefined
                       ? {}
                       : { premiseSeed: next.premise_seed }),
+                    timeOffsetHours: next.time_offset_hours,
+                    expectedParticipants: next.expected_participants,
+                    briefHistory: next.brief_history,
+                    carriedGoals: next.carried_goals,
                   },
                 }),
             ...(followUp === undefined
@@ -577,6 +708,184 @@ export function createToolStage(
           effects.push(effect);
           return ok(effect);
         }
+        case 'make_character': {
+          if (!sceneIsOpen(options.storage, sceneId)) {
+            return err(
+              new OperationalError(
+                'scene_not_open',
+                `scene ${sceneId} is not open`,
+              ),
+            );
+          }
+          const existing = resolveCharacter(call.input.character);
+          if (existing !== undefined) {
+            // An existing character: 'present' joins them here; 'absent'
+            // changes nothing durable (they already exist offstage).
+            if (call.input.presence === 'absent') {
+              return err(
+                new OperationalError(
+                  'character_exists',
+                  `${existing.character_id} ("${existing.name}") already exists — absent mints a NEW character; to remove someone from the scene use character_leave`,
+                ),
+              );
+            }
+            if (present.has(existing.character_id)) {
+              return err(
+                new OperationalError(
+                  'already_present',
+                  `${existing.character_id} is already in this scene`,
+                ),
+              );
+            }
+            const where = presence(existing.character_id);
+            if (where.state === 'in_scene' && where.scene_id !== sceneId) {
+              return err(
+                new OperationalError(
+                  'character_reserved',
+                  `${existing.character_id} is busy in another scene — they cannot join here`,
+                ),
+              );
+            }
+            present.add(existing.character_id);
+            const effect: StagedToolEffect = {
+              kind: 'character_join',
+              characterId: existing.character_id,
+              name: existing.name,
+            };
+            effects.push(effect);
+            return ok(effect);
+          }
+          // A genuinely new character (Rev 4 §6): minted into the world —
+          // the same character.created the consent-gated GM path appends.
+          // A mint needs enough profile to be callable (C-Module inputs).
+          if (
+            call.input.personality === undefined ||
+            call.input.goals === undefined
+          ) {
+            return err(
+              new OperationalError(
+                'mint_needs_profile',
+                `no character "${call.input.character}" exists — minting a new one requires personality and goals (most background figures should stay prose)`,
+              ),
+            );
+          }
+          const name = call.input.character.trim();
+          const slug = slugifyName(name);
+          if (slug === '') {
+            return err(
+              new OperationalError(
+                'invalid_name',
+                'the character name must contain at least one letter or digit',
+              ),
+            );
+          }
+          const characterId = `char:${slug}`;
+          const isPresent = call.input.presence === 'present';
+          stagedMints.set(characterId, { character_id: characterId, name });
+          if (isPresent) present.add(characterId);
+          const effect: StagedToolEffect = {
+            kind: 'character_mint',
+            characterId,
+            name,
+            personality: call.input.personality,
+            goals: call.input.goals,
+            core: call.input.core ?? [],
+            present: isPresent,
+          };
+          effects.push(effect);
+          return ok(effect);
+        }
+        case 'character_leave': {
+          if (!sceneIsOpen(options.storage, sceneId)) {
+            return err(
+              new OperationalError(
+                'scene_not_open',
+                `scene ${sceneId} is not open`,
+              ),
+            );
+          }
+          if (!present.has(call.input.character_id)) {
+            return err(
+              new OperationalError(
+                'character_not_present',
+                `${call.input.character_id} is not in this scene`,
+              ),
+            );
+          }
+          present.delete(call.input.character_id);
+          const effect: StagedToolEffect = {
+            kind: 'character_leave',
+            characterId: call.input.character_id,
+            ...(call.input.reason === undefined
+              ? {}
+              : { reason: call.input.reason }),
+          };
+          effects.push(effect);
+          return ok(effect);
+        }
+        case 'move_character': {
+          const moved = resolveCharacter(call.input.character_id);
+          if (moved === undefined) {
+            return err(
+              new OperationalError(
+                'unknown_character',
+                `no character ${call.input.character_id} in this world`,
+              ),
+            );
+          }
+          if (present.has(moved.character_id)) {
+            return err(
+              new OperationalError(
+                'character_present',
+                `${moved.character_id} is in this scene — narrate their exit and call character_leave first, then move them`,
+              ),
+            );
+          }
+          const where = presence(moved.character_id);
+          if (where.state === 'in_scene' && where.scene_id !== sceneId) {
+            return err(
+              new OperationalError(
+                'character_reserved',
+                `${moved.character_id} is busy in another scene — they cannot be moved`,
+              ),
+            );
+          }
+          if (findKnown(call.input.to_sublocation_id) === undefined) {
+            return err(
+              new OperationalError(
+                'unknown_sublocation',
+                `no sublocation ${call.input.to_sublocation_id} in this world`,
+              ),
+            );
+          }
+          const effect: StagedToolEffect = {
+            kind: 'character_move',
+            characterId: moved.character_id,
+            toSublocationId: call.input.to_sublocation_id,
+          };
+          effects.push(effect);
+          return ok(effect);
+        }
+        case 'update_goals': {
+          if (!sceneIsOpen(options.storage, sceneId)) {
+            return err(
+              new OperationalError(
+                'scene_not_open',
+                `scene ${sceneId} is not open`,
+              ),
+            );
+          }
+          // A later snapshot in the same turn replaces the earlier one whole
+          // (the tool's contract: the full list, every time).
+          const previous = effects.findIndex((e) => e.kind === 'goals');
+          if (previous !== -1) effects.splice(previous, 1);
+          const effect: StagedToolEffect = {
+            kind: 'goals',
+            goals: call.input.goals,
+          };
+          effects.push(effect);
+          return ok(effect);
+        }
         case 'change_sublocation': {
           const target = findKnown(call.input.sublocation_id);
           if (target === undefined) {
@@ -608,7 +917,7 @@ export function createToolStage(
           return ok(effect);
         }
         case 'switch_art': {
-          if (!options.presentCharacterIds.includes(call.input.character_id)) {
+          if (!present.has(call.input.character_id)) {
             return err(
               new OperationalError(
                 'character_not_present',
@@ -737,6 +1046,43 @@ export function createToolStage(
     currentSublocation(): string {
       return current;
     },
+    presentCharacters(): readonly string[] {
+      return [...present];
+    },
+    declareNext(input: unknown): string {
+      const parsed = DetermineWhoNextToolSchema.safeParse(input);
+      if (!parsed.success) {
+        return (
+          'determine_who_next: malformed input. Use {"character_ids": ' +
+          '["char:..."]} — the characters who should act next.'
+        );
+      }
+      // The set-typed contract, V1 policy size one (Rev 4 §6): the type
+      // keeps V2 group fan-out open; the POLICY keeps V1 strictly serial.
+      const [first, second] = parsed.data.character_ids;
+      if (second !== undefined || first === undefined) {
+        return 'determine_who_next: this engine runs characters strictly one at a time — declare exactly ONE character_id, call charactercall, then declare the next.';
+      }
+      if (!present.has(first)) {
+        const cast = [...present].join(', ');
+        return `determine_who_next: ${first} is not in this scene. Present: ${cast === '' ? 'nobody' : cast}.`;
+      }
+      declaredNext.clear();
+      declaredNext.add(first);
+      return `declared: ${first} acts next — call charactercall with this character_id.`;
+    },
+    consumeDeclared(characterId: string): Result<void> {
+      if (!declaredNext.has(characterId)) {
+        return err(
+          new OperationalError(
+            'not_declared',
+            `${characterId} was not declared — call determine_who_next first (and make sure they are present in the scene)`,
+          ),
+        );
+      }
+      declaredNext.delete(characterId);
+      return ok(undefined);
+    },
     querySublocations(input: unknown): string {
       const parsed = QuerySublocationsToolSchema.safeParse(input);
       if (!parsed.success) {
@@ -792,6 +1138,12 @@ export function createToolStage(
       stagedObjects.clear();
       objectOps = 0;
       parentlessQueried = false;
+      // The cast rolls back to the turn-start roster (0.21.0): staged
+      // joins/mints/leaves never happened.
+      present.clear();
+      for (const id of options.presentCharacterIds) present.add(id);
+      stagedMints.clear();
+      declaredNext.clear();
     },
   };
 }

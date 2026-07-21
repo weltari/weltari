@@ -132,7 +132,9 @@ function scriptedToolCalls(prompt: string): RawToolCall[] {
       },
     });
   }
-  const endNext = /!endnext\s+(\S+)/.exec(prompt);
+  // 0.21.0: !endnext scripts the FULL Rev 4 §6 registration (gate 1 refuses
+  // a partial one — the pre-0.21 shape is the `!endnext-partial` subject).
+  const endNext = /!endnext\b\s+(\S+)/.exec(prompt);
   if (endNext !== null) {
     calls.push({
       tool: 'end_scene',
@@ -141,6 +143,27 @@ function scriptedToolCalls(prompt: string): RawToolCall[] {
         divider_text: '— the rain eases —',
         next_scene: {
           sublocation_id: endNext[1] ?? '',
+          premise_seed: 'The story picks up where the lamplight leads.',
+          time_offset_hours: 16,
+          expected_participants: [],
+          brief_history:
+            'The evening at the inn wound down; the story agreed to pick up at the next place.',
+          carried_goals: ['Keep the lamplight mystery moving.'],
+        },
+      },
+    });
+  }
+  // The gate-1 subject (0.21.0): the OLD partial registration — missing
+  // required fields fail shape validation and the refusal names them.
+  const endNextPartial = /!endnextpartial\s+(\S+)/.exec(prompt);
+  if (endNextPartial !== null) {
+    calls.push({
+      tool: 'end_scene',
+      input: {
+        type: 'continuation',
+        divider_text: '— the rain eases —',
+        next_scene: {
+          sublocation_id: endNextPartial[1] ?? '',
           premise_seed: 'The story picks up where the lamplight leads.',
         },
       },
