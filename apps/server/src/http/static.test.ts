@@ -114,7 +114,7 @@ describe('GET /* (the SPA wildcard route)', () => {
           clickId: 'c1',
           jobKey: 'map_click:w1:c1',
         }),
-      markerClick: () =>
+      markerClick: async () =>
         Promise.resolve(
           err(new OperationalError('unknown_marker', 'test stub')),
         ),

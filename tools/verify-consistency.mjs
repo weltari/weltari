@@ -41,8 +41,11 @@ for (let i = 1; i < ids.length; i++) {
 }
 
 // 3. Every payload is valid JSON with a scene/turn shape the engine could have written
+// (actor_id rides along for the provenance checks — 4p's movement sweep).
 const events = db
-  .prepare('SELECT id, world_id, type, payload FROM events ORDER BY id')
+  .prepare(
+    'SELECT id, world_id, actor_id, type, payload FROM events ORDER BY id',
+  )
   .all();
 for (const event of events) {
   try {
@@ -853,6 +856,215 @@ if (imagesDir) {
       failures.push(
         `objects table row ${row.object_id} diverges from its event fold`,
       );
+    }
+  }
+}
+
+// 4o. Markers (M7 part 4, Rev 4 §14/§17): the markers table mirrors the fold
+//     of the marker.* events exactly; state walks dropped → instantiated |
+//     expired only; the live set never exceeds the ceiling (5) at any drop;
+//     the expiry stamp is exactly dropped_at + ttl; a marker is never
+//     dropped born-expired (scheduled + ttl behind the world clock at drop);
+//     every instantiation names a scene.started that exists; every expiry
+//     was judged at or after the marker's deadline.
+{
+  const MARKER_MAX = 5;
+  const fold = new Map(); // marker_id -> { world, state, sublocation, expires, scene }
+  const liveCount = new Map(); // world_id -> live markers
+  const clockNow = new Map(); // world_id -> latest fictional time at this point
+  const sceneStartIds = new Map(); // scene_id -> event id
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (event.type === 'world.time_advanced') {
+      clockNow.set(event.world_id, payload.to);
+      continue;
+    }
+    if (event.type === 'scene.started') {
+      sceneStartIds.set(payload.scene_id, event.id);
+      continue;
+    }
+    if (
+      event.type !== 'marker.dropped' &&
+      event.type !== 'marker.instantiated' &&
+      event.type !== 'marker.expired'
+    ) {
+      continue;
+    }
+    const id = payload.marker_id;
+    const row = fold.get(id);
+    if (event.type === 'marker.dropped') {
+      if (row !== undefined) {
+        failures.push(`marker ${id} dropped twice (event ${event.id})`);
+        continue;
+      }
+      const live = (liveCount.get(event.world_id) ?? 0) + 1;
+      liveCount.set(event.world_id, live);
+      if (live > MARKER_MAX) {
+        failures.push(
+          `marker ${id} (event ${event.id}) pushed world ${event.world_id} to ${live} live markers (ceiling ${MARKER_MAX})`,
+        );
+      }
+      const expected = new Date(
+        Date.parse(payload.dropped_at_game_time) +
+          payload.ttl_game_minutes * 60000,
+      ).toISOString();
+      if (payload.expires_at_game_time !== expected) {
+        failures.push(
+          `marker ${id} expiry stamp ${payload.expires_at_game_time} != dropped_at + ttl (${expected})`,
+        );
+      }
+      const clock = clockNow.get(event.world_id);
+      if (clock !== undefined && payload.expires_at_game_time <= clock) {
+        failures.push(
+          `marker ${id} (event ${event.id}) dropped born-expired: expires ${payload.expires_at_game_time} <= clock ${clock}`,
+        );
+      }
+      fold.set(id, {
+        world: event.world_id,
+        state: 'dropped',
+        sublocation: payload.sublocation_id,
+        expires: payload.expires_at_game_time,
+        scene: null,
+      });
+      continue;
+    }
+    if (row === undefined || row.state !== 'dropped') {
+      failures.push(
+        `${event.type} (event ${event.id}) references marker ${id} that is not live`,
+      );
+      continue;
+    }
+    liveCount.set(row.world, (liveCount.get(row.world) ?? 1) - 1);
+    if (event.type === 'marker.instantiated') {
+      row.state = 'instantiated';
+      row.scene = payload.scene_id;
+    } else {
+      row.state = 'expired';
+      if (payload.game_time < row.expires) {
+        failures.push(
+          `marker ${id} expired at ${payload.game_time}, before its deadline ${row.expires}`,
+        );
+      }
+    }
+  }
+  // Every instantiation opened its ONE scene (the same-transaction pair).
+  for (const [id, row] of fold) {
+    if (row.state === 'instantiated' && !sceneStartIds.has(row.scene)) {
+      failures.push(
+        `marker ${id} instantiated into scene ${row.scene} but no scene.started exists`,
+      );
+    }
+  }
+  // The table mirrors the fold exactly (terminal rows stay, by design).
+  const tableRows = db
+    .prepare(
+      'SELECT marker_id, world_id, state, sublocation_id, expires_at_game_time, instantiated_scene_id FROM markers',
+    )
+    .all();
+  if (tableRows.length !== fold.size) {
+    failures.push(
+      `markers table has ${tableRows.length} rows, the event fold ${fold.size}`,
+    );
+  }
+  for (const row of tableRows) {
+    const folded = fold.get(row.marker_id);
+    if (folded === undefined) {
+      failures.push(`markers table row ${row.marker_id} has no fold`);
+      continue;
+    }
+    if (
+      folded.state !== row.state ||
+      folded.sublocation !== row.sublocation_id ||
+      folded.expires !== row.expires_at_game_time ||
+      (folded.scene ?? null) !== row.instantiated_scene_id
+    ) {
+      failures.push(
+        `markers table row ${row.marker_id} diverges from its event fold`,
+      );
+    }
+  }
+}
+
+// 4p. CRON world movement (M7 part 4, Rev 4 §14): every
+//     character.location_changed carries the world-cron system actor, lands
+//     on a sublocation known at that point (materialized-only anchoring —
+//     stubs never receive CRON traffic), never moves a character who was in
+//     an open scene, and chains exactly (from = the character's previous
+//     folded location; absent only on the first move).
+{
+  const knownAnchors = new Map(); // world_id -> Set of materialized ids
+  const stubOnly = new Map(); // world_id -> Set of stub-only ids
+  const openScenes = new Map(); // world_id|character_id -> Set of scene ids
+  const location = new Map(); // world_id|character_id -> sublocation_id
+  const anchorSet = (worldId) => {
+    let set = knownAnchors.get(worldId);
+    if (set === undefined) {
+      set = new Set();
+      knownAnchors.set(worldId, set);
+    }
+    return set;
+  };
+  const stubSet = (worldId) => {
+    let set = stubOnly.get(worldId);
+    if (set === undefined) {
+      set = new Set();
+      stubOnly.set(worldId, set);
+    }
+    return set;
+  };
+  for (const event of events) {
+    const payload = JSON.parse(event.payload);
+    if (
+      event.type === 'sublocation.materialized' ||
+      event.type === 'sublocation.created'
+    ) {
+      anchorSet(event.world_id).add(payload.sublocation_id);
+      stubSet(event.world_id).delete(payload.sublocation_id);
+    } else if (event.type === 'sublocation.stub_created') {
+      stubSet(event.world_id).add(payload.sublocation_id);
+    } else if (
+      event.type === 'map_click.resolved' &&
+      payload.outcome === 'created' &&
+      payload.sublocation_id !== undefined
+    ) {
+      anchorSet(event.world_id).add(payload.sublocation_id);
+      stubSet(event.world_id).delete(payload.sublocation_id);
+    } else if (event.type === 'character.joined') {
+      const key = `${event.world_id}|${payload.character_id}`;
+      const scenes = openScenes.get(key) ?? new Set();
+      scenes.add(payload.scene_id);
+      openScenes.set(key, scenes);
+    } else if (event.type === 'scene.ended' || event.type === 'scene.expired') {
+      for (const scenes of openScenes.values()) scenes.delete(payload.scene_id);
+    } else if (event.type === 'character.location_changed') {
+      if (event.actor_id !== 'system:world_cron') {
+        failures.push(
+          `location change (event ${event.id}) from actor ${event.actor_id} — V1's only mover is system:world_cron`,
+        );
+      }
+      const target = payload.to_sublocation_id;
+      if (
+        !anchorSet(event.world_id).has(target) ||
+        stubSet(event.world_id).has(target)
+      ) {
+        failures.push(
+          `movement (event ${event.id}) landed ${payload.character_id} on ${target}, not a materialized sublocation at that point`,
+        );
+      }
+      const key = `${event.world_id}|${payload.character_id}`;
+      const scenes = openScenes.get(key);
+      if (scenes !== undefined && scenes.size > 0) {
+        failures.push(
+          `movement (event ${event.id}) moved ${payload.character_id} while in open scene(s) ${[...scenes].join(', ')}`,
+        );
+      }
+      const previous = location.get(key);
+      if ((payload.from_sublocation_id ?? undefined) !== previous) {
+        failures.push(
+          `movement (event ${event.id}) from ${payload.from_sublocation_id ?? '(none)'} breaks the chain (previous ${previous ?? '(none)'})`,
+        );
+      }
+      location.set(key, target);
     }
   }
 }

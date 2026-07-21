@@ -1848,7 +1848,13 @@ describe('marker event family (0.19.0, M7 part 4, Rev 4 §14/§17)', () => {
       { ...droppedBase, kind: 'chat_dm' }, // V2 (§17) — not on the V1 wire
       { ...droppedBase, ttl_game_minutes: 0 },
       { ...droppedBase, premise_seed: 'x'.repeat(501) },
-      { ...droppedBase, involved_characters: Array.from({ length: 9 }, (_, i) => `char:${String(i)}`) },
+      {
+        ...droppedBase,
+        involved_characters: Array.from(
+          { length: 9 },
+          (_, i) => `char:${String(i)}`,
+        ),
+      },
       { ...droppedBase, state: 'instantiated' }, // state is a fold, never wire input
     ]) {
       const event: unknown = { ...envelope, type: 'marker.dropped', payload };
