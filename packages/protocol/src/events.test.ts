@@ -320,6 +320,174 @@ describe('WeltariEventSchema', () => {
     expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
   });
 
+  it('accepts the FULL next_scene registration (0.21.0, Rev 4 §6) and context_limit_reached', () => {
+    const full: unknown = {
+      id: 8,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'scene.ended',
+      payload: {
+        scene_id: 's1',
+        participants: ['char:elias'],
+        end_type: 'continuation',
+        divider_text: '— see you tomorrow —',
+        next_scene: {
+          sublocation_id: 'subloc:stub-the-mill-pond',
+          premise_seed: 'Morning mist over the pond.',
+          time_offset_hours: 16,
+          expected_participants: ['char:elias'],
+          brief_history:
+            'The traveler and Elias agreed to meet at dawn to watch the herons.',
+          carried_goals: ['Find who silences the bell.'],
+        },
+      },
+    };
+    expect(WeltariEventSchema.safeParse(full).success).toBe(true);
+    const contextLimit: unknown = {
+      id: 9,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'scene.ended',
+      payload: {
+        scene_id: 's1',
+        participants: [],
+        end_type: 'context_limit_reached',
+        divider_text: '— the evening winds down —',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(contextLimit).success).toBe(true);
+    // The registration caps hold (B7): a 721-hour offset is out of range.
+    const oversized: unknown = {
+      id: 10,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'scene.ended',
+      payload: {
+        scene_id: 's1',
+        participants: [],
+        end_type: 'continuation',
+        next_scene: {
+          sublocation_id: 'subloc:cellar',
+          time_offset_hours: 721,
+        },
+      },
+    };
+    expect(WeltariEventSchema.safeParse(oversized).success).toBe(false);
+  });
+
+  it('accepts scene.started with the consumed continuation fold (0.21.0)', () => {
+    const started: unknown = {
+      id: 11,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'scene.started',
+      payload: {
+        scene_id: 's2',
+        title: 'The Mill Pond at dawn',
+        premise: 'Morning mist over the pond.',
+        brief_history:
+          'The traveler and Elias agreed to meet at dawn to watch the herons.',
+        carried_goals: ['Find who silences the bell.'],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(started).success).toBe(true);
+  });
+
+  it('accepts character.left and rejects an oversized reason or extra key (0.21.0, B5)', () => {
+    const left: unknown = {
+      id: 12,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'character.left',
+      payload: {
+        scene_id: 's1',
+        character_id: 'char:elias',
+        reason: 'headed home before the rain',
+      },
+    };
+    expect(WeltariEventSchema.safeParse(left).success).toBe(true);
+    const bare: unknown = {
+      id: 13,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'character.left',
+      payload: { scene_id: 's1', character_id: 'char:elias' },
+    };
+    expect(WeltariEventSchema.safeParse(bare).success).toBe(true);
+    const oversized: unknown = {
+      id: 14,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'character.left',
+      payload: {
+        scene_id: 's1',
+        character_id: 'char:elias',
+        reason: 'r'.repeat(301),
+      },
+    };
+    expect(WeltariEventSchema.safeParse(oversized).success).toBe(false);
+    const extra: unknown = {
+      id: 15,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'character.left',
+      payload: { scene_id: 's1', character_id: 'char:elias', smuggled: true },
+    };
+    expect(WeltariEventSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('accepts scene.goals_updated and enforces the snapshot caps (0.21.0, Rev 4 §6)', () => {
+    const snapshot: unknown = {
+      id: 16,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'scene.goals_updated',
+      payload: {
+        scene_id: 's1',
+        turn_id: 't1',
+        goals: [
+          { id: 'g1', text: 'Introduce the ferryman.', status: 'done' },
+          { id: 'g2', text: 'Reveal the bell clue.', status: 'active' },
+          { id: 'g3', text: 'Seed the storm night.', status: 'pending' },
+        ],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(snapshot).success).toBe(true);
+    // An empty snapshot means the tool call carried nothing — refused at
+    // gate 1, and the wire agrees (min 1).
+    const empty: unknown = {
+      id: 17,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'scene.goals_updated',
+      payload: { scene_id: 's1', turn_id: 't1', goals: [] },
+    };
+    expect(WeltariEventSchema.safeParse(empty).success).toBe(false);
+    const badStatus: unknown = {
+      id: 18,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: '2026-07-21T12:00:00.000Z',
+      type: 'scene.goals_updated',
+      payload: {
+        scene_id: 's1',
+        turn_id: 't1',
+        goals: [{ id: 'g1', text: 'x', status: 'someday' }],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(badStatus).success).toBe(false);
+  });
+
   it('accepts a sublocation.stub_created for a child and a parentless stub (0.10.0)', () => {
     const base = {
       id: 11,

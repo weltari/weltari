@@ -136,8 +136,26 @@
  * the proposal stays pending, zero domain rows (I8). The consent verdict
  * itself already rides proposal.resolved; the durable tool-result turn
  * consumes it server-side, no wire change.
+ * 0.21.0 (the agentic scene, Rev 4 §6): the Narrator drives the turn.
+ * character.left — the Narrator's character_leave, atomic with its
+ * turn.committed; releases presence for this scene only while the scene
+ * stays open. scene.goals_updated — the update_goals structured subgoal
+ * snapshot (SceneGoalSchema {id, text, status}), atomic with its turn; the
+ * engine reinjects the latest snapshot every Narrator turn, so a restart
+ * resumes at the exact story position. scene.ended's end_type gains
+ * `context_limit_reached` (the Scene Engine's context-budget warning ended
+ * the scene; buttons render like rest) and next_scene grows the FULL Rev 4
+ * §6 registration — time_offset_hours, expected_participants[],
+ * brief_history, carried_goals[] — all optional on the wire (pre-0.21 logs
+ * parse) but required by the tool gate. scene.started gains optional
+ * brief_history + carried_goals: the consumed registration, folded in by
+ * the engine when a scene opens at the registered sublocation — the jump
+ * is a real continuation. character.joined now also arrives mid-scene from
+ * make_character (same shape); character.location_changed now also arrives
+ * from the Narrator's move_character (actor = the narrator, not
+ * system:world_cron — consumers keying on the actor must accept both).
  */
-export const PROTOCOL_VERSION = '0.20.0';
+export const PROTOCOL_VERSION = '0.21.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -146,6 +164,7 @@ export {
   CharacterCreatedEventSchema,
   CharacterEvolvedEventSchema,
   CharacterJoinedEventSchema,
+  CharacterLeftEventSchema,
   CharacterLockSetEventSchema,
   ConfigFlagSetEventSchema,
   GatewayBindingEstablishedEventSchema,
@@ -193,6 +212,8 @@ export {
   ReflectionCommittedEventSchema,
   SceneEndedEventSchema,
   SceneExpiredEventSchema,
+  SceneGoalSchema,
+  SceneGoalsUpdatedEventSchema,
   SceneStartedEventSchema,
   SocialPostCommittedEventSchema,
   SocialReactionCommittedEventSchema,
@@ -218,6 +239,7 @@ export {
   type ProposalCharacterDiff,
   type ProposalObjectDiff,
   type ProposalPlaceDiff,
+  type SceneGoal,
   type TurnStep,
   type WeltariEvent,
   type WeltariEventType,
