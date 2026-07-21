@@ -188,11 +188,109 @@ function scriptedToolCalls(prompt: string): RawToolCall[] {
     });
   }
   // \b keeps "!endnext"/"!endfollow" from also matching as a bare "!end".
-  const end = /!end\b(?:\s+(rest|continuation|travel))?/.exec(prompt);
+  const end =
+    /!end\b(?:\s+(rest|continuation|travel|context_limit_reached))?/.exec(
+      prompt,
+    );
   if (end !== null && endNext === null && endFollow === null) {
     calls.push({
       tool: 'end_scene',
       input: { type: end[1] ?? 'rest', divider_text: '— the rain eases —' },
+    });
+  }
+  // The agentic cast markers (0.21.0, Rev 4 §6) — hyphens become spaces:
+  //   !join <id-or-name-slug>   → make_character (existing, present)
+  //   !mint <name-slug>         → make_character minting a NEW character, present
+  //   !mintabsent <name-slug>   → the same mint, offstage
+  //   !mintbare <name-slug>     → a mint WITHOUT personality/goals (gate-2 subject)
+  //   !leave <character_id>     → character_leave
+  //   !movechar <id> <subloc>   → move_character
+  //   !goals <slug>             → update_goals (a deterministic 2-goal snapshot)
+  const join = /!join\s+(\S+)/.exec(prompt);
+  if (join !== null) {
+    calls.push({
+      tool: 'make_character',
+      input: {
+        character: (join[1] ?? '').replaceAll('-', ' '),
+        presence: 'present',
+      },
+    });
+  }
+  const mint = /!mint\b\s+(\S+)/.exec(prompt);
+  if (mint !== null) {
+    calls.push({
+      tool: 'make_character',
+      input: {
+        character: (mint[1] ?? '').replaceAll('-', ' '),
+        presence: 'present',
+        personality:
+          'Weather-worn and curious; asks one question too many, means well.',
+        goals: ['Find a place in this story worth staying for.'],
+        core: ['Arrived with the last ferry before the storm.'],
+      },
+    });
+  }
+  const mintAbsent = /!mintabsent\s+(\S+)/.exec(prompt);
+  if (mintAbsent !== null) {
+    calls.push({
+      tool: 'make_character',
+      input: {
+        character: (mintAbsent[1] ?? '').replaceAll('-', ' '),
+        presence: 'absent',
+        personality:
+          'Keeps to the edges of rooms; remembers everything said in them.',
+        goals: ['Stay out of the story until it needs me.'],
+      },
+    });
+  }
+  const mintBare = /!mintbare\s+(\S+)/.exec(prompt);
+  if (mintBare !== null) {
+    calls.push({
+      tool: 'make_character',
+      input: {
+        character: (mintBare[1] ?? '').replaceAll('-', ' '),
+        presence: 'present',
+      },
+    });
+  }
+  const leave = /!leave\s+(\S+)/.exec(prompt);
+  if (leave !== null) {
+    calls.push({
+      tool: 'character_leave',
+      input: {
+        character_id: leave[1] ?? '',
+        reason: 'slips out before the rain doubles',
+      },
+    });
+  }
+  const moveChar = /!movechar\s+(\S+)\s+(\S+)/.exec(prompt);
+  if (moveChar !== null) {
+    calls.push({
+      tool: 'move_character',
+      input: {
+        character_id: moveChar[1] ?? '',
+        to_sublocation_id: moveChar[2] ?? '',
+      },
+    });
+  }
+  const goals = /!goals\s+(\S+)/.exec(prompt);
+  if (goals !== null) {
+    calls.push({
+      tool: 'update_goals',
+      input: {
+        goals: [
+          {
+            id: 'g1',
+            text: `Advance ${(goals[1] ?? '').replaceAll('-', ' ')}`,
+            status: 'active',
+          },
+          {
+            id: 'g2',
+            text: 'Keep the storm outside the walls',
+            status: 'pending',
+          },
+        ],
+      },
     });
   }
   if (prompt.includes('!badshape')) {
@@ -261,6 +359,126 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
         call.prompt.includes('!query')
       ) {
         call.queries.query_sublocations({ mode: 'parentless' });
+      }
+      // The agentic loop (0.21.0, Rev 4 §6): when the engine offers the loop
+      // executors, the fake's DEFAULT narrator reply drives the classic
+      // three-beat shape THROUGH them — narrator prose → determine_who_next
+      // + charactercall (the engine runs the real C-Module call, which is
+      // this same fake's character branch) → closing narration. Markers:
+      //   !callchar <id> [!seed <text>]  → explicit target(s), repeatable —
+      //                                    N+1 calls drive the budget demo
+      //   !callchar-undeclared <id>      → skip the declaration (the
+      //                                    not_declared subject, embedded)
+      //   !who2                          → declare a SIZE-2 set (the V1
+      //                                    policy subject, embedded)
+      //   !solo                          → a narrator-only beat, no character
+      //   !querywiki <words>             → run the scene-side query_wiki
+      if (call.toolset === 'narrator' && call.loop !== undefined) {
+        const loop = call.loop;
+        if (firstTokenDelayMs > 0) {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, firstTokenDelayMs);
+          });
+        }
+        const parts: string[] = [];
+        const streamPart = async (part: string): Promise<void> => {
+          if (part === '') return;
+          parts.push(part);
+          for (const word of part.split(' ')) {
+            call.onTextDelta(`${word} `);
+            await new Promise<void>((resolve) => {
+              setImmediate(resolve);
+            });
+          }
+        };
+        let opening = SCRIPT['narrator'] ?? 'The rain continues.';
+        const wikiMark = /!querywiki\s+([^\n!]+)/.exec(call.prompt);
+        if (wikiMark !== null && call.queries?.query_wiki !== undefined) {
+          const answer = call.queries.query_wiki({
+            query: (wikiMark[1] ?? '').trim(),
+          });
+          opening = `The Narrator consults the record. ${answer}`;
+        }
+        await streamPart(opening);
+        // Marker-scripted mutations gate MID-CALL when the engine offers the
+        // gate (exactly like the real client's execute wiring) — so a stub
+        // created here is already staged when a charactercall below touches
+        // it, the same ordering a real model's serial tool steps produce.
+        // Without a gate they return as data (the legacy post-call path).
+        const scripted = scriptedToolCalls(call.prompt);
+        if (call.gate !== undefined) {
+          for (const raw of scripted) {
+            call.gate(raw);
+          }
+        }
+        // The refusal subjects run even under !solo (no real character call
+        // happens for either — their point IS the embedded error string).
+        if (call.prompt.includes('!who2') && loop.determine_who_next) {
+          // The V1 size-one policy, made visible: the refusal streams so
+          // tests and the browser read it verbatim.
+          const answer = loop.determine_who_next({
+            character_ids: ['char:elias', 'char:mara'],
+          });
+          await streamPart(`(${answer})`);
+        }
+        const undeclared = /!callchar-undeclared\s+(\S+)/.exec(call.prompt);
+        if (undeclared !== null && loop.charactercall) {
+          const answer = await loop.charactercall({
+            character_id: undeclared[1] ?? '',
+          });
+          await streamPart(`(${answer})`);
+        }
+        if (!call.prompt.includes('!solo')) {
+          const explicit = [...call.prompt.matchAll(/!callchar\s+(\S+)/g)].map(
+            (m) => m[1] ?? '',
+          );
+          const fallback = /Present characters: (char:[^\s,(]+)/.exec(
+            call.prompt,
+          )?.[1];
+          const targets =
+            explicit.length > 0
+              ? explicit
+              : fallback === undefined
+                ? []
+                : [fallback];
+          const seed = /!seed\s+([^\n!]+)/.exec(call.prompt)?.[1]?.trim();
+          for (const target of targets) {
+            const declared =
+              loop.determine_who_next?.({ character_ids: [target] }) ?? '';
+            if (!declared.startsWith('declared:')) {
+              await streamPart(`(${declared})`);
+              continue;
+            }
+            const reply =
+              (await loop.charactercall?.({
+                character_id: target,
+                ...(seed === undefined ? {} : { seed }),
+              })) ?? '';
+            if (reply.startsWith('ERROR:')) {
+              // The budget refusal (and any other loop error) streams
+              // verbatim — the scripted ping-pong is provably cut.
+              await streamPart(`(${reply})`);
+            }
+          }
+        }
+        await streamPart(SCRIPT['narration'] ?? '');
+        const text = parts.join(' ');
+        const inputTokens = Math.round(
+          (call.system.length + call.prompt.length) / 4,
+        );
+        return ok({
+          text,
+          usage: {
+            inputTokens,
+            outputTokens: Math.round(text.length / 4),
+            cachedInputTokens: Math.round(inputTokens * 0.9),
+          },
+          model: 'fake/scripted',
+          durationMs: 0,
+          // Gated mid-call above = nothing comes back as data (returning
+          // them again would double-stage, the real-client rule).
+          toolCalls: call.gate === undefined ? scripted : [],
+        });
       }
       // The scripted chat escalation (M6 part 3, Rev 4 §11): `!wikiquery
       // <words>` / `!sessionquery <words>` run the executor mid-call and the
