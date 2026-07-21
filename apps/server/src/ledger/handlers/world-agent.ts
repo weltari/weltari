@@ -19,7 +19,7 @@ import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Storage } from '../../storage/db.js';
 import type { JobHandler } from '../runner.js';
-import { sceneTranscript } from './reflection.js';
+import { sceneNarrationTranscript, sceneTranscript } from './reflection.js';
 
 const SUBWIKI_ENTRY_MAX = 4000;
 
@@ -126,13 +126,24 @@ export function createWorldAgentHandler(
     // Narrator-created sublocation, observable-now snapshots only. Each
     // generation is its own call; a failure retries the whole job (nothing
     // committed yet — the pass is one transaction below).
+    //
+    // Week 19 (§10 source-typing, hardened): the wiki calls read a
+    // NARRATION-ONLY transcript — `character` steps never enter the prompt,
+    // so speech is excluded by construction, not by instruction. The summary
+    // note above reads the whole scene (a summary may mention claims).
+    const wikiContext = assembleContext(narrator, {
+      scene_id,
+      world_clock_text: 'The scene has just ended.',
+      latest_turns: sceneNarrationTranscript(storage, scene_id),
+      wiki: [],
+    });
     const subwikiEvents: NewEvent[] = [];
     for (const stub of participatingStubs(storage, scene_id)) {
       const entryResult = await llm.streamCall({
         kind: 'world_agent',
         characterId: narrator.character_id,
-        system: context.stablePrefix,
-        prompt: `${context.dynamicTail}\n\n## Instruction\nWrite the sublocation wiki entry for "${stub.name}" (${stub.sublocation_id}) in 2-4 sentences: what fresh eyes would observe at this place RIGHT NOW, grounded only in the scene's narration and the place's brief ("${stub.description}"). Observable-now state only — never events that happened, never things characters merely said. Third person, present tense.`,
+        system: wikiContext.stablePrefix,
+        prompt: `${wikiContext.dynamicTail}\n\n## Instruction\nWrite the sublocation wiki entry for "${stub.name}" (${stub.sublocation_id}) in 2-4 sentences: what fresh eyes would observe at this place RIGHT NOW, grounded only in the scene's narration and the place's brief ("${stub.description}"). Observable-now state only — never events that happened, never things characters merely said. Third person, present tense.`,
         onTextDelta: (): void => undefined,
       });
       if (!entryResult.ok) throw entryResult.error; // operational -> retry (C7)
