@@ -8,7 +8,9 @@ import { openStorage, type Storage } from '../storage/db.js';
 import { Bus, type EventBus } from '../http/bus.js';
 import { createEventSink } from './event-sink.js';
 import {
+  appendSceneOpen,
   createSceneLifecycle,
+  sceneRosterOf,
   type SceneLifecycle,
 } from './scene-lifecycle.js';
 import { createRunner } from '../ledger/runner.js';
@@ -369,5 +371,176 @@ describe('scene lifecycle (reflection fan-out + scoped open blocking)', () => {
         .readSince(0)
         .some((e) => e.type === 'scene.started' && e.payload.scene_id === 's2'),
     ).toBe(true);
+  });
+});
+
+describe('the consumed continuation registration (0.21.0, Rev 4 §6)', () => {
+  function freshStorage(): Storage {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-continuation-'));
+    return openStorage({ dbPath: join(dir, 'w.sqlite') });
+  }
+
+  function endWithRegistration(s: Storage): void {
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'scene.started',
+      payload: { scene_id: 's1', title: 'The evening before' },
+    });
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'scene.ended',
+      payload: {
+        scene_id: 's1',
+        participants: ['char:elias'],
+        end_type: 'continuation',
+        next_scene: {
+          sublocation_id: 'subloc:cellar',
+          premise_seed: 'Dawn finds the cellar door ajar.',
+          time_offset_hours: 8,
+          expected_participants: ['char:elias'],
+          brief_history: 'They agreed to inspect the flooded cellar at dawn.',
+          carried_goals: ['Find who silences the bell.'],
+        },
+      },
+    });
+  }
+
+  const OPEN_AT = {
+    sublocation_id: 'subloc:cellar',
+    name: 'The Flooded Cellar',
+  };
+
+  it('opening AT the registered sublocation folds the registration into scene.started + the cast', () => {
+    const s = freshStorage();
+    endWithRegistration(s);
+    const events = s.transact(() =>
+      appendSceneOpen(
+        s,
+        [{ character_id: 'char:elias', name: 'Elias' }],
+        {
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          scene_id: 's2',
+          title: 'The next scene',
+          participants: [],
+        },
+        OPEN_AT,
+      ),
+    );
+    const started = events.find((e) => e.type === 'scene.started');
+    expect(started).toBeDefined();
+    if (started?.type === 'scene.started') {
+      expect(started.payload.premise).toBe('Dawn finds the cellar door ajar.');
+      expect(started.payload.brief_history).toContain('flooded cellar at dawn');
+      expect(started.payload.carried_goals).toEqual([
+        'Find who silences the bell.',
+      ]);
+    }
+    // The expected participant joined the cast without being in the command.
+    expect(
+      events.some(
+        (e) =>
+          e.type === 'character.joined' &&
+          e.payload.character_id === 'char:elias' &&
+          e.payload.scene_id === 's2',
+      ),
+    ).toBe(true);
+    s.close();
+  });
+
+  it('a LATER open at the same place is a fresh visit — the registration is consumed once', () => {
+    const s = freshStorage();
+    endWithRegistration(s);
+    s.transact(() =>
+      appendSceneOpen(
+        s,
+        [{ character_id: 'char:elias', name: 'Elias' }],
+        {
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          scene_id: 's2',
+          title: 'The continuation',
+          participants: [],
+        },
+        OPEN_AT,
+      ),
+    );
+    const events = s.transact(() =>
+      appendSceneOpen(
+        s,
+        [{ character_id: 'char:elias', name: 'Elias' }],
+        {
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          scene_id: 's3',
+          title: 'A later visit',
+          participants: [],
+        },
+        OPEN_AT,
+      ),
+    );
+    const started = events.find((e) => e.type === 'scene.started');
+    if (started?.type === 'scene.started') {
+      expect(started.payload.premise).toBeUndefined();
+      expect(started.payload.brief_history).toBeUndefined();
+      expect(started.payload.carried_goals).toBeUndefined();
+    }
+    expect(events.some((e) => e.type === 'character.joined')).toBe(false);
+    s.close();
+  });
+
+  it('opening at a DIFFERENT sublocation never consumes the registration', () => {
+    const s = freshStorage();
+    endWithRegistration(s);
+    const events = s.transact(() =>
+      appendSceneOpen(
+        s,
+        [{ character_id: 'char:elias', name: 'Elias' }],
+        {
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          scene_id: 's2',
+          title: 'Somewhere else entirely',
+          participants: [],
+        },
+        { sublocation_id: 'subloc:shrine', name: 'The Shrine' },
+      ),
+    );
+    const started = events.find((e) => e.type === 'scene.started');
+    if (started?.type === 'scene.started') {
+      expect(started.payload.brief_history).toBeUndefined();
+    }
+    s.close();
+  });
+
+  it('the roster fold distinguishes an emptied cast from an untracked scene', () => {
+    const s = freshStorage();
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'scene.started',
+      payload: { scene_id: 's1', title: 'A scene' },
+    });
+    expect(sceneRosterOf(s, 's1')).toEqual({ cast: [], tracked: false });
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'character.joined',
+      payload: { scene_id: 's1', character_id: 'char:elias', name: 'Elias' },
+    });
+    expect(sceneRosterOf(s, 's1')).toEqual({
+      cast: [{ character_id: 'char:elias', name: 'Elias' }],
+      tracked: true,
+    });
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'character.left',
+      payload: { scene_id: 's1', character_id: 'char:elias' },
+    });
+    expect(sceneRosterOf(s, 's1')).toEqual({ cast: [], tracked: true });
+    s.close();
   });
 });

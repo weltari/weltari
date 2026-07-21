@@ -351,26 +351,41 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
   function sceneHandoff(sceneId: string): {
     premise?: string;
     placeRequest?: string;
+    briefHistory?: string;
+    carriedGoals?: readonly string[];
   } {
     let premise: string | undefined;
     let placeRequest: string | undefined;
+    let briefHistory: string | undefined;
+    let carriedGoals: readonly string[] | undefined;
     let hasTurns = false;
     let hasMoved = false;
+    let hasGoals = false;
     for (const event of storage.eventLog.readSince(0, 100000)) {
       if (!('scene_id' in event.payload) || event.payload.scene_id !== sceneId)
         continue;
       if (event.type === 'scene.started') {
         premise = event.payload.premise;
         placeRequest = event.payload.place_request;
+        // The consumed continuation (0.21.0, Rev 4 §6): what makes the jump
+        // a continuation instead of a cold open.
+        briefHistory = event.payload.brief_history;
+        carriedGoals = event.payload.carried_goals;
       } else if (event.type === 'turn.committed') {
         hasTurns = true;
       } else if (event.type === 'sublocation.changed') {
         hasMoved = true;
+      } else if (event.type === 'scene.goals_updated') {
+        hasGoals = true;
       }
     }
     return {
       ...(premise === undefined || hasTurns ? {} : { premise }),
       ...(placeRequest === undefined || hasMoved ? {} : { placeRequest }),
+      // brief_history matters until the story picks up (first committed
+      // turn); carried goals until the Narrator's own snapshot supersedes.
+      ...(briefHistory === undefined || hasTurns ? {} : { briefHistory }),
+      ...(carriedGoals === undefined || hasGoals ? {} : { carriedGoals }),
     };
   }
 
@@ -915,6 +930,15 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         ...(handoff.placeRequest === undefined
           ? []
           : [`(Meeting place requested from chat: "${handoff.placeRequest}")`]),
+        ...(handoff.briefHistory === undefined
+          ? []
+          : [`(What just happened, carried over: ${handoff.briefHistory})`]),
+        ...(handoff.carriedGoals === undefined ||
+        handoff.carriedGoals.length === 0
+          ? []
+          : [
+              `(Story goals carried from the previous scene: ${handoff.carriedGoals.join('; ')})`,
+            ]),
       ];
       const firstTurnText = [command.text ?? '', ...handoffNotes]
         .filter((line) => line !== '')

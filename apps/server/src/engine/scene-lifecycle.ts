@@ -289,12 +289,60 @@ export function sceneOpenBlockers(
 }
 
 /**
+ * The pending continuation registration at a sublocation (0.21.0, Rev 4 §6):
+ * the world's LATEST scene.ended carrying a full next_scene registration,
+ * still unconsumed (no scene has started in the world since that close).
+ * Opening at its sublocation makes the open a real continuation — the fold
+ * below carries premise/brief_history/carried_goals/expected_participants
+ * into the new scene; any LATER open at the same place is a fresh visit.
+ */
+function pendingRegistrationAt(
+  storage: Storage,
+  worldId: string,
+  sublocationId: string,
+):
+  | {
+      premise_seed?: string | undefined;
+      expected_participants?: string[] | undefined;
+      brief_history?: string | undefined;
+      carried_goals?: string[] | undefined;
+    }
+  | undefined {
+  let pending:
+    | {
+        sublocation_id: string;
+        premise_seed?: string | undefined;
+        time_offset_hours?: number | undefined;
+        expected_participants?: string[] | undefined;
+        brief_history?: string | undefined;
+        carried_goals?: string[] | undefined;
+      }
+    | undefined;
+  for (const event of storage.eventLog.readSince(0, 100000)) {
+    if (event.world_id !== worldId) continue;
+    if (
+      event.type === 'scene.ended' &&
+      event.payload.next_scene !== undefined
+    ) {
+      pending = event.payload.next_scene;
+    } else if (event.type === 'scene.started') {
+      pending = undefined;
+    }
+  }
+  return pending?.sublocation_id === sublocationId ? pending : undefined;
+}
+
+/**
  * The scene-open append core (M7 part 4 refactor): scene.started + one
  * character.joined per known participant + the sublocation.changed backdrop
  * move, in append order. MUST run inside storage.transact — callers are
  * openScene and the marker click's instantiate window (which commits it in
  * the same transaction as marker.instantiated). Gates stay with the caller;
  * the caller publishes the returned events AFTER its transaction commits.
+ * 0.21.0: opening AT a registered continuation sublocation consumes the
+ * registration — brief_history + carried_goals ride scene.started, the
+ * premise_seed fills an unset premise, and the expected participants join
+ * the cast ("Jump to the next scene" is a continuation, never a cold open).
  */
 export function appendSceneOpen(
   storage: Storage,
@@ -317,6 +365,17 @@ export function appendSceneOpen(
   const idByName = new Map(
     knownCharacters.map((c) => [c.character_id, c.name]),
   );
+  const registration =
+    openAt === undefined
+      ? undefined
+      : pendingRegistrationAt(storage, command.world_id, openAt.sublocation_id);
+  const premise = command.premise ?? registration?.premise_seed;
+  const participants = [
+    ...new Set([
+      ...command.participants,
+      ...(registration?.expected_participants ?? []),
+    ]),
+  ];
   const events = [
     storage.eventLog.append({
       world_id: command.world_id,
@@ -325,15 +384,22 @@ export function appendSceneOpen(
       payload: {
         scene_id: command.scene_id,
         title: command.title,
-        ...(command.premise === undefined ? {} : { premise: command.premise }),
+        ...(premise === undefined ? {} : { premise }),
         ...(command.place_request === undefined
           ? {}
           : { place_request: command.place_request }),
         ...(invitation === undefined ? {} : { invitation }),
+        ...(registration?.brief_history === undefined
+          ? {}
+          : { brief_history: registration.brief_history }),
+        ...(registration?.carried_goals === undefined ||
+        registration.carried_goals.length === 0
+          ? {}
+          : { carried_goals: registration.carried_goals }),
       },
     }),
   ];
-  for (const characterId of command.participants) {
+  for (const characterId of participants) {
     const name = idByName.get(characterId);
     if (name === undefined) continue;
     events.push(
