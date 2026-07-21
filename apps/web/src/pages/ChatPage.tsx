@@ -89,6 +89,12 @@ export function ChatPage({
   const inScene = useIsInScene(selected?.character_id ?? '') && !isGm;
   // The consent cards (0.17.0, Rev 4 §16) live in the GM conversation.
   const pendingProposals = useSceneStore((s) => s.pendingProposals);
+  // The GM reply streaming right now (0.20.0): display-only sentences; the
+  // committed message replaces them the moment it lands (B6).
+  const gmLiveSentences = useSceneStore((s) => s.gmLiveSentences);
+  const gmLiveText = isGm
+    ? gmLiveSentences.map((frame) => frame.text).join(' ')
+    : '';
   const characterLocks = useSceneStore((s) => s.characterLocks);
   const locked =
     selected === undefined
@@ -116,9 +122,10 @@ export function ChatPage({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const typingTimerRef = useRef<number | null>(null);
   const proposalCount = isGm ? pendingProposals.length : 0;
+  const gmLiveCount = gmLiveSentences.length;
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messageCount, typing, proposalCount]);
+  }, [messageCount, typing, proposalCount, gmLiveCount]);
 
   if (selected === undefined) {
     return <div className="wl-chat-page">No characters to chat with yet.</div>;
@@ -362,7 +369,15 @@ export function ChatPage({
                 — chat ended ({thread.lastEnded.reason}) —
               </div>
             ) : null}
-            {typing ? (
+            {gmLiveText !== '' ? (
+              <div
+                className="wl-chat-bubble wl-chat-streaming"
+                data-sender="character"
+              >
+                {gmLiveText}
+              </div>
+            ) : null}
+            {typing && gmLiveText === '' ? (
               <div
                 className="wl-chat-bubble wl-chat-typing"
                 data-sender="character"

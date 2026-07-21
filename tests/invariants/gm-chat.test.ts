@@ -21,6 +21,7 @@ import {
   pendingProposalsOf,
   worldSeeded,
 } from '../../apps/server/src/engine/proposals.js';
+import type { StreamSentence } from '@weltari/protocol';
 import { createFakeLlmClient } from '../../apps/server/src/llm/fake-client.js';
 import { ok } from '../../apps/server/src/errors.js';
 import { Bus } from '../../apps/server/src/http/bus.js';
@@ -35,6 +36,8 @@ function setup(): {
   storage: Storage;
   gm: ReturnType<typeof createGmChatEngine>;
   proposals: ReturnType<typeof createProposalEngine>;
+  /** Every `call: 'gm'` frame published while the test ran (0.20.0). */
+  streamed: StreamSentence[];
 } {
   const { logger } = captureLogger();
   const storage = tempStorage();
@@ -45,6 +48,9 @@ function setup(): {
     logger,
     seedProfiles: [buildEliasProfile(100), buildMaraProfile()],
   });
+  const streamBus = new Bus<StreamSentence>(logger);
+  const streamed: StreamSentence[] = [];
+  streamBus.subscribe((frame) => streamed.push(frame));
   const gm = createGmChatEngine({
     storage,
     sink,
@@ -52,8 +58,9 @@ function setup(): {
     logger,
     proposals,
     modelConfigured: true,
+    streamBus,
   });
-  return { storage, gm, proposals };
+  return { storage, gm, proposals, streamed };
 }
 
 async function say(
@@ -91,6 +98,42 @@ describe('the GM is not a character', () => {
         `reflect_chat:${conversationIdFor(OWNER, GM_CHARACTER_ID)}:2`,
       ),
     ).toBe(0);
+  });
+
+  it('GM prose streams display-only gm frames matching the committed reply (0.20.0)', async () => {
+    const { storage, gm, streamed } = setup();
+    await say(gm, 'Hello, GM.', 'r-stream');
+    const conversationId = conversationIdFor(OWNER, GM_CHARACTER_ID);
+    expect(streamed.length).toBeGreaterThan(0);
+    for (const frame of streamed) {
+      expect(frame.call).toBe('gm');
+      expect(frame.turn_id).toBe(conversationId);
+      expect(frame.speaker).toBe('GM');
+    }
+    expect(streamed.map((f) => f.index)).toEqual(
+      streamed.map((_, i) => i), // contiguous from 0 — one attempt, one stream
+    );
+    // The durable message is the authority (B6): the frames re-assemble it.
+    const committed = storage.eventLog
+      .readSince(0, 100000)
+      .find(
+        (e) =>
+          e.type === 'chat.message_committed' && e.actor_id === GM_CHARACTER_ID,
+      );
+    expect(
+      committed?.type === 'chat.message_committed'
+        ? committed.payload.text
+        : '',
+    ).toBe(streamed.map((f) => f.text).join(' '));
+  });
+
+  it('a correction-loop retry restarts the stream at index 0', async () => {
+    const { gm, streamed } = setup();
+    // !badproposal fails gate 1 → the whole reply regenerates; each attempt
+    // streams its own sentence sequence, index restarting per attempt.
+    await say(gm, 'Please try this. !badproposal', 'r-retry');
+    const zeroes = streamed.filter((f) => f.index === 0);
+    expect(zeroes.length).toBeGreaterThan(1);
   });
 
   it('a duplicate request_id is a silent no-op', async () => {
