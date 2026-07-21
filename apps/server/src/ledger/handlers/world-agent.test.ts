@@ -275,6 +275,92 @@ describe('world agent job handler', () => {
     expect(wiki?.prompt).toContain('tucks something out of sight');
   });
 
+  it('an empty generation writes the name-derived fallback, never nothing (week 19, Rev 4 §10 zero-activity)', async () => {
+    const emptyWikiLlm: LlmClient = {
+      streamCall: async (call): Promise<Result<LlmCallResult>> => {
+        const isWiki = call.prompt.includes('Write the sublocation wiki entry');
+        return Promise.resolve(
+          ok({
+            text: isWiki ? '   ' : 'The world moves on.',
+            usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+            model: 'fake/empty-wiki',
+            durationMs: 0,
+            toolCalls: [],
+          }),
+        );
+      },
+    };
+    const ctx = setup(emptyWikiLlm);
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'sublocation.stub_created',
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-the-park',
+        name: 'the park',
+        description: 'A park in the city center.',
+      },
+    });
+
+    await ctx.handler(jobWith({ scene_id: 's1' }));
+
+    const entries = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'subwiki.updated');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.payload.entry).toBe('A park in the city center.');
+  });
+
+  it("the parent's wiki gains a mention of a new interior child, exactly once (week 19, Rev 4 §10 lifecycle)", async () => {
+    const ctx = setup();
+    // The parent already has a wiki entry from an earlier scene.
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:world_agent',
+      type: 'subwiki.updated',
+      payload: {
+        sublocation_id: 'subloc:inn',
+        scene_id: 's0',
+        entry: 'A rain-lashed inn with a low common room.',
+      },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      type: 'sublocation.stub_created',
+      payload: {
+        scene_id: 's1',
+        sublocation_id: 'subloc:stub-the-kitchen',
+        name: 'the kitchen',
+        description: 'Copper pots over a smoke-blacked hearth.',
+        parent_id: 'subloc:inn',
+      },
+    });
+
+    const job = jobWith({ scene_id: 's1' });
+    await ctx.handler(job);
+    await ctx.handler(job); // kill-retry: nothing may twin
+
+    const parentEntries = ctx.storage.eventLog
+      .readSince(0)
+      .filter((e) => e.type === 'subwiki.updated')
+      .filter((e) => e.payload.sublocation_id === 'subloc:inn');
+    // The seeded s0 entry + exactly ONE mention append.
+    expect(parentEntries).toHaveLength(2);
+    const latest = parentEntries[parentEntries.length - 1];
+    expect(latest?.payload.entry).toContain('rain-lashed inn');
+    expect(latest?.payload.entry).toContain('the kitchen');
+    expect(latest?.payload.entry).toContain('Copper pots');
+    // The child got its own entry too.
+    expect(
+      ctx.storage.eventLog
+        .readSince(0)
+        .filter((e) => e.type === 'subwiki.updated')
+        .filter((e) => e.payload.sublocation_id === 'subloc:stub-the-kitchen'),
+    ).toHaveLength(1);
+  });
+
   it('a scene with no participating stubs writes no subwiki entries', async () => {
     const ctx = setup();
     await ctx.handler(jobWith({ scene_id: 's1' }));

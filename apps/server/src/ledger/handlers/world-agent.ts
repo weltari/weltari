@@ -27,6 +27,8 @@ interface ParticipatingStub {
   sublocation_id: string;
   name: string;
   description: string;
+  /** The exterior-atomic parent (Rev 4 §6 flat hierarchy), when interior. */
+  parent_id?: string;
 }
 
 /**
@@ -47,6 +49,9 @@ function participatingStubs(
         sublocation_id: event.payload.sublocation_id,
         name: event.payload.name,
         description: event.payload.description,
+        ...(event.payload.parent_id === undefined
+          ? {}
+          : { parent_id: event.payload.parent_id }),
       });
       if (event.payload.scene_id === sceneId) {
         participating.add(event.payload.sublocation_id);
@@ -137,8 +142,22 @@ export function createWorldAgentHandler(
       latest_turns: sceneNarrationTranscript(storage, scene_id),
       wiki: [],
     });
+    // The latest-wins wiki view (the chat-queries fold): the base the
+    // zero-activity fallback and the parent-mention dedup both read; staged
+    // entries from THIS pass overlay it as they are built.
+    const latestEntries = new Map<string, string>();
+    for (const event of storage.eventLog.readSince(0, 100000)) {
+      if (
+        (event.type === 'subwiki.updated' || event.type === 'subwiki.edited') &&
+        event.world_id === job.world_id
+      ) {
+        latestEntries.set(event.payload.sublocation_id, event.payload.entry);
+      }
+    }
+
     const subwikiEvents: NewEvent[] = [];
-    for (const stub of participatingStubs(storage, scene_id)) {
+    const stubs = participatingStubs(storage, scene_id);
+    for (const stub of stubs) {
       const entryResult = await llm.streamCall({
         kind: 'world_agent',
         characterId: narrator.character_id,
@@ -147,13 +166,22 @@ export function createWorldAgentHandler(
         onTextDelta: (): void => undefined,
       });
       if (!entryResult.ok) throw entryResult.error; // operational -> retry (C7)
-      const entry = entryResult.value.text.trim().slice(0, SUBWIKI_ENTRY_MAX);
-      if (entry === '') {
-        logger.warn(
+      const generated = entryResult.value.text
+        .trim()
+        .slice(0, SUBWIKI_ENTRY_MAX);
+      // Week 19 (Rev 4 §10 zero-activity fallback): a scene that ended with
+      // no usable narration still leaves the place its name-derived brief —
+      // the World Agent cannot invent facts, only observe, and the
+      // Narrator's own brief is the one observation that always exists.
+      const entry =
+        generated === ''
+          ? stub.description.slice(0, SUBWIKI_ENTRY_MAX)
+          : generated;
+      if (generated === '') {
+        logger.debug(
           { scene_id, sublocation_id: stub.sublocation_id },
-          'subwiki entry came back empty — skipped',
+          'subwiki entry came back empty — name-derived fallback written',
         );
-        continue;
       }
       subwikiEvents.push({
         world_id: job.world_id,
@@ -165,6 +193,34 @@ export function createWorldAgentHandler(
           entry,
         },
       });
+      latestEntries.set(stub.sublocation_id, entry);
+    }
+
+    // Week 19 (Rev 4 §10 lifecycle): the PARENT's wiki gains a natural
+    // mention of any new interior child — fresh eyes at the café can tell it
+    // has a kitchen. Deterministic (no LLM call: the mention only restates
+    // the stub's own brief); the contains-check keeps re-runs and later
+    // scenes from stacking duplicates.
+    for (const stub of stubs) {
+      if (stub.parent_id === undefined) continue;
+      const current = latestEntries.get(stub.parent_id) ?? '';
+      if (current.includes(stub.name)) continue;
+      const mention = `Inside lies ${stub.name} — ${stub.description}`;
+      const entry = (current === '' ? mention : `${current}\n${mention}`).slice(
+        0,
+        SUBWIKI_ENTRY_MAX,
+      );
+      subwikiEvents.push({
+        world_id: job.world_id,
+        actor_id: 'system:world_agent',
+        type: 'subwiki.updated',
+        payload: {
+          sublocation_id: stub.parent_id,
+          scene_id,
+          entry,
+        },
+      });
+      latestEntries.set(stub.parent_id, entry);
     }
 
     // Last-instant idempotency re-check, NO await between it and the append
