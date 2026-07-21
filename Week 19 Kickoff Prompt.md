@@ -29,7 +29,7 @@ Weather is V1.5 (owner ruling); **backpacks are V2** (owner ruling
 | 17 | The living-world loop | §14, §17 | ✅ done |
 | — | The GM proposal UX contract | §9, §16 | ✅ done |
 | 18 | The agentic scene | §6 | ✅ done (`docs/week18-results.md`) |
-| **19 (this prompt)** | **Verification & close-out**: the §18 audit, fix findings, packaging ship, handover refresh, key rotation confirmed | all | |
+| **19 (this prompt)** | **Verification & close-out**: the §18 audit, fix findings, packaging ship, handover refresh | all | |
 
 Already deferred (stays deferred): user Feed posting (V1.5), Mail, the
 resolve loop, FEL/DES, multiplayer, inter-agent comms, object nesting,
@@ -69,8 +69,11 @@ the set-typed determine_who_next contract is the V1 obligation, met).
    pose set).
 9. The `!endnextpartial`-class gate-1 refusals: confirm the correction
    loop's step budget suffices on the real client (LOOP_STEP_LIMIT 12).
-10. ⚠️ **Key rotation** — the standing owner task; V1 does not close with
-    the shared key still live. Rotate, update `.env`, confirm boot.
+10. **Key rotation — owner ruling 2026-07-21: I rotate the key MYSELF
+    right after week 19 finishes.** The session does NOT block on it and
+    never touches the key; just confirm `.env` is the only place it lives
+    (Guide rule 5) and note the pending rotation in the results doc as the
+    one post-close owner step.
 
 ## Scope (recommended — adjust with me at session start)
 
@@ -87,8 +90,9 @@ the set-typed determine_who_next contract is the V1 obligation, met).
    `docs/code-tour/` brought current; `CLAUDE.md` stays ~1 page.
 5. **The standing triad** stays green: 26 points, CYCLES=26, verify
    through 4r; nightly CYCLES=100 once before close.
-6. **Key rotation confirmed** (item 10) — then, and only then, declare V1
-   done in the results doc.
+6. **Declare V1 done** in the results doc once (a)–(e) hold — with the
+   owner's post-close key rotation (item 10) noted as the single step that
+   happens after the session, owner-side.
 
 ## Machinery to REUSE (never fork)
 
@@ -149,8 +153,9 @@ local fixture, and the packaging doc matches reality.
 refreshed; a fresh agent could continue from them alone.
 (e) Gate exit 0; harness CYCLES=26 green at $0.00; one nightly-scale
 CYCLES=100 run green; idle RSS < 170 MB.
-(f) **Key rotation done and confirmed** — the old key dead, the new one
-booting the real server; only then does the results doc declare V1 done.
+(f) **The results doc declares V1 done** and names the owner's post-close
+key rotation (ruling 2026-07-21: rotated owner-side right after the
+session) as the only step remaining outside the repo.
 
 ## Budget (owner)
 
