@@ -116,6 +116,15 @@ const POINTS = [
   // is killed BEFORE its generated marker.dropped commits; convergence =
   // the boot top-up restores 1 ≤ live ≤ 5.
   'mid_marker_topup',
+
+  // The GM proposal UX contract (0.20.0, Rev 4 §9/§16): a card is approved
+  // and the durable tool-result turn is killed inside its commit window —
+  // the follow-up generated, the chat.message_committed with the
+  // deterministic id gm-followup-<proposal_id> not yet appended;
+  // convergence = the BOOT sweep (recovery path = startup path) commits the
+  // follow-up EXACTLY once (natural key = the message id; 4q sweeps
+  // uniqueness + outcome pairing offline).
+  'mid_gm_followup',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -367,6 +376,20 @@ function dbProposalState(proposalId) {
     .get(like).n;
   db.close();
   return { resolutions, materialized };
+}
+
+/** The durable tool-result turn's natural key (the UX contract): how many
+ * chat messages carry the deterministic follow-up id. */
+function dbFollowupCount(messageId) {
+  const db = new Database(dbPath);
+  const n = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM events
+       WHERE type = 'chat.message_committed' AND payload LIKE ?`,
+    )
+    .get(`%"message_id":"${messageId}"%`).n;
+  db.close();
+  return n;
 }
 
 /** One harness stray's object state (M7 part 3): the live row count, its
@@ -944,8 +967,18 @@ let pendingObjectGc = null;
 let pendingMarkerSweep = null;
 let pendingMarkerClick = null;
 let pendingMarkerTopup = false;
+// The UX contract: the approved card whose durable tool-result turn was
+// killed inside its commit window (convergence = the boot sweep commits
+// the follow-up exactly once under its deterministic message id).
+let pendingFollowup = null;
+let followSeq = 0;
 
-for (let cycle = 0; cycle < CYCLES; cycle++) {
+// One extra FINAL iteration boots the server purely to run the convergence
+// checks for the last cycle's kill — with CYCLES an exact multiple of the
+// point count, the last point would otherwise never be verified (found when
+// mid_gm_followup became point 25 of a 25-cycle run).
+for (let cycle = 0; cycle < CYCLES + 1; cycle++) {
+  const finalConvergencePass = cycle === CYCLES;
   const point = POINTS[cycle % POINTS.length];
   rotatePort();
   // Proactive DMs ride the game clock since M6 part 4 (owner ruling
@@ -1426,6 +1459,51 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
     }
     console.log('mid_marker_topup convergence ok: boot restored the floor');
     pendingMarkerTopup = false;
+  }
+
+  // The UX contract: a kill at mid_gm_followup must CONVERGE — the
+  // resolution was already durable, so the BOOT sweep re-derives the
+  // missing follow-up and commits it EXACTLY once (natural key = the
+  // deterministic message id; a duplicate is a hard failure).
+  if (pendingFollowup !== null) {
+    const messageId = `gm-followup-${pendingFollowup}`;
+    const resolutions = dbProposalState(pendingFollowup).resolutions;
+    if (resolutions !== 1) {
+      child.kill('SIGKILL');
+      fail(
+        `mid_gm_followup: proposal ${pendingFollowup} has ${resolutions} resolutions (the kill landed AFTER the resolve committed)`,
+      );
+    }
+    const deadline = Date.now() + 30000;
+    for (;;) {
+      const count = dbFollowupCount(messageId);
+      if (count > 1) {
+        child.kill('SIGKILL');
+        fail(`duplicate follow-up ${messageId}: ${count} messages`);
+      }
+      if (count === 1) break;
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        fail(`follow-up ${messageId} never committed after the boot sweep`);
+      }
+      await sleep(500);
+    }
+    console.log(
+      'mid_gm_followup convergence ok: the boot sweep committed the follow-up exactly once',
+    );
+    pendingFollowup = null;
+  }
+
+  // The extra iteration exists only for the checks above — nothing new to
+  // trigger; verify once more offline and stop.
+  if (finalConvergencePass) {
+    child.kill('SIGKILL');
+    await exited(child);
+    const verifyCode = await runVerify();
+    if (verifyCode !== 0)
+      fail('final convergence pass: verify-consistency failed');
+    console.log('final convergence pass ok: every kill converged');
+    break;
   }
 
   // A scene ended by a previous cycle needs a successor — and getting one is
@@ -1993,6 +2071,43 @@ for (let cycle = 0; cycle < CYCLES; cycle++) {
       }).catch(() => null);
       await killAt;
       pendingMarkerTopup = true;
+      break;
+    }
+    case 'mid_gm_followup': {
+      followSeq += 1;
+      const placeName = `follow court ${followSeq}`;
+      // The GM proposes through its own conversation (the mid_proposal_apply
+      // shape), the card commits detached — poll for it.
+      const gmRes = await post('/v1/commands/send-chat-message', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        character_id: 'char:gm',
+        text: `Harness follow-up ${followSeq}: !proposeplace follow-court-${followSeq}`,
+        request_id: `harness-follow-${followSeq}`,
+      });
+      if (gmRes.status !== 202)
+        fail(`send-chat-message (GM) returned ${gmRes.status}`);
+      const cardDeadline = Date.now() + 15000;
+      let proposalId = dbProposalIdByPlace(placeName);
+      while (proposalId === null) {
+        if (Date.now() > cardDeadline)
+          fail('mid_gm_followup: the GM card never committed');
+        await sleep(250);
+        proposalId = dbProposalIdByPlace(placeName);
+      }
+      // Approve for real (the resolve commits synchronously, passing its
+      // own mid_proposal_apply pause) — the kill target is the DETACHED
+      // follow-up turn's commit window that fires right after.
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_gm_followup', 30000);
+      const res = await post('/v1/commands/resolve-proposal', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        proposal_id: proposalId,
+        resolution: 'approved',
+      });
+      if (res.status !== 202) fail(`resolve-proposal returned ${res.status}`);
+      await killAt;
+      pendingFollowup = proposalId;
       break;
     }
     case 'mid_update': {
