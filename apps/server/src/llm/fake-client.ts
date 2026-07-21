@@ -212,6 +212,22 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
   return {
     async streamCall(call: LlmCall): Promise<Result<LlmCallResult>> {
       let text = SCRIPT[call.kind] ?? 'The rain continues.';
+      // The GM's durable tool-result turn (the UX contract): the follow-up
+      // instruction names the outcome — the scripted reply visibly REACTS
+      // to the verdict, so browser demos and tests drive the whole loop at
+      // $0 (the transcript's [tool result] line is the durable context).
+      if (call.kind === 'gm') {
+        if (call.prompt.includes('The user just CONSENTED to your proposal')) {
+          text =
+            'Wonderful — it is real now, woven into the world. Shall I sketch what stands next to it, or would you rather wander there first?';
+        } else if (call.prompt.includes('The user REJECTED your proposal')) {
+          text =
+            'Fair enough — I have set that idea aside, nothing was changed. Tell me what felt wrong and I will bring you a better one.';
+        } else if (call.prompt.includes('The user clicked "Chat about this"')) {
+          text =
+            'Of course — the card can wait as long as you like. Tell me what is on your mind about it.';
+        }
+      }
       // The scripted mid-call query (M6 part 1): a real model would receive
       // the executor's result and keep generating — the fake just runs the
       // executor so the engine's query-first flag and dev trail behave
@@ -531,6 +547,19 @@ export function createFakeLlmClient(options: FakeLlmOptions = {}): LlmClient {
                           //   !badproposal                → gate-1 subject
                           ((): RawToolCall[] => {
                             const calls: RawToolCall[] = [];
+                            // A follow-up turn (the durable tool-result
+                            // turn) NEVER re-reads the old user markers —
+                            // the instruction says react to the verdict,
+                            // not re-propose; without this guard a
+                            // rejected !proposeplace would mint a twin
+                            // card on the follow-up.
+                            if (
+                              /The user (just CONSENTED to|REJECTED|clicked "Chat about this")/.test(
+                                call.prompt,
+                              )
+                            ) {
+                              return calls;
+                            }
                             // Markers are read AFTER the last user line only
                             // (the group-router rule): a consumed marker in
                             // the transcript never re-proposes on later

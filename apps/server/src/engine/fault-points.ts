@@ -70,7 +70,13 @@ export type FaultPoint =
    * the minimum, the generated marker.dropped not yet appended. A kill
    * heals at the next top-up site (boot / sweep / click / scene end); the
    * in-transaction live recount keeps the map at or under the maximum. */
-  | 'mid_marker_topup';
+  | 'mid_marker_topup'
+  /** The GM proposal UX contract: inside the durable tool-result turn's
+   * commit window — the follow-up reply generated, the chat.message_committed
+   * with its deterministic id (gm-followup-/gm-discuss-<proposal_id>) not yet
+   * appended. A kill heals at the boot sweep; the natural key (message_id)
+   * through the fused re-check keeps the follow-up single per resolution. */
+  | 'mid_gm_followup';
 
 /**
  * May pause (return a promise) so the harness SIGKILL lands inside the window;
