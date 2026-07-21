@@ -29,6 +29,43 @@ describe('sublocation registry (projection of the event log)', () => {
     return storage;
   }
 
+  it('a GM-built world (world.seeded) owns its whole geography — no fixture base (week 19, audit item 1)', () => {
+    const s = setup();
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'world.seeded',
+      payload: {
+        world_name: 'Brackwater',
+        language: 'en',
+        place_count: 2,
+        character_count: 1,
+        proposal_id: 'prop-1',
+      },
+    });
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'sublocation.materialized',
+      payload: {
+        sublocation_id: 'subloc:sq-2-2',
+        name: 'The Ferry Landing',
+        description: 'Pilings and rope.',
+        square: { col: 2, row: 2 },
+        map_position: squareCenter({ col: 2, row: 2 }),
+      },
+    });
+    const known = knownSublocations(s, 'w1').map((x) => x.sublocation_id);
+    expect(known).toEqual(['subloc:sq-2-2']);
+    for (const fixture of FIXTURE_SUBLOCATIONS) {
+      expect(known).not.toContain(fixture.sublocation_id);
+    }
+    // A DIFFERENT world in the same log (no world.seeded) keeps the base.
+    expect(knownSublocations(s, 'w2').map((x) => x.sublocation_id)).toEqual(
+      FIXTURE_SUBLOCATIONS.map((x) => x.sublocation_id),
+    );
+  });
+
   it('starts as the fixture trio and grows with sublocation.materialized', () => {
     const s = setup();
     expect(knownSublocations(s, 'w1').map((x) => x.sublocation_id)).toEqual(

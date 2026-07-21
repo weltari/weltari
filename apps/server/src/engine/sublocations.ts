@@ -45,8 +45,16 @@ export function knownSublocations(
   storage: Storage,
   worldId: string,
 ): SublocationDefinition[] {
+  // Week 19 (audit item 1): a GM-built world carries `world.seeded` from its
+  // approved seed card and owns its WHOLE geography — the fixture trio never
+  // enters its registry (a blank world could otherwise legally move scenes
+  // into the Rainy Inn). Fixture/dev/test worlds (no world.seeded) keep the
+  // fixture base that seeds their map.
+  const gmBuilt = storage.eventLog
+    .readSince(0, 100000)
+    .some((e) => e.world_id === worldId && e.type === 'world.seeded');
   const byId = new Map<string, SublocationDefinition>(
-    FIXTURE_SUBLOCATIONS.map((s) => [s.sublocation_id, s]),
+    gmBuilt ? [] : FIXTURE_SUBLOCATIONS.map((s) => [s.sublocation_id, s]),
   );
   for (const event of storage.eventLog.readSince(0, 100000)) {
     if (event.world_id !== worldId) continue;
