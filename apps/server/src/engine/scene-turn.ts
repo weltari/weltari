@@ -723,6 +723,10 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
             return `ERROR: no callable profile for ${parsed.data.character_id}.`;
           }
           characterCalls += 1;
+          // The mid-loop kill window (I4): declaration consumed, staged
+          // effects in memory, the inner call about to run — a kill here
+          // must void the whole turn with zero partial rows.
+          await faultPoint('mid_charactercall');
           // Close the narrator segment BEFORE the character speaks, so the
           // committed steps keep true display order.
           splitter.flush();

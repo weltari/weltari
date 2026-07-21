@@ -117,7 +117,14 @@ describe('scripted 3-call scene turn', () => {
       narratorFrames.map((_, i) => i),
     );
 
-    expect(ctx.faults).toEqual(['mid_stream', 'between_calls', 'pre_commit']);
+    // 0.21.0: the loop's mid_charactercall window fires between the first
+    // narrator sentence and the post-loop between_calls point.
+    expect(ctx.faults).toEqual([
+      'mid_stream',
+      'mid_charactercall',
+      'between_calls',
+      'pre_commit',
+    ]);
   });
 
   it('a mid-turn provider failure voids the turn: nothing durable after turn.started', async () => {

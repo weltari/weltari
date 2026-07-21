@@ -125,6 +125,14 @@ const POINTS = [
   // follow-up EXACTLY once (natural key = the message id; 4q sweeps
   // uniqueness + outcome pairing offline).
   'mid_gm_followup',
+  // The agentic scene (0.21.0, Rev 4 §6): a loop turn carrying a goals
+  // snapshot + the default charactercall is killed INSIDE the charactercall
+  // executor — declaration consumed, staged effects in memory, the inner
+  // C-Module call about to run; convergence = the whole turn voided
+  // (started-without-committed): zero cast/goal/turn rows from it (4r
+  // sweeps the goals↔turn atomicity + roster consistency offline), and the
+  // next turn on the same scene runs clean.
+  'mid_charactercall',
 ];
 const CYCLES = Number(process.env.CYCLES ?? 25);
 // Windows: each cycle's respawned server gets a FRESH port. Aborted SSE
@@ -1522,6 +1530,15 @@ for (let cycle = 0; cycle < CYCLES + 1; cycle++) {
     case 'pre_commit': {
       const killAt = waitForLine(child, `FAULT_POINT:${point}`, 20000);
       await postTurn(currentScene);
+      await killAt;
+      break;
+    }
+    case 'mid_charactercall': {
+      // The agentic loop's mid-window (0.21.0): the goals marker stages a
+      // snapshot and the default flow declares + charactercalls Elias — the
+      // kill lands between the consumed declaration and the inner call.
+      const killAt = waitForLine(child, 'FAULT_POINT:mid_charactercall', 20000);
+      await postTurn(currentScene, 202, 'Harness turn. !goals harness-arc');
       await killAt;
       break;
     }
