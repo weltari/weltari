@@ -153,14 +153,16 @@ const narrator = buildNarratorProfile(env.prefixTokens);
 // approved seed/create proposals and fold in through the registry below.
 const seedProfiles = env.fixtureWorld ? [elias, mara] : [];
 // The DM-able roster: seeds ∪ every character.created (built at boot — a
-// character created THIS session becomes DM-able on the next boot; the live
-// getter arrives with week 18's make_character). Mara is chat-side only —
-// the scene cast stays Elias, so prefix-size runs and the harness scenes
-// are untouched.
+// character created THIS session becomes DM-able on the next boot; the turn
+// engine folds its own LIVE registry per turn since 0.21.0).
 const dmRoster = characterProfilesOf(storage, FIXTURE_WORLD_ID, seedProfiles);
-const knownCharacters = [
-  { character_id: elias.character_id, name: elias.name },
-];
+// 0.21.0 (the agentic scene): the cast is dynamic — every seam that maps
+// character ids to display names (scene opens/ends, markers) reads the full
+// boot-time registry, not just the fixture scene cast.
+const knownCharacters = dmRoster.map((p) => ({
+  character_id: p.character_id,
+  name: p.name,
+}));
 
 // Fixture world seed (builder.md §4.3, reshaped in M4 part 2): an empty log
 // gets the fixture trio as materialized sublocations — the map starts with
