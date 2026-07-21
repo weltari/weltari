@@ -551,6 +551,33 @@ export type ResolveProposalAccepted = z.infer<
 >;
 
 /**
+ * POST /v1/commands/discuss-proposal — the "Chat about this" click as a real
+ * signal (0.20.0, Rev 4 §16, the GM proposal UX contract). Durable as a
+ * proposal.discussed event: the GM's next turn sees the user wants to talk
+ * it over (the tool call's interim result) and stops proposing. NOT a
+ * resolution — the proposal stays pending and resolvable later; zero domain
+ * rows (I8). Idempotent: a second discuss on the same still-pending proposal
+ * is a 409.
+ */
+export const DiscussProposalCommandSchema = z.strictObject({
+  world_id: z.string().min(1),
+  actor_id: z.string().min(1),
+  proposal_id: z.string().min(1).max(100),
+});
+export type DiscussProposalCommand = z.infer<
+  typeof DiscussProposalCommandSchema
+>;
+
+/** 202 response: the discuss signal is durable and on the stream. */
+export const DiscussProposalAcceptedSchema = z.strictObject({
+  accepted: z.literal(true),
+  proposal_id: z.string().min(1),
+});
+export type DiscussProposalAccepted = z.infer<
+  typeof DiscussProposalAcceptedSchema
+>;
+
+/**
  * POST /v1/commands/set-config-flag — flip a world flag (0.17.0, Rev 4 §15).
  * Durable as a config.flag_set event; the flag state is a latest-wins fold.
  */

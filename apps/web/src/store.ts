@@ -170,6 +170,13 @@ export interface PendingProposal {
   payload: ProposalPayload;
 }
 
+/** A scene-side stream frame: `call: 'gm'` frames ride the GM thread's own
+ * buffer (0.20.0), so the scene pacing surfaces never see one — typed out
+ * here instead of guarded in every consumer. */
+export type SceneStreamSentence = Omit<StreamSentence, 'call'> & {
+  call: 'narrator' | 'character' | 'narration';
+};
+
 export interface SceneStore {
   connected: boolean;
   protocolVersion: string | null;
@@ -222,7 +229,7 @@ export interface SceneStore {
   openTurnId: string | null;
   /** The latest turn that streamed display-only sentences (B6: never durable). */
   liveTurnId: string | null;
-  liveSentences: StreamSentence[];
+  liveSentences: SceneStreamSentence[];
   /** Dev channel ring buffer (?dev=1 only) — the log-only trail (UI Spec §2.8). */
   devFrames: DevEvent[];
   /** Latest update.available — the Config badge (untrusted metadata, B12). */
@@ -940,6 +947,11 @@ function applyOne(
       }));
       return;
     }
+    // The "Chat about this" signal (0.20.0): consumed server-side by the GM
+    // follow-up turn; the card-side discussed flag folds in with the inline
+    // proposal rework.
+    case 'proposal.discussed':
+      return;
     case 'config.flag_set': {
       // flag → store field; a new wire flag fails to compile until mapped.
       const field = { profiling_enabled: 'profilingEnabled' } as const;
@@ -1045,6 +1057,10 @@ export const useSceneStore = create<SceneStore>((set) => ({
   },
 
   applyStream(frame: StreamSentence): void {
+    // GM frames (0.20.0) never touch the scene pacing buffer — they get
+    // their own thread-side buffer with the GM streaming rework.
+    if (frame.call === 'gm') return;
+    const sceneFrame: SceneStreamSentence = { ...frame, call: frame.call };
     set((state) => {
       // Sentences for a stale turn (reconnect races) are dropped — the
       // committed event is the authoritative transcript anyway (B6).
@@ -1053,7 +1069,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
       }
       return {
         liveTurnId: frame.turn_id,
-        liveSentences: [...state.liveSentences, frame],
+        liveSentences: [...state.liveSentences, sceneFrame],
       };
     });
   },

@@ -11,7 +11,8 @@
       "enum": [
         "narrator",
         "character",
-        "narration"
+        "narration",
+        "gm"
       ]
     },
     "speaker": {

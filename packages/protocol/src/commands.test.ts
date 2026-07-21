@@ -5,6 +5,8 @@ import {
   ApplyUpdateCommandSchema,
   DeleteProfileAcceptedSchema,
   DeleteProfileCommandSchema,
+  DiscussProposalAcceptedSchema,
+  DiscussProposalCommandSchema,
   EndSceneCommandSchema,
   ExitChatCommandSchema,
   ResolveProposalAcceptedSchema,
@@ -428,6 +430,16 @@ describe('response and stream frames', () => {
       index: 0,
     };
     expect(StreamSentenceSchema.safeParse(ok).success).toBe(true);
+    // 0.20.0: a GM reply streams into the GM thread — turn_id carries the
+    // conversation id.
+    const gm: unknown = {
+      turn_id: 'chat:user:owner:char:gm',
+      call: 'gm',
+      speaker: 'GM',
+      text: 'Let me look at the existing characters first.',
+      index: 0,
+    };
+    expect(StreamSentenceSchema.safeParse(gm).success).toBe(true);
     const bad: unknown = {
       turn_id: 't1',
       call: 'narrator',
@@ -604,6 +616,30 @@ describe('GM command family (0.17.0, M7 part 2, Rev 4 §9/§15/§16)', () => {
       applied: 4,
     };
     expect(ResolveProposalAcceptedSchema.safeParse(accepted).success).toBe(
+      true,
+    );
+  });
+
+  it('discuss-proposal validates and rejects a resolution field (B5)', () => {
+    const ok: unknown = {
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      proposal_id: 'p-1',
+    };
+    expect(DiscussProposalCommandSchema.safeParse(ok).success).toBe(true);
+    for (const bad of [
+      { world_id: 'w1', actor_id: 'user:owner' },
+      {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        proposal_id: 'p-1',
+        resolution: 'approved',
+      },
+    ]) {
+      expect(DiscussProposalCommandSchema.safeParse(bad).success).toBe(false);
+    }
+    const accepted: unknown = { accepted: true, proposal_id: 'p-1' };
+    expect(DiscussProposalAcceptedSchema.safeParse(accepted).success).toBe(
       true,
     );
   });

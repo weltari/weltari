@@ -3,21 +3,20 @@
 // read cursor — pure view state, so it lives in React, not in the store
 // (the store stays writable only by the SSE reducer).
 import { useCallback, useEffect, useState } from 'react';
-import type { StreamSentence } from '@weltari/protocol';
 import type { SeenCut } from './commands.js';
-import { useSceneStore } from './store.js';
+import { useSceneStore, type SceneStreamSentence } from './store.js';
 
 const AUTO_KEY = 'weltari.autoAdvance';
 
 /** Reading time scaled by sentence length, clamped to a comfortable band. */
-function autoDelayMs(sentence: StreamSentence | undefined): number {
+function autoDelayMs(sentence: SceneStreamSentence | undefined): number {
   const length = sentence?.text.length ?? 60;
   return Math.min(4200, Math.max(1100, 650 + length * 32));
 }
 
 export interface Pacing {
   /** The live turn's sentences the reader has revealed so far. */
-  displayed: StreamSentence[];
+  displayed: SceneStreamSentence[];
   /** More sentences are buffered beyond the cursor. */
   hasMore: boolean;
   /** Reveal the next sentence (click / Auto-Advance). */
