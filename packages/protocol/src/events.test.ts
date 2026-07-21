@@ -1597,6 +1597,21 @@ describe('GM event family (0.17.0, M7 part 2, Rev 4 §9/§15/§16)', () => {
     expect(WeltariEventSchema.safeParse(bad).success).toBe(false);
   });
 
+  it('accepts proposal.discussed and rejects a payload with extras (B5)', () => {
+    const event: unknown = {
+      ...envelope,
+      type: 'proposal.discussed',
+      payload: { proposal_id: 'p-1' },
+    };
+    expect(WeltariEventSchema.safeParse(event).success).toBe(true);
+    const bad: unknown = {
+      ...envelope,
+      type: 'proposal.discussed',
+      payload: { proposal_id: 'p-1', resolution: 'approved' },
+    };
+    expect(WeltariEventSchema.safeParse(bad).success).toBe(false);
+  });
+
   it('accepts character.created (empty core allowed) and world.seeded', () => {
     const created: unknown = {
       ...envelope,

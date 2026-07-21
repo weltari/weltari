@@ -971,6 +971,26 @@ export const ProposalResolvedEventSchema = z.strictObject({
 });
 
 /**
+ * The user asked to talk a pending proposal over (0.20.0, Rev 4 §16, the GM
+ * proposal UX contract): the "Chat about this" click as a DURABLE signal —
+ * the GM's next turn sees it as the tool call's interim result (stop
+ * proposing, listen), instead of a client-side input prefill that reaches
+ * nobody. The proposal itself stays PENDING: this is not a resolution, the
+ * card remains resolvable later, and zero domain rows ride it (I8).
+ * Idempotent per proposal: the engine refuses a second discuss while the
+ * first stands unresolved. Emitted by: the discuss-proposal command seam.
+ * Consumed by: the GM follow-up turn (the durable tool-result machinery),
+ * clients (the card shows it is being discussed).
+ */
+export const ProposalDiscussedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('proposal.discussed'),
+  payload: z.strictObject({
+    proposal_id: z.string().min(1).max(100),
+  }),
+});
+
+/**
  * A durable character entered the world (0.17.0, M7 part 2, Rev 4 §9): the
  * seed profile of a GM-authored (or cold-boot-seeded) character — the exact
  * counterpart of a fixture profile, as an event. The live-profile fold treats
@@ -1643,6 +1663,7 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   CharacterLocationChangedEventSchema,
   ProposalSubmittedEventSchema,
   ProposalResolvedEventSchema,
+  ProposalDiscussedEventSchema,
   CharacterCreatedEventSchema,
   WorldSeededEventSchema,
   GatewayBindingEstablishedEventSchema,

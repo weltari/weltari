@@ -20,10 +20,13 @@ export type StreamHello = z.infer<typeof StreamHelloSchema>;
 /**
  * One streamed sentence (`event: stream`), display-only. `index` restarts at 0
  * per call; clients render in arrival order and discard on turn commit.
+ * `call: 'gm'` (0.20.0, the GM proposal UX contract): a GM reply streaming
+ * into the GM thread — `turn_id` carries the conversation id; the durable
+ * chat.message_committed stays the authoritative transcript (B6).
  */
 export const StreamSentenceSchema = z.strictObject({
   turn_id: z.string().min(1),
-  call: z.enum(['narrator', 'character', 'narration']),
+  call: z.enum(['narrator', 'character', 'narration', 'gm']),
   speaker: z.string().min(1),
   text: z.string(),
   index: z.int().nonnegative(),

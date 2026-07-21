@@ -126,8 +126,18 @@
  * (202 outcome instantiated | join). MapJumpDetail gains optional scene_id
  * (additive): a marker click's jump enters the already-open scene instead
  * of minting one.
+ * 0.20.0 (the GM proposal UX contract, Rev 4 §9/§16, owner ruling
+ * 2026-07-11): the GM works like a coding agent's tool loop.
+ * StreamSentence.call gains 'gm' (additive) — GM prose streams
+ * display-only into the GM thread, turn_id carrying the conversation id;
+ * the committed chat.message_committed stays the authoritative transcript
+ * (B6). New command discuss-proposal + event proposal.discussed: the
+ * "Chat about this" click as a durable signal the GM's next turn reads —
+ * the proposal stays pending, zero domain rows (I8). The consent verdict
+ * itself already rides proposal.resolved; the durable tool-result turn
+ * consumes it server-side, no wire change.
  */
-export const PROTOCOL_VERSION = '0.19.0';
+export const PROTOCOL_VERSION = '0.20.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -177,6 +187,7 @@ export {
   ProposalCharacterDiffSchema,
   ProposalObjectDiffSchema,
   ProposalPlaceDiffSchema,
+  ProposalDiscussedEventSchema,
   ProposalResolvedEventSchema,
   ProposalSubmittedEventSchema,
   ReflectionCommittedEventSchema,
@@ -271,6 +282,8 @@ export {
   OpenSceneCommandSchema,
   PaintRegionAcceptedSchema,
   PaintRegionCommandSchema,
+  DiscussProposalAcceptedSchema,
+  DiscussProposalCommandSchema,
   ResolveProposalAcceptedSchema,
   ResolveProposalCommandSchema,
   SendChatMessageAcceptedSchema,
@@ -318,6 +331,8 @@ export {
   type OpenSceneCommand,
   type PaintRegionAccepted,
   type PaintRegionCommand,
+  type DiscussProposalAccepted,
+  type DiscussProposalCommand,
   type ResolveProposalAccepted,
   type ResolveProposalCommand,
   type SendChatMessageAccepted,
