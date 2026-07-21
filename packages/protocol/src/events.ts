@@ -67,6 +67,15 @@ export const SceneStartedEventSchema = z.strictObject({
         expires_at_game: z.string().min(1),
       })
       .optional(),
+    /**
+     * The consumed continuation registration (0.21.0, Rev 4 §6): when a scene
+     * opens at a sublocation the previous scene's `next_scene` registered,
+     * the engine folds `brief_history` + `carried_goals` in here — the
+     * Narrator's first turn reads them, so the jump is a real continuation
+     * (premise_seed rides the existing `premise` field).
+     */
+    brief_history: z.string().min(1).max(2000).optional(),
+    carried_goals: z.array(z.string().min(1).max(300)).max(8).optional(),
   }),
 });
 
@@ -86,6 +95,25 @@ export const CharacterJoinedEventSchema = z.strictObject({
     character_id: z.string().min(1),
     /** Display name as it appears in turn steps' `speaker`. */
     name: z.string().min(1),
+  }),
+});
+
+/**
+ * A character left a scene mid-play (0.21.0, the agentic scene, Rev 4 §6):
+ * the Narrator's `character_leave` tool, committed atomically with its
+ * turn.committed. Releases the character's presence reservation for THIS
+ * scene only — chat shows them available again and CRON movement may pick
+ * them, while the scene stays open. Consumed by: the presence projection,
+ * clients (the VN line-up drops them from the cast).
+ */
+export const CharacterLeftEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('character.left'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    character_id: z.string().min(1),
+    /** Optional in-fiction reason ("headed home before the rain"). */
+    reason: z.string().min(1).max(300).optional(),
   }),
 });
 
@@ -127,6 +155,36 @@ export const TurnCommittedEventSchema = z.strictObject({
 });
 
 /**
+ * One storytelling subgoal in the Narrator's structured snapshot (0.21.0,
+ * Rev 4 §6): a full explicit state the model writes out — code just stores it.
+ */
+export const SceneGoalSchema = z.strictObject({
+  id: z.string().min(1).max(60),
+  text: z.string().min(1).max(300),
+  status: z.enum(['pending', 'active', 'done']),
+});
+export type SceneGoal = z.infer<typeof SceneGoalSchema>;
+
+/**
+ * The Narrator's persisted subgoal snapshot (0.21.0, the agentic scene,
+ * Rev 4 §6): the `update_goals` tool's full structured state, committed
+ * atomically with its turn.committed. The engine reinjects the LATEST
+ * snapshot into every Narrator turn (dynamic tail) — a server restart
+ * mid-scene resumes at the exact story position. Event-driven and
+ * self-correcting: a turn without a snapshot simply keeps the previous one.
+ * Emitted by: scene engine. Consumed by: the turn engine's resume injection.
+ */
+export const SceneGoalsUpdatedEventSchema = z.strictObject({
+  ...eventEnvelope,
+  type: z.literal('scene.goals_updated'),
+  payload: z.strictObject({
+    scene_id: z.string().min(1),
+    turn_id: z.string().min(1),
+    goals: z.array(SceneGoalSchema).min(1).max(12),
+  }),
+});
+
+/**
  * Scene closed — appended atomically with the reflection fan-out jobs (one per
  * participant + one World Agent job, Brief §2.4: one WriteGate transaction).
  * Emitted by: scene lifecycle. Consumed by: clients (scene header), recovery
@@ -144,9 +202,14 @@ export const SceneEndedEventSchema = z.strictObject({
      * `rest` → Stay longer + Open map; `continuation` → Stay longer + Jump to
      * the next scene + Open map; `travel` → Open map. Absent on closes from
      * the bare end-scene HTTP command (clients treat absent as `rest`).
+     * 0.21.0 (Rev 4 §6): `context_limit_reached` — the Scene Engine warned
+     * the Narrator the prompt was nearing its context budget and the
+     * Narrator wound the scene down naturally (buttons render like `rest`).
      * Emitted by: the Narrator's end_scene tool (engine-validated, Guide B6).
      */
-    end_type: z.enum(['rest', 'continuation', 'travel']).optional(),
+    end_type: z
+      .enum(['rest', 'continuation', 'travel', 'context_limit_reached'])
+      .optional(),
     /** Soft-close divider line, e.g. "— evening falls —" (UI Spec §1.7). */
     divider_text: z.string().min(1).max(200).optional(),
     /**
@@ -155,12 +218,27 @@ export const SceneEndedEventSchema = z.strictObject({
      * exactly when end_type is `continuation` (the engine-state gate refuses
      * a continuation without it). May name a stub created this very turn —
      * that is the in-scene creation loop's payoff.
+     *
+     * 0.21.0 (the agentic scene, Rev 4 §6): the FULL registration — what
+     * makes "Jump to the next scene" a continuation instead of a cold open.
+     * The tool gate requires every field; they stay optional ON THE WIRE so
+     * pre-0.21 logs still parse (additive change, Guide B9).
      */
     next_scene: z
       .strictObject({
         sublocation_id: z.string().min(1),
         /** Optional premise line the follow-up scene opens on. */
         premise_seed: z.string().min(1).max(500).optional(),
+        /** Game-time jump the continuation implies ("see you tomorrow" ≈ 16). */
+        time_offset_hours: z.number().nonnegative().max(720).optional(),
+        /** Character ids expected in the follow-up scene's cast. */
+        expected_participants: z.array(z.string().min(1)).max(8).optional(),
+        /** What just happened, carried verbatim into the next scene's context
+         * (the World Agent recap cannot substitute — the jump may fire before
+         * the cold path finishes). */
+        brief_history: z.string().min(1).max(2000).optional(),
+        /** Story goals the continuation keeps chasing. */
+        carried_goals: z.array(z.string().min(1).max(300)).max(8).optional(),
       })
       .optional(),
   }),
@@ -1634,6 +1712,8 @@ export const WeltariEventSchema = z.discriminatedUnion('type', [
   SceneEndedEventSchema,
   SceneExpiredEventSchema,
   CharacterJoinedEventSchema,
+  CharacterLeftEventSchema,
+  SceneGoalsUpdatedEventSchema,
   TurnStartedEventSchema,
   TurnCommittedEventSchema,
   ChatMessageCommittedEventSchema,

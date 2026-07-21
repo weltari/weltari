@@ -41,7 +41,9 @@ export interface CommittedTurn {
 }
 
 export interface SceneEnd {
-  end_type: 'rest' | 'continuation' | 'travel';
+  /** 0.21.0: `context_limit_reached` renders like `rest` (Stay + Map) —
+   * SoftClose keys on `travel`/`continuation` only, by design. */
+  end_type: 'rest' | 'continuation' | 'travel' | 'context_limit_reached';
   divider_text: string;
   /** The continuation registration (0.10.0) — where "Jump to the next
    * scene" opens; may name a stub created mid-scene. */
@@ -73,7 +75,7 @@ export interface HistoryScene {
   participants: CastMember[];
   turns: CommittedTurn[];
   ended: boolean;
-  end_type: 'rest' | 'continuation' | 'travel' | null;
+  end_type: 'rest' | 'continuation' | 'travel' | 'context_limit_reached' | null;
   divider_text: string | null;
 }
 
@@ -366,6 +368,25 @@ function applyOne(
         }
         return { history, cast: [...state.cast, member] };
       });
+      return;
+    case 'character.left':
+      // The agentic scene (0.21.0, Rev 4 §6): the VN line-up drops the
+      // character; the scene-history participants keep them (they were part
+      // of the scene and their reflection will still run at scene end).
+      set((state) =>
+        event.payload.scene_id === state.sceneId
+          ? {
+              cast: state.cast.filter(
+                (m) => m.character_id !== event.payload.character_id,
+              ),
+            }
+          : {},
+      );
+      return;
+    case 'scene.goals_updated':
+      // Engine-internal story state (the Narrator's subgoal snapshot) — the
+      // scene surface renders nothing for it by design (Rev 4 §6: goals are
+      // Narrator-only, never shown to characters or the player).
       return;
     case 'scene.ended':
       set((state) => ({

@@ -54,6 +54,61 @@ function subwikiUpdated(
   };
 }
 
+describe('character.left cast projection (0.21.0, the agentic scene)', () => {
+  it('drops the character from the current cast; other scenes are untouched', () => {
+    const scene = `s-left-${String(nextId)}`;
+    apply(sceneStarted(scene));
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'character.joined',
+      payload: { scene_id: scene, character_id: 'char:elias', name: 'Elias' },
+    });
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'character.joined',
+      payload: { scene_id: scene, character_id: 'char:senna', name: 'Senna' },
+    });
+    expect(useSceneStore.getState().cast).toHaveLength(2);
+    // A leave naming ANOTHER scene never touches this cast.
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: TS,
+      type: 'character.left',
+      payload: { scene_id: 'someone-elses-scene', character_id: 'char:elias' },
+    });
+    expect(useSceneStore.getState().cast).toHaveLength(2);
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: TS,
+      type: 'character.left',
+      payload: {
+        scene_id: scene,
+        character_id: 'char:elias',
+        reason: 'headed home before the rain',
+      },
+    });
+    const cast = useSceneStore.getState().cast;
+    expect(cast).toHaveLength(1);
+    expect(cast[0]?.character_id).toBe('char:senna');
+    // The scene-history participants keep the leaver (they were part of the
+    // scene; their reflection still runs at scene end).
+    const entry = useSceneStore
+      .getState()
+      .history.find((h) => h.scene_id === scene);
+    expect(entry?.participants).toHaveLength(2);
+  });
+});
+
 describe('subwiki.updated projection (the Wiki page source, M6 part 3)', () => {
   it('latest entry per sublocation wins; provenance rides along', () => {
     apply(subwikiUpdated('subloc:stub-camp', 's-old', 'Kilns smolder.'));
