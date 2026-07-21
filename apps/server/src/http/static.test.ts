@@ -132,6 +132,8 @@ describe('GET /* (the SPA wildcard route)', () => {
         Promise.resolve(
           err(new OperationalError('unknown_proposal', 'test stub')),
         ),
+      discussProposal: () =>
+        err(new OperationalError('unknown_proposal', 'test stub')),
       setConfigFlag: () =>
         err(new OperationalError('unknown_flag', 'test stub')),
       setCharacterLock: () =>

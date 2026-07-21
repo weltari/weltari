@@ -12,6 +12,7 @@ import {
   FeedReplyAcceptedSchema,
   InterruptTurnAcceptedSchema,
   OpenSceneAcceptedSchema,
+  DiscussProposalAcceptedSchema,
   ResolveProposalAcceptedSchema,
   SendChatMessageAcceptedSchema,
   SendGroupMessageAcceptedSchema,
@@ -291,6 +292,21 @@ export async function postResolveProposal(
   });
   const parsed = ResolveProposalAcceptedSchema.safeParse(raw);
   return parsed.success ? { applied: parsed.data.applied } : null;
+}
+
+/** The chat-about-this signal (0.20.0, the UX contract): a REAL command —
+ * proposal.discussed comes back on the stream (the card shows the talk is
+ * on) and the GM's next turn acknowledges; the card stays pending. */
+export async function postDiscussProposal(
+  proposalId: string,
+): Promise<{ proposalId: string } | null> {
+  const raw = await post('/v1/commands/discuss-proposal', {
+    world_id: WORLD_ID,
+    actor_id: ACTOR_ID,
+    proposal_id: proposalId,
+  });
+  const parsed = DiscussProposalAcceptedSchema.safeParse(raw);
+  return parsed.success ? { proposalId: parsed.data.proposal_id } : null;
 }
 
 /** Flip a world flag (0.17.0, Rev 4 §15) — config.flag_set comes back on

@@ -293,3 +293,118 @@ describe('the durable tool-result turn', () => {
     );
   });
 });
+
+describe('the chat-about-this signal', () => {
+  it('is durable, acknowledged by the GM, and leaves the card pending AND resolvable', async () => {
+    const { storage, gm, proposals } = setup();
+    const proposalId = await propose(
+      gm,
+      storage,
+      'r-7',
+      '!proposeplace talk-court',
+    );
+    const discussed = gm.discussProposal({
+      world_id: WORLD,
+      actor_id: OWNER,
+      proposal_id: proposalId,
+    });
+    expect(discussed.ok).toBe(true);
+    if (discussed.ok) await discussed.value.completion;
+    // The durable signal + the GM's acknowledgement turn.
+    expect(
+      storage.eventLog
+        .readSince(0, 100000)
+        .some(
+          (e) =>
+            e.type === 'proposal.discussed' &&
+            e.payload.proposal_id === proposalId &&
+            e.actor_id === OWNER,
+        ),
+    ).toBe(true);
+    const ackId = followupMessageIdFor(proposalId, 'discuss');
+    expect(followupsOf(storage, ackId)).toBe(1);
+    const ack = storage.eventLog
+      .readSince(0, 100000)
+      .find(
+        (e) =>
+          e.type === 'chat.message_committed' && e.payload.message_id === ackId,
+      );
+    expect(
+      ack?.type === 'chat.message_committed' ? ack.payload.text : '',
+    ).toContain('the card can wait');
+    // The card stays PENDING — and still resolves later (the owner ruling),
+    // with the resolution's own follow-up riding the same machinery.
+    expect(
+      proposals
+        .pending(WORLD)
+        .some((p) => p.payload.proposal_id === proposalId),
+    ).toBe(true);
+    const resolved = await proposals.resolve({
+      world_id: WORLD,
+      actor_id: OWNER,
+      proposal_id: proposalId,
+      resolution: 'approved',
+    });
+    expect(resolved.ok).toBe(true);
+    await gm.noteProposalOutcome({
+      world_id: WORLD,
+      actor_id: OWNER,
+      proposal_id: proposalId,
+      outcome: 'approved',
+    }).completion;
+    expect(
+      followupsOf(storage, followupMessageIdFor(proposalId, 'approved')),
+    ).toBe(1);
+  });
+
+  it('refuses a second discuss, a non-approver, and a settled card — zero rows (I8)', async () => {
+    const { storage, gm, proposals } = setup();
+    const proposalId = await propose(
+      gm,
+      storage,
+      'r-8',
+      '!proposeplace once-court',
+    );
+    const first = gm.discussProposal({
+      world_id: WORLD,
+      actor_id: OWNER,
+      proposal_id: proposalId,
+    });
+    expect(first.ok).toBe(true);
+    if (first.ok) await first.value.completion;
+    const before = storage.eventLog.readSince(0, 100000).length;
+    const again = gm.discussProposal({
+      world_id: WORLD,
+      actor_id: OWNER,
+      proposal_id: proposalId,
+    });
+    expect(!again.ok && again.error.code === 'already_discussed').toBe(true);
+    const stranger = gm.discussProposal({
+      world_id: WORLD,
+      actor_id: 'user:someone-else',
+      proposal_id: proposalId,
+    });
+    expect(!stranger.ok && stranger.error.code === 'not_an_approver').toBe(
+      true,
+    );
+    const ghost = gm.discussProposal({
+      world_id: WORLD,
+      actor_id: OWNER,
+      proposal_id: 'prop-ghost',
+    });
+    expect(!ghost.ok && ghost.error.code === 'unknown_proposal').toBe(true);
+    expect(storage.eventLog.readSince(0, 100000)).toHaveLength(before);
+    await proposals.resolve({
+      world_id: WORLD,
+      actor_id: OWNER,
+      proposal_id: proposalId,
+      resolution: 'rejected',
+    });
+    const settled = gm.discussProposal({
+      world_id: WORLD,
+      actor_id: OWNER,
+      proposal_id: proposalId,
+    });
+    expect(!settled.ok && settled.error.code === 'already_resolved').toBe(true);
+  });
+});
