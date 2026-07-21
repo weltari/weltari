@@ -19,6 +19,7 @@ import type { CharacterProfile } from '../engine/context-assembler.js';
 import type { ChatEngine } from '../engine/chat.js';
 import { conversationIdFor } from '../engine/chat.js';
 import type { EventSink } from '../engine/event-sink.js';
+import { characterProfilesOf } from '../engine/characters.js';
 import { GM_CHARACTER_ID } from '../engine/gm.js';
 import { catchAndLog } from '../observability/catch-and-log.js';
 import type { Logger } from '../observability/logger.js';
@@ -66,9 +67,17 @@ export function createChatGatewayBridge(
 ): ChatGatewayBridge {
   const { storage, sink, logger, profiles, actorId, worldId } = options;
 
+  // Week 19 (audit item 2, the 6a657d9 pattern): the bridge roster folds
+  // LIVE — seeds ∪ character.created — so minted characters name and route
+  // correctly without a restart.
+  function liveRoster(): readonly CharacterProfile[] {
+    return characterProfilesOf(storage, worldId, profiles);
+  }
+
   function nameOf(characterId: string): string {
     return (
-      profiles.find((p) => p.character_id === characterId)?.name ?? 'Someone'
+      liveRoster().find((p) => p.character_id === characterId)?.name ??
+      'Someone'
     );
   }
 
@@ -84,7 +93,7 @@ export function createChatGatewayBridge(
         latest = event.payload.character_id;
       }
     }
-    return latest ?? profiles[0]?.character_id ?? '';
+    return latest ?? liveRoster()[0]?.character_id ?? '';
   }
 
   /** The delivered message's text, by (conversation, message id) — the push

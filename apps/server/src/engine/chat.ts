@@ -36,6 +36,7 @@ import {
   type CharacterProfile,
   type TurnLine,
 } from './context-assembler.js';
+import { characterProfilesOf } from './characters.js';
 import type { EventSink } from './event-sink.js';
 import type { OpenSceneRequest } from './scene-lifecycle.js';
 import { slugifyName } from './scene-tools.js';
@@ -248,8 +249,16 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
   const inFlight = new Set<string>();
   const nudged = new Set<string>();
 
-  function profileFor(characterId: string): CharacterProfile | undefined {
-    return profiles.find((p) => p.character_id === characterId);
+  function profileFor(
+    worldId: string,
+    characterId: string,
+  ): CharacterProfile | undefined {
+    // Week 19 (audit item 2, the 6a657d9 pattern): the DM roster folds LIVE
+    // — seeds ∪ character.created — so a minted character is chat-able
+    // without a restart.
+    return characterProfilesOf(storage, worldId, profiles).find(
+      (p) => p.character_id === characterId,
+    );
   }
 
   /** chat.ended + its ONE reflect_chat job, atomically (Brief §2.4). */
@@ -657,7 +666,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
 
   return {
     sendMessage(command: SendChatMessageCommand): Result<SendMessageResult> {
-      const profile = profileFor(command.character_id);
+      const profile = profileFor(command.world_id, command.character_id);
       if (profile === undefined) {
         return err(
           new OperationalError(
@@ -744,7 +753,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
     exitChat(
       command: ExitChatCommand,
     ): Result<{ conversationId: string; ended: boolean; jobKey?: string }> {
-      const profile = profileFor(command.character_id);
+      const profile = profileFor(command.world_id, command.character_id);
       if (profile === undefined) {
         return err(
           new OperationalError(
@@ -776,7 +785,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
     async startSceneFromChat(
       command: StartSceneFromChatCommand,
     ): Promise<Result<{ sceneId: string; sublocationId?: string }>> {
-      const profile = profileFor(command.character_id);
+      const profile = profileFor(command.world_id, command.character_id);
       if (profile === undefined) {
         return err(
           new OperationalError(

@@ -33,6 +33,7 @@ import { addMinutesIso } from '../ledger/scheduler.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
 import type { NewEvent } from '../storage/repositories/event-log.js';
+import { knownCharactersOf } from './characters.js';
 import { presenceOf } from './chat.js';
 import type { FaultPointHook } from './fault-points.js';
 import { pickIndex } from './outreach.js';
@@ -154,7 +155,9 @@ export function appendTopUpDrops(
     const seed = `${worldId}:${now}:${String(live)}:${String(attempt)}`;
     const anchor = anchors[pickIndex(seed, anchors.length)];
     if (anchor === undefined) break;
-    const free = knownCharacters.filter(
+    // Week 19 (audit item 2): the cast pool folds LIVE — seeds ∪
+    // character.created — so minted characters join encounters, no restart.
+    const free = knownCharactersOf(storage, worldId, knownCharacters).filter(
       (c) => presenceOf(storage, worldId, c.character_id).state === 'available',
     );
     const picked =
@@ -206,7 +209,9 @@ export function planCronMarkerDrop(
   const seed = `${worldId}:${scheduledFor}`;
   const anchor = anchors[pickIndex(seed, anchors.length)];
   if (anchor === undefined) return [];
-  const free = knownCharacters.filter(
+  // Week 19 (audit item 2): the cast pool folds LIVE — seeds ∪
+  // character.created — so minted characters join encounters, no restart.
+  const free = knownCharactersOf(storage, worldId, knownCharacters).filter(
     (c) => presenceOf(storage, worldId, c.character_id).state === 'available',
   );
   const picked =
@@ -518,7 +523,7 @@ export function createMarkerEngine(options: MarkerEngineOptions): MarkerEngine {
           events.push(
             ...appendSceneOpen(
               storage,
-              knownCharacters,
+              knownCharactersOf(storage, command.world_id, knownCharacters),
               {
                 world_id: command.world_id,
                 actor_id: command.actor_id,

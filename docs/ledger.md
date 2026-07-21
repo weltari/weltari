@@ -17,6 +17,8 @@ Per-world serialization: rows carry `serial_group` (e.g. `world_agent:<world_id>
 
 Lease-expiry overlap (week-8 hardening, the week-7 painter bug class — [painter.md](painter.md)): a slow LLM call can outlive its lease; the sweep reclaims the "dead" job and a second execution overlaps the first. Every handler with an `await` between its idempotency check and its commit append therefore re-checks the natural key **synchronously fused to the append** (no `await` between them — executions interleave only at await points in this single-process runtime): reflection, world-agent, world-cron (both classes), materialize, painter. The overlap costs one duplicate generation and a `warn`; never a duplicate event. Each handler has an interleaved-execution regression test (gated slow client, two executions of one job, exactly one event).
 
+Week 19 (audit item 2, the 6a657d9 pattern): every profile-consuming handler (reflect_chat, memory_compaction, proactive_dm, social_post, social_reaction, social_reply — reflection since week 18) folds its roster LIVE per job via `characterProfilesOf(storage, job.world_id, profiles)`: the `profiles` option is SEEDS, and a character minted mid-session is reflected, compacted, DM-picked and social-eligible without a restart.
+
 ## File table
 
 | File | What it does / talks to |

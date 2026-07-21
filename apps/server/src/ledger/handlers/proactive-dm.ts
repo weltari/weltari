@@ -41,6 +41,7 @@ import { parseChatToolCall } from '../../llm/tools.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Logger } from '../../observability/logger.js';
 import type { Storage } from '../../storage/db.js';
+import { characterProfilesOf } from '../../engine/characters.js';
 import type { JobHandler } from '../runner.js';
 
 const payloadSchema = z.strictObject({
@@ -100,6 +101,10 @@ export function createProactiveDmHandler(
         `job ${String(job.id)} payload does not match {occurrence_iso, cadence_minutes}`,
       );
     }
+    // Week 19 (audit item 2, the 6a657d9 pattern): the roster folds LIVE
+    // — seeds ∪ character.created — so minted characters take part
+    // without a restart.
+    const roster = characterProfilesOf(storage, job.world_id, profiles);
     const { occurrence_iso, cadence_minutes } = payload.data;
 
     const alreadyRecorded = (): boolean =>
@@ -145,8 +150,8 @@ export function createProactiveDmHandler(
     let profile: CharacterProfile | undefined;
     for (let attempt = 0; attempt < PICK_ATTEMPTS; attempt++) {
       const candidate =
-        profiles[
-          pickIndex(`${occurrence_iso}:${String(attempt)}`, profiles.length)
+        roster[
+          pickIndex(`${occurrence_iso}:${String(attempt)}`, roster.length)
         ];
       if (candidate !== undefined && eligible(candidate)) {
         profile = candidate;

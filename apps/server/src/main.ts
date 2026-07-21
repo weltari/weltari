@@ -71,6 +71,7 @@ import { createProposalEngine } from './engine/proposals.js';
 import {
   characterProfilesOf,
   createSetCharacterLockCommand,
+  knownCharactersOf,
 } from './engine/characters.js';
 import { createSubwikiEditCommand } from './engine/wiki-edit.js';
 import { createCachePruneHandler } from './ledger/handlers/cache-prune.js';
@@ -599,12 +600,11 @@ const runner = createRunner({
       // with world_cron.completed inside the handler.
       occurrenceEvents: (worldId, cronType, scheduledFor): NewEvent[] => {
         if (cronType === 'world_movement') {
+          // Week 19 (audit item 2): the mover pool folds LIVE per
+          // occurrence — minted characters roam without a restart.
           return planMovementEvents(
             storage,
-            dmRoster.map((p) => ({
-              character_id: p.character_id,
-              name: p.name,
-            })),
+            knownCharactersOf(storage, worldId, knownCharacters),
             worldId,
             scheduledFor,
           );
