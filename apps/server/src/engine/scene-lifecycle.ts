@@ -96,13 +96,23 @@ export interface SceneEndRequest {
   world_id: string;
   actor_id: string;
   scene_id: string;
-  /** Present on Narrator end_scene tool closes; absent on the bare HTTP command. */
-  end_type?: 'rest' | 'continuation' | 'travel';
+  /** Present on Narrator end_scene tool closes; absent on the bare HTTP
+   * command. 0.21.0: context_limit_reached — the engine's context-budget
+   * warning ended the scene (Rev 4 §6). */
+  end_type?: 'rest' | 'continuation' | 'travel' | 'context_limit_reached';
   divider_text?: string;
-  /** The continuation registration (M6 part 1): where "Jump to the next
-   * scene" opens. Present exactly when end_type is `continuation` — the
-   * tool stage gates that; the bare HTTP command never carries it. */
-  next_scene?: { sublocation_id: string; premise_seed?: string };
+  /** The continuation registration (M6 part 1; the FULL Rev 4 §6 payload
+   * since 0.21.0): where and how "Jump to the next scene" opens. Present
+   * exactly when end_type is `continuation` — the tool stage gates that;
+   * the bare HTTP command never carries it. */
+  next_scene?: {
+    sublocation_id: string;
+    premise_seed?: string;
+    time_offset_hours?: number;
+    expected_participants?: string[];
+    brief_history?: string;
+    carried_goals?: string[];
+  };
   /** The ending scene's follow-up chance-encounter marker (M7 part 4, Rev 4
    * §14): present when the Narrator's end_scene tool proposed one. The
    * marker fan-out drops it in the SAME transaction as scene.ended; absent =

@@ -84,6 +84,13 @@ export function presenceOf(
       event.payload.character_id === characterId
     ) {
       openScenes.add(event.payload.scene_id);
+    } else if (
+      // The agentic scene (0.21.0, Rev 4 §6): character_leave releases THIS
+      // character's reservation while the scene stays open for everyone else.
+      event.type === 'character.left' &&
+      event.payload.character_id === characterId
+    ) {
+      openScenes.delete(event.payload.scene_id);
     } else if (event.type === 'scene.ended' || event.type === 'scene.expired') {
       openScenes.delete(event.payload.scene_id);
     }

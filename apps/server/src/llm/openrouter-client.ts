@@ -11,10 +11,13 @@ import {
   CacheToolSchema,
   ChangeSublocationToolSchema,
   CHARACTER_SCENE_TOOL_DESCRIPTIONS,
+  CharactercallToolSchema,
+  CharacterLeaveToolSchema,
   CHAT_QUERY_DESCRIPTIONS,
   CHAT_TOOL_DESCRIPTIONS,
   CreateSublocationToolSchema,
   DescribeObjectToolSchema,
+  DetermineWhoNextToolSchema,
   EndSceneToolSchema,
   EXPLORE_QUERY_DESCRIPTION,
   ExploreToolSchema,
@@ -23,8 +26,10 @@ import {
   EvolveToolSchema,
   GM_TOOL_DESCRIPTIONS,
   GROUP_ROUTER_TOOL_DESCRIPTIONS,
+  MakeCharacterToolSchema,
   MemoryDeltaToolSchema,
   MemoryqueryToolSchema,
+  MoveCharacterToolSchema,
   NARRATOR_TOOL_DESCRIPTIONS,
   ProposeCharacterToolSchema,
   ProposeObjectToolSchema,
@@ -32,6 +37,7 @@ import {
   ProposeWikiEditToolSchema,
   ProposeWorldSeedToolSchema,
   QuerySublocationsToolSchema,
+  QueryWikiToolSchema,
   ReactToolSchema,
   REFLECTION_TOOL_DESCRIPTIONS,
   RouteToolSchema,
@@ -41,6 +47,7 @@ import {
   StaySilentToolSchema,
   SwitchArtToolSchema,
   UpdateCoreToolSchema,
+  UpdateGoalsToolSchema,
   WikiqueryToolSchema,
   type RawToolCall,
 } from './tools.js';
@@ -69,6 +76,22 @@ const NARRATOR_TOOLS: ToolSet = {
   describe_object: tool({
     description: NARRATOR_TOOL_DESCRIPTIONS.describe_object,
     inputSchema: DescribeObjectToolSchema,
+  }),
+  make_character: tool({
+    description: NARRATOR_TOOL_DESCRIPTIONS.make_character,
+    inputSchema: MakeCharacterToolSchema,
+  }),
+  character_leave: tool({
+    description: NARRATOR_TOOL_DESCRIPTIONS.character_leave,
+    inputSchema: CharacterLeaveToolSchema,
+  }),
+  move_character: tool({
+    description: NARRATOR_TOOL_DESCRIPTIONS.move_character,
+    inputSchema: MoveCharacterToolSchema,
+  }),
+  update_goals: tool({
+    description: NARRATOR_TOOL_DESCRIPTIONS.update_goals,
+    inputSchema: UpdateGoalsToolSchema,
   }),
 };
 
@@ -116,6 +139,11 @@ const QUERY_STEP_LIMIT = 3;
 /** With the gate executor a refusal costs a step: rejected create → the
  * required query → the corrected create → the closing text (M6 part 2). */
 const GATED_STEP_LIMIT = 4;
+/** The agentic loop (0.21.0, Rev 4 §6): declare → charactercall → narrate,
+ * several rounds plus queries and creates in one narrator call. The ENGINE's
+ * turn budget is the real cap (over-budget charactercalls answer with an
+ * error string); this ceiling only stops a runaway step loop. */
+const LOOP_STEP_LIMIT = 12;
 
 /** The narrator toolset, wired to the engine's executors the call offers.
  * query_sublocations runs mid-call (Rev 4 §6). With `gate` (M6 part 2) the
@@ -157,16 +185,75 @@ function narratorToolsFor(call: LlmCall): ToolSet {
             execute: (input): string =>
               gate({ tool: 'describe_object', input }),
           }),
+          make_character: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.make_character,
+            inputSchema: MakeCharacterToolSchema,
+            execute: (input): string => gate({ tool: 'make_character', input }),
+          }),
+          character_leave: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.character_leave,
+            inputSchema: CharacterLeaveToolSchema,
+            execute: (input): string =>
+              gate({ tool: 'character_leave', input }),
+          }),
+          move_character: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.move_character,
+            inputSchema: MoveCharacterToolSchema,
+            execute: (input): string => gate({ tool: 'move_character', input }),
+          }),
+          update_goals: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.update_goals,
+            inputSchema: UpdateGoalsToolSchema,
+            execute: (input): string => gate({ tool: 'update_goals', input }),
+          }),
         };
   const querySublocations = call.queries?.query_sublocations;
-  if (querySublocations === undefined) return mutating;
+  const queryWiki = call.queries?.query_wiki;
+  const determineWhoNext = call.loop?.determine_who_next;
+  const charactercall = call.loop?.charactercall;
   return {
     ...mutating,
-    query_sublocations: tool({
-      description: NARRATOR_TOOL_DESCRIPTIONS.query_sublocations,
-      inputSchema: QuerySublocationsToolSchema,
-      execute: (input): string => querySublocations(input),
-    }),
+    ...(querySublocations === undefined
+      ? {}
+      : {
+          query_sublocations: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.query_sublocations,
+            inputSchema: QuerySublocationsToolSchema,
+            execute: (input): string => querySublocations(input),
+          }),
+        }),
+    ...(queryWiki === undefined
+      ? {}
+      : {
+          query_wiki: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.query_wiki,
+            inputSchema: QueryWikiToolSchema,
+            execute: (input): string => queryWiki(input),
+          }),
+        }),
+    // The agentic-scene loop (0.21.0, Rev 4 §6): the routing declaration and
+    // the character turn execute mid-call — charactercall's execute runs the
+    // WHOLE C-Module call and resolves with the reply text the Narrator
+    // narrates; the engine's turn budget answers over-budget calls with an
+    // error string instead.
+    ...(determineWhoNext === undefined
+      ? {}
+      : {
+          determine_who_next: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.determine_who_next,
+            inputSchema: DetermineWhoNextToolSchema,
+            execute: (input): string => determineWhoNext(input),
+          }),
+        }),
+    ...(charactercall === undefined
+      ? {}
+      : {
+          charactercall: tool({
+            description: NARRATOR_TOOL_DESCRIPTIONS.charactercall,
+            inputSchema: CharactercallToolSchema,
+            execute: async (input): Promise<string> => charactercall(input),
+          }),
+        }),
   };
 }
 
@@ -345,13 +432,17 @@ export function createOpenRouterClient(
             ? {
                 tools: narratorToolsFor(call),
                 toolChoice: 'auto' as const,
-                ...(call.queries === undefined && call.gate === undefined
+                ...(call.queries === undefined &&
+                call.gate === undefined &&
+                call.loop === undefined
                   ? {}
                   : {
                       stopWhen: stepCountIs(
-                        call.gate === undefined
-                          ? QUERY_STEP_LIMIT
-                          : GATED_STEP_LIMIT,
+                        call.loop !== undefined
+                          ? LOOP_STEP_LIMIT
+                          : call.gate === undefined
+                            ? QUERY_STEP_LIMIT
+                            : GATED_STEP_LIMIT,
                       ),
                     }),
               }
@@ -519,10 +610,13 @@ export function createOpenRouterClient(
         // again would double-stage (M6 part 2).
         const executedQueries = [
           'query_sublocations',
+          'query_wiki',
           'wikiquery',
           'sessionquery',
           'memoryquery',
           'explore',
+          'determine_who_next',
+          'charactercall',
         ];
         const toolCalls: RawToolCall[] =
           call.toolset === undefined || call.gate !== undefined

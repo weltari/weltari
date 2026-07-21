@@ -92,6 +92,9 @@ export interface LlmCall {
   queries?: {
     /** Narrator toolset: the sublocation lookup (M6 part 1). */
     query_sublocations?: (input: unknown) => string;
+    /** Narrator toolset (0.21.0, Rev 4 §6): the scene-side wiki read — the
+     * same executor as wikiquery, under the §6 tool name. */
+    query_wiki?: (input: unknown) => string;
     /** Chat + character_scene toolsets (M6 part 3, Rev 4 §11): the wiki read. */
     wikiquery?: (input: unknown) => string;
     /** Chat toolset (M6 part 3): scene-query — participation-gated. */
@@ -103,6 +106,21 @@ export interface LlmCall {
     /** character_scene toolset (M7 part 3, Rev 4 §14): the sublocation
      * listing — wiki + publicly held objects + one level of interiors. */
     explore?: (input: unknown) => string;
+  };
+  /**
+   * The agentic-scene loop executors (0.21.0, Rev 4 §6) — engine-owned,
+   * narrator toolset only, run DURING the call like queries but they drive
+   * the orchestration loop instead of routing context: determine_who_next
+   * validates the Narrator's routing declaration (set-typed; V1 policy size
+   * one); charactercall runs the declared character's WHOLE C-Module turn
+   * (an inner LLM call — hence async) and returns the reply text for the
+   * Narrator to narrate. Neither is ever staged or returned as data; the
+   * engine's turn budget refuses charactercalls past the cap with an error
+   * string the model reads and reacts to.
+   */
+  loop?: {
+    determine_who_next?: (input: unknown) => string;
+    charactercall?: (input: unknown) => Promise<string>;
   };
   /**
    * Engine-owned gate executor (M6 part 2). When offered, the client runs

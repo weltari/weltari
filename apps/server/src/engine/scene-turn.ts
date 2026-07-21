@@ -43,6 +43,8 @@ import {
   runMemoryquery,
   runWikiquery,
 } from './chat-queries.js';
+import { characterLocationsOf } from './locations.js';
+import { worldTimeOf } from './world-clock.js';
 import { archiveRecapText, liveProfile } from './memory.js';
 import {
   buildEliasProfile,
@@ -541,6 +543,18 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         return `staged: ${effect.objectId} moves to ${effect.toSublocationId} when this reply commits.`;
       case 'object_improv':
         return `staged: your improvised content is written into ${effect.objectId} when this reply commits — every later read returns exactly it.`;
+      case 'character_join':
+        return `staged: ${effect.characterId} ("${effect.name}") joins the scene when this reply commits — you may determine_who_next them now.`;
+      case 'character_mint':
+        return effect.present
+          ? `staged: ${effect.characterId} ("${effect.name}") is minted into the world AND joins the scene when this reply commits.`
+          : `staged: ${effect.characterId} ("${effect.name}") is minted into the world, offstage, when this reply commits.`;
+      case 'character_leave':
+        return `staged: ${effect.characterId} leaves the scene when this reply commits — they become available elsewhere.`;
+      case 'character_move':
+        return `staged: ${effect.characterId} moves to ${effect.toSublocationId} when this reply commits.`;
+      case 'goals':
+        return `staged: your subgoal snapshot (${String(effect.goals.length)} goals) persists when this reply commits — it is what a resumed scene reads.`;
     }
   }
 
@@ -846,6 +860,104 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                   },
                 }),
               );
+            } else if (effect.kind === 'character_join') {
+              // The agentic scene (0.21.0, Rev 4 §6): an existing character
+              // joins mid-scene — the same roster event scene open appends.
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: narrator.character_id,
+                  type: 'character.joined',
+                  payload: {
+                    scene_id: command.scene_id,
+                    character_id: effect.characterId,
+                    name: effect.name,
+                  },
+                }),
+              );
+            } else if (effect.kind === 'character_mint') {
+              // A Narrator-minted character: the SAME character.created the
+              // consent-gated GM path appends (engine.md characters.ts —
+              // the registry fold makes them real everywhere).
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: narrator.character_id,
+                  type: 'character.created',
+                  payload: {
+                    character_id: effect.characterId,
+                    name: effect.name,
+                    personality: effect.personality,
+                    goals: [...effect.goals],
+                    core: [...effect.core],
+                    skills: [],
+                  },
+                }),
+              );
+              if (effect.present) {
+                appended.push(
+                  storage.eventLog.append({
+                    world_id: command.world_id,
+                    actor_id: narrator.character_id,
+                    type: 'character.joined',
+                    payload: {
+                      scene_id: command.scene_id,
+                      character_id: effect.characterId,
+                      name: effect.name,
+                    },
+                  }),
+                );
+              }
+            } else if (effect.kind === 'character_leave') {
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: narrator.character_id,
+                  type: 'character.left',
+                  payload: {
+                    scene_id: command.scene_id,
+                    character_id: effect.characterId,
+                    ...(effect.reason === undefined
+                      ? {}
+                      : { reason: effect.reason }),
+                  },
+                }),
+              );
+            } else if (effect.kind === 'character_move') {
+              // The Narrator's world repositioning (Rev 4 §6/§14): the same
+              // event CRON movement appends — actor = the narrator, stamped
+              // with the CURRENT world clock (the move happens now).
+              const from = characterLocationsOf(storage, command.world_id).get(
+                effect.characterId,
+              );
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: narrator.character_id,
+                  type: 'character.location_changed',
+                  payload: {
+                    character_id: effect.characterId,
+                    ...(from === undefined
+                      ? {}
+                      : { from_sublocation_id: from }),
+                    to_sublocation_id: effect.toSublocationId,
+                    game_time: worldTimeOf(storage, command.world_id),
+                  },
+                }),
+              );
+            } else if (effect.kind === 'goals') {
+              appended.push(
+                storage.eventLog.append({
+                  world_id: command.world_id,
+                  actor_id: narrator.character_id,
+                  type: 'scene.goals_updated',
+                  payload: {
+                    scene_id: command.scene_id,
+                    turn_id: turnId,
+                    goals: effect.goals.map((g) => ({ ...g })),
+                  },
+                }),
+              );
             }
             // end_scene is appended LAST so clients see the turn + moves first.
           }
@@ -870,6 +982,26 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                         ...(end.nextScene.premiseSeed === undefined
                           ? {}
                           : { premise_seed: end.nextScene.premiseSeed }),
+                        ...(end.nextScene.timeOffsetHours === undefined
+                          ? {}
+                          : {
+                              time_offset_hours: end.nextScene.timeOffsetHours,
+                            }),
+                        ...(end.nextScene.expectedParticipants === undefined
+                          ? {}
+                          : {
+                              expected_participants: [
+                                ...end.nextScene.expectedParticipants,
+                              ],
+                            }),
+                        ...(end.nextScene.briefHistory === undefined
+                          ? {}
+                          : { brief_history: end.nextScene.briefHistory }),
+                        ...(end.nextScene.carriedGoals === undefined
+                          ? {}
+                          : {
+                              carried_goals: [...end.nextScene.carriedGoals],
+                            }),
                       },
                     }),
                 ...(end.followUpMarker === undefined

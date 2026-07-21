@@ -110,7 +110,24 @@ describe('parseToolCall (B6 gate 1)', () => {
     ).toBe(false);
   });
 
-  it('accepts end_scene with a next_scene registration; rejects a malformed one', () => {
+  it('accepts end_scene with the FULL next_scene registration; rejects a partial one (0.21.0)', () => {
+    expect(
+      parseToolCall(
+        raw('end_scene', {
+          type: 'continuation',
+          next_scene: {
+            sublocation_id: 'subloc:stub-the-river-park',
+            time_offset_hours: 16,
+            expected_participants: ['char:elias'],
+            brief_history: 'They agreed to meet at the river park at dawn.',
+            carried_goals: ['Find who silences the bell.'],
+          },
+        }),
+        logger,
+      ).ok,
+    ).toBe(true);
+    // The pre-0.21 partial registration (sublocation only) fails gate 1 —
+    // the missing required fields are the correction the Narrator reads.
     expect(
       parseToolCall(
         raw('end_scene', {
@@ -119,7 +136,7 @@ describe('parseToolCall (B6 gate 1)', () => {
         }),
         logger,
       ).ok,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       parseToolCall(
         raw('end_scene', {
@@ -129,6 +146,80 @@ describe('parseToolCall (B6 gate 1)', () => {
         logger,
       ).ok,
     ).toBe(false);
+  });
+
+  it('accepts end_scene type context_limit_reached at gate 1 (0.21.0 — gate 2 owns the warning rule)', () => {
+    expect(
+      parseToolCall(raw('end_scene', { type: 'context_limit_reached' }), logger)
+        .ok,
+    ).toBe(true);
+  });
+
+  it('parses the agentic cast tools and rejects malformed shapes (0.21.0, gate 1)', () => {
+    expect(
+      parseToolCall(
+        raw('make_character', { character: 'char:mara', presence: 'present' }),
+        logger,
+      ).ok,
+    ).toBe(true);
+    expect(
+      parseToolCall(
+        raw('make_character', { character: 'Odo', presence: 'offstage' }),
+        logger,
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseToolCall(
+        raw('character_leave', { character_id: 'char:elias' }),
+        logger,
+      ).ok,
+    ).toBe(true);
+    expect(parseToolCall(raw('character_leave', {}), logger).ok).toBe(false);
+    expect(
+      parseToolCall(
+        raw('move_character', {
+          character_id: 'char:elias',
+          to_sublocation_id: 'subloc:market',
+        }),
+        logger,
+      ).ok,
+    ).toBe(true);
+    expect(
+      parseToolCall(
+        raw('move_character', { character_id: 'char:elias' }),
+        logger,
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseToolCall(
+        raw('update_goals', {
+          goals: [
+            { id: 'g1', text: 'Open the storm night.', status: 'active' },
+          ],
+        }),
+        logger,
+      ).ok,
+    ).toBe(true);
+    expect(
+      parseToolCall(
+        raw('update_goals', {
+          goals: [{ id: 'g1', text: 'x', status: 'someday' }],
+        }),
+        logger,
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('rejects the loop pair and query_wiki arriving as staged calls (they execute mid-call)', () => {
+    for (const [tool, input] of [
+      ['determine_who_next', { character_ids: ['char:elias'] }],
+      ['charactercall', { character_id: 'char:elias' }],
+      ['query_wiki', { query: 'the inn' }],
+    ] as const) {
+      const result = parseToolCall(raw(tool, input), logger);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe('query_not_stageable');
+    }
   });
 
   it('rejects a query_sublocations arriving as a staged call (it executes mid-call)', () => {

@@ -12,22 +12,37 @@ import type { Logger } from '../observability/logger.js';
 /**
  * end_scene — the scene's real closer (replaces the bare end-scene HTTP
  * command as the in-fiction path). `type` drives the soft-close button set
- * (UI Spec §1.7): rest → Stay/Map, continuation → Stay/Jump/Map, travel → Map.
+ * (UI Spec §1.7): rest → Stay/Map, continuation → Stay/Jump/Map, travel →
+ * Map, context_limit_reached (0.21.0, Rev 4 §6: the engine's context-budget
+ * warning told the Narrator to wind down) → like rest.
  */
 export const EndSceneToolSchema = z.strictObject({
-  type: z.enum(['rest', 'continuation', 'travel']),
+  type: z.enum(['rest', 'continuation', 'travel', 'context_limit_reached']),
   /** Soft-close divider line, e.g. "— evening falls —". */
   divider_text: z.string().min(1).max(200).optional(),
   /**
-   * The next-scene registration (Rev 4 §6, M6 part 1) — REQUIRED when type
+   * The FULL next-scene registration (Rev 4 §6, 0.21.0) — REQUIRED when type
    * is `continuation` (the engine-state gate refuses one without it): where
-   * "Jump to the next scene" opens. May name a stub created this very turn.
+   * and how "Jump to the next scene" opens as a real continuation. Every
+   * field except premise_seed is required HERE at gate 1, so a partial
+   * registration fails with the missing fields named and the Narrator
+   * re-calls (the correction loop). May name a stub created this very turn.
    */
   next_scene: z
     .strictObject({
       sublocation_id: z.string().min(1),
       /** Optional premise line the follow-up scene opens on. */
       premise_seed: z.string().min(1).max(500).optional(),
+      /** Game-time the continuation skips ("see you tomorrow" ≈ 16; 0 = it
+       * follows immediately). */
+      time_offset_hours: z.number().nonnegative().max(720),
+      /** Character ids expected in the follow-up scene (may be empty). */
+      expected_participants: z.array(z.string().min(1)).max(8),
+      /** What just happened — carried verbatim into the next scene's
+       * context so the jump is a continuation, never a cold open. */
+      brief_history: z.string().min(1).max(2000),
+      /** Story goals the continuation keeps chasing (may be empty). */
+      carried_goals: z.array(z.string().min(1).max(300)).max(8),
     })
     .optional(),
   /**
@@ -113,20 +128,150 @@ export const DescribeObjectToolSchema = z.strictObject({
 });
 export type DescribeObjectToolInput = z.infer<typeof DescribeObjectToolSchema>;
 
+/**
+ * determine_who_next — the agentic scene's routing declaration (0.21.0,
+ * Rev 4 §6): the Narrator declares WHO speaks next as a SET of character ids.
+ * Mid-call-only (an engine executor, never staged): the set type is the
+ * contract that keeps V2 group fan-out open at zero cost — the V1 POLICY
+ * (engine-enforced) is always size one, strictly sequential.
+ */
+export const DetermineWhoNextToolSchema = z.strictObject({
+  /** The characters who should act next (V1: exactly one). */
+  character_ids: z.array(z.string().min(1)).min(1).max(4),
+});
+export type DetermineWhoNextToolInput = z.infer<
+  typeof DetermineWhoNextToolSchema
+>;
+
+/**
+ * charactercall — run a present character's turn mid-loop (0.21.0, Rev 4
+ * §6/§7): the ENGINE builds the character prompt and runs the C-Module; the
+ * reply (message + attempt) returns to the Narrator as this tool's result —
+ * the same mid-call seam the GM's wikiquery and the durable tool-result turn
+ * use. Mid-call-only; the engine's turn budget refuses calls past the cap.
+ */
+export const CharactercallToolSchema = z.strictObject({
+  character_id: z.string().min(1),
+  /** What this call should accomplish, in one line ("react to the knock";
+   * a scene-end leave seed goes here too — Rev 4 §6 soft close). */
+  seed: z.string().min(1).max(500).optional(),
+});
+export type CharactercallToolInput = z.infer<typeof CharactercallToolSchema>;
+
+/**
+ * make_character — a character enters the story (0.21.0, Rev 4 §6): an
+ * EXISTING character joins the scene (`presence: 'present'`), or a genuinely
+ * new character is minted into the world (character.created — the same event
+ * the consent-gated GM path appends) present or offstage (`'absent'`).
+ * Mutating — both B6 gates; presence gates apply (a character reserved by
+ * another scene cannot join).
+ */
+export const MakeCharacterToolSchema = z.strictObject({
+  /** The character: an id (`char:...`) or name for existing ones; the new
+   * character's name when minting. */
+  character: z.string().min(1).max(120),
+  presence: z.enum(['present', 'absent']),
+  /** REQUIRED when minting a new character (the engine gate refuses a mint
+   * without it): their full personality text. */
+  personality: z.string().min(1).max(1000).optional(),
+  /** REQUIRED when minting: 1-8 short goal lines. */
+  goals: z.array(z.string().min(1).max(300)).min(1).max(8).optional(),
+  /** Optional seed memories a minted character starts life knowing. */
+  core: z.array(z.string().min(1).max(300)).max(12).optional(),
+});
+export type MakeCharacterToolInput = z.infer<typeof MakeCharacterToolSchema>;
+
+/**
+ * character_leave — a present character exits the scene (0.21.0, Rev 4 §6):
+ * commits character.left atomically with the turn — presence releases for
+ * this scene only (chat shows them available; CRON movement may pick them),
+ * while the scene stays open. Mutating — both B6 gates.
+ */
+export const CharacterLeaveToolSchema = z.strictObject({
+  character_id: z.string().min(1),
+  /** Optional in-fiction reason ("headed home before the rain"). */
+  reason: z.string().min(1).max(300).optional(),
+});
+export type CharacterLeaveToolInput = z.infer<typeof CharacterLeaveToolSchema>;
+
+/**
+ * move_character — reposition a character on the world map (0.21.0, Rev 4
+ * §6/§14): commits character.location_changed atomically with the turn
+ * (actor = the narrator — the documented hot-path exception CRON movement
+ * already uses). For characters NOT in any scene; a character present HERE
+ * must character_leave first, and one reserved by another scene is refused.
+ */
+export const MoveCharacterToolSchema = z.strictObject({
+  character_id: z.string().min(1),
+  to_sublocation_id: z.string().min(1),
+});
+export type MoveCharacterToolInput = z.infer<typeof MoveCharacterToolSchema>;
+
+/**
+ * update_goals — the storytelling subgoal snapshot (0.21.0, Rev 4 §6): the
+ * FULL structured state, written out explicitly (the opposite of semantic
+ * key-compression — code just stores it). Commits scene.goals_updated
+ * atomically with the turn; the engine reinjects the latest snapshot every
+ * Narrator turn, so resume restores the exact story position. Mutating —
+ * both B6 gates; a later call in the same turn replaces the earlier one.
+ */
+export const UpdateGoalsToolSchema = z.strictObject({
+  goals: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(60),
+        text: z.string().min(1).max(300),
+        status: z.enum(['pending', 'active', 'done']),
+      }),
+    )
+    .min(1)
+    .max(12),
+});
+export type UpdateGoalsToolInput = z.infer<typeof UpdateGoalsToolSchema>;
+
+/**
+ * query_wiki — the Narrator's scene-side wiki read (0.21.0, Rev 4 §6):
+ * the same engine executor chat, the GM and character scene turns already
+ * use (runWikiquery), offered under the §6 tool name. Mid-call-only.
+ */
+export const QueryWikiToolSchema = z.strictObject({
+  /** Keywords about a place ("the flooded cellar", "charcoal camp"). */
+  query: z.string().min(1).max(200),
+});
+
 export const NARRATOR_TOOL_NAMES = [
   'end_scene',
   'change_sublocation',
   'switch_art',
   'create_sublocation',
   'query_sublocations',
+  'query_wiki',
   'describe_object',
+  'determine_who_next',
+  'charactercall',
+  'make_character',
+  'character_leave',
+  'move_character',
+  'update_goals',
 ] as const;
 export type NarratorToolName = (typeof NARRATOR_TOOL_NAMES)[number];
 
 /** Static descriptions the real client hands the SDK (stable strings — never scene state). */
 export const NARRATOR_TOOL_DESCRIPTIONS: Record<NarratorToolName, string> = {
   end_scene:
-    'Softly close the current scene. type: rest (a natural pause), continuation (a next scene follows), travel (the party moves elsewhere). Optionally give a short divider line like "— evening falls —". A continuation MUST include next_scene: the sublocation_id the follow-up scene opens at (it may be a stub you created this turn) and optionally a premise_seed. Optionally leave a follow_up_marker: a sublocation_id plus a one-line premise_seed for a later chance encounter growing out of this scene — it becomes a lazy "!" on the map the user may visit (or ignore) while its window lasts.',
+    'Softly close the current scene. type: rest (a natural pause), continuation (a next scene follows), travel (the party moves elsewhere), context_limit_reached (ONLY after the engine warned you the context budget is near — wind the scene down naturally first). Optionally give a short divider line like "— evening falls —". A continuation MUST include the full next_scene registration: sublocation_id (may be a stub you created this turn), time_offset_hours (game time the jump skips; 0 = immediately), expected_participants (character ids, may be empty), brief_history (what just happened, 1-3 sentences — the next scene opens on it), carried_goals (story goals still in play, may be empty), and optionally a premise_seed. A partial registration is refused with the missing fields named — call again complete. Optionally leave a follow_up_marker: a sublocation_id plus a one-line premise_seed for a later chance encounter growing out of this scene — it becomes a lazy "!" on the map the user may visit (or ignore) while its window lasts.',
+  determine_who_next:
+    'Declare who acts next: character_ids = the present characters who should respond to the current beat (this version accepts exactly ONE id per declaration — declare, call the character, then declare again if someone else should follow). The engine confirms the declaration; then call charactercall for that character. Declare only characters present in the scene.',
+  charactercall:
+    'Run a present character\'s turn NOW: the engine builds their private prompt and their reply (speech and action) returns to you as this tool\'s result — narrate its observable surface into the scene, keeping spoken words verbatim. seed (optional): one line on what this call should accomplish ("react to the knock"; when the scene is winding down, a gentle reason they might leave). Declare the character with determine_who_next first. The engine enforces a per-turn budget — when it says the budget is spent, stop calling characters and close your narration.',
+  make_character:
+    'Bring a character into the story. An EXISTING character (give their id or name) with presence "present" joins this scene — they must not be busy in another scene. A genuinely NEW character is minted into the world: give their name, personality (their full personality text) and goals (1-8 short lines), plus optional core seed memories; presence "present" also joins them here, "absent" creates them offstage for later. Most background figures stay prose — mint only characters the story will genuinely use again.',
+  character_leave:
+    'A present character exits the scene: narrate their exit and call this with their character_id (and an optional one-line reason). They become available elsewhere in the world; the scene continues without them.',
+  move_character:
+    'Reposition a character on the world map: character_id + to_sublocation_id. For characters who are NOT in a scene right now — someone present here must character_leave first (their exit narrated), and a character busy in another scene cannot be moved. Use it to send people where the story needs them next.',
+  update_goals:
+    'Persist your storytelling subgoal state: goals = the FULL current list, each {id, text, status: pending|active|done}. Call it whenever a subgoal advances or the plan changes — the engine reinjects your latest snapshot every turn, and after a restart this snapshot is exactly where the story resumes. Write the complete list every time; it replaces the previous snapshot whole.',
   change_sublocation:
     'Move the scene to another sublocation of this location. Use a sublocation_id offered in the scene context (a sublocation you created this turn works too).',
   switch_art:
@@ -135,6 +280,8 @@ export const NARRATOR_TOOL_DESCRIPTIONS: Record<NarratorToolName, string> = {
     'Create a new place mid-scene when the story commits to it (the scene moves there, or the next scene opens there) — mentioning a place in prose costs nothing and needs no tool call. One sublocation = one backdrop image: if a single background image can stage it, it is one sublocation (a park, a market square, a bridge); if only an aerial view could, name the stage inside it instead. An interior of the current location gets parent_id = the current exterior-atomic sublocation (always flat, never nested). A genuinely new parentless place requires calling query_sublocations with mode "parentless" first, in this same reply: if an existing sublocation plausibly fits, use change_sublocation instead of creating.',
   query_sublocations:
     'Look up existing sublocations before creating or moving. mode "parentless" lists every exterior-atomic place (REQUIRED before any parentless create_sublocation); mode "children" lists the interiors under parent_id; mode "search" matches keyword against names and descriptions. The result returns to you immediately.',
+  query_wiki:
+    'Look up what is publicly known about a place: searches the world wiki (place names, descriptions, latest entries). Use it when the scene needs a detail your context does not hold. The result returns to you immediately.',
   describe_object:
     'Persist your improvised content for a durable object that has NONE yet (the scene context marks these "nothing written yet"): when someone examines such an object, improvise what it is or contains in your narration AND record exactly that here, so every later read returns the same content. Only works once per object — an object that already has content must be narrated from its existing content instead.',
 };
@@ -703,7 +850,11 @@ export type ValidatedToolCall =
   | { tool: 'switch_art'; input: SwitchArtToolInput }
   | { tool: 'create_sublocation'; input: CreateSublocationToolInput }
   | { tool: 'describe_object'; input: DescribeObjectToolInput }
-  | { tool: 'interact_object'; input: InteractObjectToolInput };
+  | { tool: 'interact_object'; input: InteractObjectToolInput }
+  | { tool: 'make_character'; input: MakeCharacterToolInput }
+  | { tool: 'character_leave'; input: CharacterLeaveToolInput }
+  | { tool: 'move_character'; input: MoveCharacterToolInput }
+  | { tool: 'update_goals'; input: UpdateGoalsToolInput };
 
 /**
  * Gate 1: shape-validate one raw tool call. Unknown names and malformed
@@ -781,14 +932,66 @@ export function parseToolCall(
         ? { ok: true, value: { tool: 'describe_object', input: input.value } }
         : input;
     }
+    case 'make_character': {
+      const input = validateAt(
+        'llm',
+        'tool:make_character',
+        MakeCharacterToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'make_character', input: input.value } }
+        : input;
+    }
+    case 'character_leave': {
+      const input = validateAt(
+        'llm',
+        'tool:character_leave',
+        CharacterLeaveToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'character_leave', input: input.value } }
+        : input;
+    }
+    case 'move_character': {
+      const input = validateAt(
+        'llm',
+        'tool:move_character',
+        MoveCharacterToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'move_character', input: input.value } }
+        : input;
+    }
+    case 'update_goals': {
+      const input = validateAt(
+        'llm',
+        'tool:update_goals',
+        UpdateGoalsToolSchema,
+        raw.input,
+        logger,
+      );
+      return input.ok
+        ? { ok: true, value: { tool: 'update_goals', input: input.value } }
+        : input;
+    }
     case 'query_sublocations':
-      // Queries execute DURING the call (LlmCall.queries) and are filtered
-      // out of the returned tool calls; one arriving here means the client
-      // mis-routed it. Reject as a value — nothing durable happens (I8).
+    case 'query_wiki':
+    case 'determine_who_next':
+    case 'charactercall':
+      // Queries and the loop pair execute DURING the call (LlmCall.queries /
+      // LlmCall.loop) and are filtered out of the returned tool calls; one
+      // arriving here means the client mis-routed it. Reject as a value —
+      // nothing durable happens (I8).
       return err(
         new OperationalError(
           'query_not_stageable',
-          'query_sublocations executes during the call and is never staged',
+          `${raw.tool} executes during the call and is never staged`,
         ),
       );
     default:
