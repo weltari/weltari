@@ -310,6 +310,13 @@ const engine = createTurnEngine({
   logger,
   stablePrefixTokens: env.prefixTokens,
   knownCharacters,
+  // The agentic scene (0.21.0, Rev 4 §6): the LIVE registry seeds — the
+  // engine folds character.created per turn, so minted/approved characters
+  // are callable without a restart; the loop budget + context budget ride
+  // env knobs (tests and the harness rig them small).
+  seedProfiles,
+  turnBudget: env.sceneTurnBudget,
+  contextBudgetTokens: env.sceneContextBudget,
   // A committed create's backdrop/materialize jobs start on the spot —
   // drainLedger is hoisted; it only runs after startup completes.
   kickRunner: (): void => {

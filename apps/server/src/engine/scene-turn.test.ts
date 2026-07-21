@@ -37,10 +37,15 @@ interface Ctx {
   devFrames: DevEvent[];
 }
 
-function setup(llmOverride?: LlmClient): Ctx {
+function setup(
+  llmOverride?: LlmClient,
+  engineOverrides: Partial<Parameters<typeof createTurnEngine>[0]> = {},
+  existingStorage?: Storage,
+): Ctx {
   const dir = mkdtempSync(join(tmpdir(), 'weltari-turn-'));
   const logger = quietLogger();
-  const storage = openStorage({ dbPath: join(dir, 'w.sqlite') });
+  const storage =
+    existingStorage ?? openStorage({ dbPath: join(dir, 'w.sqlite') });
   const eventBus: EventBus = new Bus(logger);
   const streamBus: StreamBus = new Bus(logger);
   const streamFrames: StreamSentence[] = [];
@@ -71,6 +76,7 @@ function setup(llmOverride?: LlmClient): Ctx {
     faultPoint: (p): void => {
       faults.push(p);
     },
+    ...engineOverrides,
   });
   return { storage, streamFrames, faults, engine, llmCalls, devFrames };
 }
@@ -368,8 +374,12 @@ describe('narrator tool pipeline (B6 two gates)', () => {
       expect(moved.payload.name).toBe('The Flooded Cellar');
       expect(moved.actor_id).toBe('char:narrator');
     }
+    // Exactly one MUTATING trail frame — the loop's own frames
+    // (determine_who_next/charactercall, 0.21.0) ride the trail too.
     expect(
-      ctx.devFrames.filter((f) => f.type === 'dev.tool_call'),
+      ctx.devFrames.filter(
+        (f) => f.type === 'dev.tool_call' && f.tool === 'change_sublocation',
+      ),
     ).toHaveLength(1);
     ctx.storage.close();
   });
@@ -831,6 +841,246 @@ describe('narrator tool pipeline (B6 two gates)', () => {
     if (rejected?.type === 'dev.tool_rejected') {
       expect(rejected.gate).toBe('state');
     }
+    ctx.storage.close();
+  });
+});
+
+describe('the agentic loop (0.21.0, Rev 4 §6)', () => {
+  async function runTurn(ctx: Ctx, text: string): Promise<void> {
+    const started = await ctx.engine.startTurn({ ...COMMAND, text });
+    expect(started.ok).toBe(true);
+    if (started.ok) await started.value.completion;
+  }
+
+  function seedScene(ctx: Ctx, withRoster = false): void {
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'scene.started',
+      payload: { scene_id: 's1', title: 'The Rainy Inn' },
+    });
+    if (withRoster) {
+      ctx.storage.eventLog.append({
+        world_id: 'w1',
+        actor_id: 'system:engine',
+        type: 'character.joined',
+        payload: { scene_id: 's1', character_id: 'char:elias', name: 'Elias' },
+      });
+    }
+  }
+
+  it('the Narrator drives the turn: declaration → charactercall → narration, ONE envelope (criterion a)', async () => {
+    const ctx = setup();
+    seedScene(ctx);
+    await runTurn(ctx, 'I shake out my coat.');
+    const events = ctx.storage.eventLog.readSince(0);
+    const committed = events.filter((e) => e.type === 'turn.committed');
+    expect(committed).toHaveLength(1);
+    if (committed[0]?.type === 'turn.committed') {
+      expect(committed[0].payload.steps.map((s) => s.call)).toEqual([
+        'narrator',
+        'character',
+        'narration',
+      ]);
+      expect(committed[0].payload.steps[1]?.text).toContain('Late again');
+    }
+    // The loop ran through the REAL executors — both on the dev trail.
+    const tools = ctx.devFrames
+      .filter((f) => f.type === 'dev.tool_call')
+      .map((f) => f.tool);
+    expect(tools).toContain('determine_who_next');
+    expect(tools).toContain('charactercall');
+    ctx.storage.close();
+  });
+
+  it('the turn budget provably cuts a scripted ping-pong (criterion a)', async () => {
+    const ctx = setup(undefined, { turnBudget: 1 });
+    seedScene(ctx);
+    await runTurn(ctx, '!callchar char:elias !callchar char:elias');
+    const committed = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'turn.committed');
+    expect(committed).toBeDefined();
+    if (committed?.type === 'turn.committed') {
+      const characterSteps = committed.payload.steps.filter(
+        (s) => s.call === 'character',
+      );
+      expect(characterSteps).toHaveLength(1);
+      // The refusal streamed verbatim — the model (and the transcript) read
+      // exactly why the second call never ran.
+      const allText = committed.payload.steps.map((s) => s.text).join(' ');
+      expect(allText).toContain('turn budget');
+    }
+    ctx.storage.close();
+  });
+
+  it('an undeclared charactercall is refused; the V1 size-one policy is enforced', async () => {
+    const ctx = setup();
+    seedScene(ctx);
+    await runTurn(ctx, '!callchar-undeclared char:elias !who2 !solo');
+    const committed = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'turn.committed');
+    expect(committed).toBeDefined();
+    if (committed?.type === 'turn.committed') {
+      const allText = committed.payload.steps.map((s) => s.text).join(' ');
+      expect(allText).toContain('was not declared');
+      expect(allText).toContain('exactly ONE');
+      // !solo: no character step at all — both refusals left zero calls.
+      expect(committed.payload.steps.some((s) => s.call === 'character')).toBe(
+        false,
+      );
+    }
+    ctx.storage.close();
+  });
+
+  it('make_character mints + joins atomically and is charactercall-able the SAME turn (criterion b)', async () => {
+    const ctx = setup();
+    seedScene(ctx);
+    await runTurn(ctx, '!mint rill !callchar char:rill');
+    const events = ctx.storage.eventLog.readSince(0);
+    const created = events.find((e) => e.type === 'character.created');
+    expect(created).toBeDefined();
+    if (created?.type === 'character.created') {
+      expect(created.payload.character_id).toBe('char:rill');
+      expect(created.payload.personality).toContain('Weather-worn');
+    }
+    const joined = events.filter(
+      (e) =>
+        e.type === 'character.joined' && e.payload.character_id === 'char:rill',
+    );
+    expect(joined).toHaveLength(1);
+    const committed = events.find((e) => e.type === 'turn.committed');
+    if (committed?.type === 'turn.committed') {
+      expect(
+        committed.payload.steps.some(
+          (s) => s.call === 'character' && s.speaker === 'rill',
+        ),
+      ).toBe(true);
+    }
+    ctx.storage.close();
+  });
+
+  it('character_leave empties the cast durably — the fixture fallback never resurrects it (criterion b)', async () => {
+    const ctx = setup();
+    seedScene(ctx, true);
+    await runTurn(ctx, '!leave char:elias !solo');
+    const left = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'character.left');
+    expect(left).toBeDefined();
+    if (left?.type === 'character.left') {
+      expect(left.payload.character_id).toBe('char:elias');
+      expect(left.payload.reason).toContain('slips out');
+    }
+    // The NEXT turn's narrator context reads an empty cast (no fallback) —
+    // and the default flow finds nobody to call.
+    await runTurn(ctx, 'Anyone here?');
+    const narratorCalls = ctx.llmCalls.filter((c) => c.toolset === 'narrator');
+    expect(narratorCalls[1]?.prompt).toContain('Present characters: none');
+    ctx.storage.close();
+  });
+
+  it('move_character commits character.location_changed with the NARRATOR as actor (criterion b)', async () => {
+    const ctx = setup();
+    seedScene(ctx);
+    await runTurn(ctx, '!mintabsent odo !solo');
+    await runTurn(ctx, '!movechar char:odo subloc:cellar !solo');
+    const moved = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'character.location_changed');
+    expect(moved).toBeDefined();
+    if (moved?.type === 'character.location_changed') {
+      expect(moved.actor_id).toBe('char:narrator');
+      expect(moved.payload.character_id).toBe('char:odo');
+      expect(moved.payload.to_sublocation_id).toBe('subloc:cellar');
+      expect(moved.payload.game_time.length).toBeGreaterThan(0);
+    }
+    ctx.storage.close();
+  });
+
+  it('update_goals rides the turn transaction; a fresh engine over the same storage resumes the snapshot (criterion c)', async () => {
+    const ctx = setup();
+    seedScene(ctx);
+    await runTurn(ctx, '!goals the-bell-mystery !solo');
+    const snapshot = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'scene.goals_updated');
+    expect(snapshot).toBeDefined();
+    if (snapshot?.type === 'scene.goals_updated') {
+      expect(snapshot.payload.goals[0]?.text).toBe('Advance the bell mystery');
+      expect(snapshot.payload.goals[0]?.status).toBe('active');
+    }
+    // The restart: a NEW engine instance over the SAME storage — the next
+    // narrator turn reads the persisted snapshot in its DYNAMIC tail (I5:
+    // never the stable prefix).
+    const resumed = setup(undefined, {}, ctx.storage);
+    const started = await resumed.engine.startTurn({
+      ...COMMAND,
+      text: 'Where were we?',
+    });
+    expect(started.ok).toBe(true);
+    if (started.ok) await started.value.completion;
+    const narratorCall = resumed.llmCalls.find((c) => c.toolset === 'narrator');
+    expect(narratorCall?.prompt).toContain('Advance the bell mystery');
+    expect(narratorCall?.system).not.toContain('Advance the bell mystery');
+    ctx.storage.close();
+  });
+
+  it('the context warning arms context_limit_reached; without it the close is refused (criterion e)', async () => {
+    // Rigged budget: the estimate always lands inside the warning margin.
+    const warned = setup(undefined, { contextBudgetTokens: 1000 });
+    seedScene(warned);
+    await runTurn(warned, '!end context_limit_reached !solo');
+    const narratorCall = warned.llmCalls.find((c) => c.toolset === 'narrator');
+    expect(narratorCall?.prompt).toContain('ENGINE WARNING');
+    const ended = warned.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'scene.ended');
+    expect(ended).toBeDefined();
+    if (ended?.type === 'scene.ended') {
+      expect(ended.payload.end_type).toBe('context_limit_reached');
+    }
+    warned.storage.close();
+
+    // The default budget: no warning stands — the same close is refused
+    // with zero rows (I8).
+    const cold = setup();
+    seedScene(cold);
+    await runTurn(cold, '!end context_limit_reached !solo');
+    expect(
+      cold.storage.eventLog.readSince(0).some((e) => e.type === 'scene.ended'),
+    ).toBe(false);
+    expect(
+      cold.devFrames.some(
+        (f) =>
+          f.type === 'dev.tool_rejected' && f.reason.includes('has not warned'),
+      ),
+    ).toBe(true);
+    cold.storage.close();
+  });
+
+  it('the chapter seed rides the STABLE prefix byte-identically across turns (I5)', async () => {
+    const ctx = setup();
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'world.seeded',
+      payload: {
+        world_name: 'Brackwater',
+        language: 'en',
+        chapter_seed: 'A small town holds its breath between two storms.',
+        place_count: 3,
+        character_count: 2,
+      },
+    });
+    seedScene(ctx);
+    await runTurn(ctx, 'First turn.');
+    await runTurn(ctx, 'Second turn, different tail.');
+    const narratorCalls = ctx.llmCalls.filter((c) => c.toolset === 'narrator');
+    expect(narratorCalls).toHaveLength(2);
+    expect(narratorCalls[0]?.system).toContain('holds its breath');
+    expect(narratorCalls[0]?.system).toBe(narratorCalls[1]?.system);
     ctx.storage.close();
   });
 });

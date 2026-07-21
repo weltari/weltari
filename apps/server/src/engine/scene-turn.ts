@@ -26,6 +26,7 @@ import {
 import type { Logger } from '../observability/logger.js';
 import type { DevBus, EventBus, StreamBus } from '../http/bus.js';
 import {
+  CharactercallToolSchema,
   parseCharacterSceneToolCall,
   parseToolCall,
   type RawToolCall,
@@ -56,8 +57,11 @@ import {
 import { knownSublocations, latestBackdropPath } from './sublocations.js';
 import { enqueueBackdropPaint } from '../painter/commands.js';
 import type { FaultPointHook } from './fault-points.js';
+import { characterProfilesOf } from './characters.js';
+import { presenceOf } from './chat.js';
 import {
   appendSceneEndWithFanOut,
+  sceneRosterOf,
   type KnownCharacter,
   type SceneEndMarkerFanOut,
 } from './scene-lifecycle.js';
@@ -89,6 +93,17 @@ export interface TurnEngineOptions {
   stablePrefixTokens?: number;
   /** Speaker-name → character-id map for the end_scene fan-out (fixture default). */
   knownCharacters?: readonly KnownCharacter[];
+  /** Seed character profiles for the LIVE registry fold (0.21.0):
+   * charactercall and make_character resolve against seeds ∪ every
+   * character.created. Fixture default: Elias alone. */
+  seedProfiles?: readonly CharacterProfile[];
+  /** Max charactercalls one user turn may run (Rev 4 §6 turn budget) —
+   * past it the executor refuses and the Narrator yields. Default 3. */
+  turnBudget?: number;
+  /** The scene context budget in TOKENS (Rev 4 §6: sized for the character
+   * LLM); within 5000 of it the engine warns the Narrator and
+   * end_scene(context_limit_reached) becomes legal. Default 100000. */
+  contextBudgetTokens?: number;
   /** World geography for the change_sublocation state gate. Default: the
    * sublocation registry (fixture trio + materialized), read fresh per turn
    * so newly explored squares are enterable without a restart. */
@@ -168,9 +183,10 @@ interface CallPlan {
   kind: TurnStep['call'];
   profile: CharacterProfile;
   instruction: string;
-  /** Narrator calls offer the narrator toolset (Guide B6); character calls
-   * offer character_scene (M7 part 1: read-only queries, nothing stageable). */
-  toolset?: 'narrator' | 'character_scene';
+  /** Character calls offer character_scene (M7 part 1: read-only queries +
+   * the gated interact_object). The NARRATOR runs through runNarratorLoop
+   * since 0.21.0 — its toolset never rides a CallPlan anymore. */
+  toolset?: 'character_scene';
 }
 
 export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
@@ -188,7 +204,13 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     startSublocationId = FIXTURE_START_SUBLOCATION_ID,
     artSets = FIXTURE_ART_SETS,
     presentCharacterIds = ['char:elias'],
+    turnBudget = 3,
+    contextBudgetTokens = 100000,
   } = options;
+
+  /** Rev 4 §6: the warning fires when the estimate comes within this many
+   * tokens of the budget. */
+  const CONTEXT_WARNING_MARGIN = 5000;
 
   function worldSublocations(
     worldId: string,
@@ -201,6 +223,76 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
   const knownCharacters = options.knownCharacters ?? [
     { character_id: elias.character_id, name: elias.name },
   ];
+  const seedProfiles = options.seedProfiles ?? [elias];
+
+  /** The world's chapter seed (world.seeded) — IMMUTABLE once present, so it
+   * may ride the STABLE prefix (I5: byte-identical every turn of the
+   * world's life; a fixture world without one changes nothing). */
+  function chapterSeedOf(worldId: string): string | undefined {
+    let seed: string | undefined;
+    for (const event of storage.eventLog.readSince(0, 100000)) {
+      if (event.type === 'world.seeded' && event.world_id === worldId) {
+        seed = event.payload.chapter_seed;
+      }
+    }
+    return seed;
+  }
+
+  /** The Narrator profile with the world's story layer folded into the
+   * stable prefix (Rev 4 §6 input 2: chapter seed + story goals — Narrator
+   * only, never characters). */
+  function narratorProfileFor(worldId: string): CharacterProfile {
+    const seed = chapterSeedOf(worldId);
+    return seed === undefined
+      ? narrator
+      : { ...narrator, goals: [...narrator.goals, `Chapter seed: ${seed}`] };
+  }
+
+  /** The latest committed subgoal snapshot (0.21.0, Rev 4 §6) — DYNAMIC
+   * (it changes turn to turn): reinjected into every Narrator tail, which is
+   * exactly what makes a restart resume at the story position. */
+  function latestGoals(
+    sceneId: string,
+  ): readonly { id: string; text: string; status: string }[] {
+    let goals: readonly { id: string; text: string; status: string }[] = [];
+    for (const event of storage.eventLog.readSince(0, 100000)) {
+      if (
+        event.type === 'scene.goals_updated' &&
+        event.payload.scene_id === sceneId
+      ) {
+        goals = event.payload.goals;
+      }
+    }
+    return goals;
+  }
+
+  /** Resolve a charactercall target to a callable profile: the live
+   * registry (seeds ∪ character.created), or a character MINTED this very
+   * turn (its staged effect carries the whole seed profile). */
+  function profileForCharacter(
+    characterId: string,
+    registry: readonly CharacterProfile[],
+    stage: ToolStage,
+  ): CharacterProfile | undefined {
+    const known = registry.find((p) => p.character_id === characterId);
+    if (known !== undefined) return known;
+    for (const effect of stage.staged()) {
+      if (
+        effect.kind === 'character_mint' &&
+        effect.characterId === characterId
+      ) {
+        return {
+          character_id: effect.characterId,
+          name: effect.name,
+          skills: [],
+          personality: effect.personality,
+          memory_core: effect.core,
+          goals: effect.goals,
+        };
+      }
+    }
+    return undefined;
+  }
 
   /** Dynamic scene options for the Narrator's instruction (tail-only — the
    * current sublocation changes turn to turn and must never touch the prefix). */
@@ -208,6 +300,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     sceneId: string,
     worldId: string,
     sublocations: readonly SublocationDefinition[],
+    cast: readonly KnownCharacter[],
   ): string {
     const current = currentSublocationId(storage, sceneId, startSublocationId);
     const sublocationList = sublocations
@@ -229,8 +322,21 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
                 `${o.object_id} ("${o.name}"): ${o.payload ?? 'nothing written yet — improvise once with describe_object when examined'}`,
             )
             .join('; ')}.`;
+    // The agentic loop's routing surface (0.21.0, Rev 4 §6): who is here to
+    // charactercall, and where the story stands (the persisted snapshot).
+    const castList =
+      cast.length === 0
+        ? 'none — make_character can bring someone in'
+        : cast.map((c) => `${c.character_id} (${c.name})`).join(', ');
+    const goals = latestGoals(sceneId);
+    const goalsList =
+      goals.length === 0
+        ? 'none recorded yet — call update_goals to set them'
+        : goals.map((g) => `${g.id}[${g.status}]: ${g.text}`).join('; ');
     return [
       `Current sublocation: ${current}.`,
+      `Present characters: ${castList}.`,
+      `Story subgoals: ${goalsList}.`,
       `Sublocations you may move the scene to: ${sublocationList}.`,
       `Art poses you may switch: ${artList}.${objectList}`,
     ].join(' ');
@@ -361,107 +467,74 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       },
       ...(plan.toolset === undefined
         ? {}
-        : plan.toolset === 'character_scene'
-          ? {
-              // The character's scene-side queries (M7 part 1, Rev 4 §7/§11,
-              // owner ruling 2026-07-11): read-only mid-call executors —
-              // memoryquery deep-dives the character's OWN deltas; wikiquery
-              // covers the query-sublocations-then-their-wiki flow in one
-              // step. Dev-trailed like every query. M7 part 3 adds the gate:
-              // interact_object runs both B6 gates mid-call exactly like the
-              // narrator's tools — staging stays in-memory, durability only
-              // at turn.committed.
-              toolset: plan.toolset,
-              queries: {
-                memoryquery: (input: unknown): string => {
-                  devBus.publish({
-                    type: 'dev.tool_call',
-                    turn_id: turnId,
-                    tool: 'memoryquery',
-                    input_json: JSON.stringify(input),
-                  });
-                  return runMemoryquery(
-                    storage,
-                    plan.profile.character_id,
-                    logger,
-                    input,
-                  );
-                },
-                wikiquery: (input: unknown): string => {
-                  devBus.publish({
-                    type: 'dev.tool_call',
-                    turn_id: turnId,
-                    tool: 'wikiquery',
-                    input_json: JSON.stringify(input),
-                  });
-                  return runWikiquery(storage, worldId, logger, input);
-                },
-                // The §14 listing (M7 part 3): wiki + public objects + one
-                // level of interiors; defaults to the place the turn is in
-                // (staged moves included via the stage's live view).
-                explore: (input: unknown): string => {
-                  devBus.publish({
-                    type: 'dev.tool_call',
-                    turn_id: turnId,
-                    tool: 'explore',
-                    input_json: JSON.stringify(input),
-                  });
-                  return runExploreQuery(
-                    storage,
-                    worldId,
-                    turn.stage.currentSublocation(),
-                    logger,
-                    input,
-                  );
-                },
-              },
-              gate: (raw: RawToolCall): string => {
-                if (turn.interrupted) {
-                  return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
-                }
-                const gated = gateOne(
-                  raw,
-                  turn.stage,
-                  turnId,
+        : {
+            // The character's scene-side queries (M7 part 1, Rev 4 §7/§11,
+            // owner ruling 2026-07-11): read-only mid-call executors —
+            // memoryquery deep-dives the character's OWN deltas; wikiquery
+            // covers the query-sublocations-then-their-wiki flow in one
+            // step. Dev-trailed like every query. M7 part 3 adds the gate:
+            // interact_object runs both B6 gates mid-call exactly like the
+            // narrator's tools — staging stays in-memory, durability only
+            // at turn.committed.
+            toolset: plan.toolset,
+            queries: {
+              memoryquery: (input: unknown): string => {
+                devBus.publish({
+                  type: 'dev.tool_call',
+                  turn_id: turnId,
+                  tool: 'memoryquery',
+                  input_json: JSON.stringify(input),
+                });
+                return runMemoryquery(
+                  storage,
                   plan.profile.character_id,
+                  logger,
+                  input,
                 );
-                return gated.ok
-                  ? stagedAck(gated.value)
-                  : `ERROR: ${gated.error.message}`;
               },
-            }
-          : {
-              toolset: plan.toolset,
-              // The read-only query executor (Rev 4 §6): runs mid-call, feeds
-              // its result back to the model, arms the stage's query-first
-              // flag — and leaves a dev-trail frame like any tool call (C11).
-              queries: {
-                query_sublocations: (input: unknown): string => {
-                  devBus.publish({
-                    type: 'dev.tool_call',
-                    turn_id: turnId,
-                    tool: 'query_sublocations',
-                    input_json: JSON.stringify(input),
-                  });
-                  return turn.stage.querySublocations(input);
-                },
+              wikiquery: (input: unknown): string => {
+                devBus.publish({
+                  type: 'dev.tool_call',
+                  turn_id: turnId,
+                  tool: 'wikiquery',
+                  input_json: JSON.stringify(input),
+                });
+                return runWikiquery(storage, worldId, logger, input);
               },
-              // The mid-call gate executor (M6 part 2, owner decision
-              // 2026-07-09): both B6 gates run DURING the call and the model
-              // reads the staged-ack or the refusal as its tool result — a
-              // rejected create is no longer trail-only, the Narrator can
-              // self-correct in the same turn. Staging stays in-memory;
-              // durability still only happens at turn.committed below.
-              gate: (raw: RawToolCall): string => {
-                if (turn.interrupted) {
-                  return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
-                }
-                const gated = gateOne(raw, turn.stage, turnId);
-                return gated.ok
-                  ? stagedAck(gated.value)
-                  : `ERROR: ${gated.error.message}`;
+              // The §14 listing (M7 part 3): wiki + public objects + one
+              // level of interiors; defaults to the place the turn is in
+              // (staged moves included via the stage's live view).
+              explore: (input: unknown): string => {
+                devBus.publish({
+                  type: 'dev.tool_call',
+                  turn_id: turnId,
+                  tool: 'explore',
+                  input_json: JSON.stringify(input),
+                });
+                return runExploreQuery(
+                  storage,
+                  worldId,
+                  turn.stage.currentSublocation(),
+                  logger,
+                  input,
+                );
               },
-            }),
+            },
+            gate: (raw: RawToolCall): string => {
+              if (turn.interrupted) {
+                return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
+              }
+              const gated = gateOne(
+                raw,
+                turn.stage,
+                turnId,
+                plan.profile.character_id,
+              );
+              return gated.ok
+                ? stagedAck(gated.value)
+                : `ERROR: ${gated.error.message}`;
+            },
+          }),
     });
     if (!result.ok) return result;
     splitter.flush();
@@ -473,6 +546,211 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       },
       toolCalls: result.value.toolCalls,
     });
+  }
+
+  /** Steps as the turn's records currently stand — the character prompt's
+   * prior-steps view and the commit's source (0.21.0: steps derive from the
+   * streamed records, so the loop's rotated narrator segments each become
+   * their own step exactly as displayed). */
+  function stepsFromRecords(turn: RunningTurn): TurnStep[] {
+    return turn.recorded
+      .filter((r) => r.sentences.length > 0)
+      .map((r) => ({
+        call: r.call,
+        speaker: r.speaker,
+        text: r.sentences.join(' '),
+      }));
+  }
+
+  /**
+   * The §6 orchestration loop (0.21.0): ONE narrator call drives the whole
+   * turn — queries and both B6 gates run mid-call as before, and the LOOP
+   * executors let the Narrator run characters inside its own reply:
+   * determine_who_next validates the routing declaration (V1: exactly one),
+   * charactercall runs the WHOLE C-Module call (streaming its sentences as a
+   * `character` step) and returns the reply text; the narrator's later
+   * sentences rotate into a fresh `narration` record, so the committed steps
+   * read narrator → character → narration → … exactly as displayed. The
+   * TURN BUDGET refuses charactercalls past the cap with an error string the
+   * model reads (Rev 4 §6: max N character turns per user turn, then yield).
+   */
+  async function runNarratorLoop(
+    turn: RunningTurn,
+    turnId: string,
+    sceneId: string,
+    worldId: string,
+    profile: CharacterProfile,
+    registry: readonly CharacterProfile[],
+    context: { stablePrefix: string; dynamicTail: string },
+    instruction: string,
+    userInput: string | undefined,
+  ): Promise<Result<{ toolCalls: readonly RawToolCall[] }>> {
+    let record: RunningTurn['recorded'][number] = {
+      call: 'narrator',
+      speaker: profile.name,
+      sentences: [],
+    };
+    turn.recorded.push(record);
+    let sentenceIndex = 0;
+    let firstSentenceSeen = false;
+    const splitter = createSentenceSplitter((sentence) => {
+      record.sentences.push(sentence);
+      if (!turn.interrupted) {
+        streamBus.publish({
+          turn_id: turnId,
+          call: record.call,
+          speaker: profile.name,
+          text: sentence,
+          index: sentenceIndex,
+        });
+      }
+      sentenceIndex += 1;
+      if (!firstSentenceSeen) {
+        firstSentenceSeen = true;
+        const emitted = faultPoint('mid_stream');
+        if (emitted instanceof Promise) {
+          emitted.catch((thrown: unknown) => {
+            logger.warn({ err: thrown }, 'fault-point hook failed');
+          });
+        }
+      }
+    });
+    let characterCalls = 0;
+    // A failed INNER character call voids the whole turn (B6: a beat whose
+    // reply silently vanished must never commit as if nothing was missing) —
+    // recorded here because the executor can only hand the model a string.
+    let innerError: AppError | undefined;
+
+    const result = await llm.streamCall({
+      kind: 'narrator',
+      characterId: profile.character_id,
+      system: context.stablePrefix,
+      prompt: `${context.dynamicTail}\n\n## Instruction\n${instruction}`,
+      onTextDelta: (delta) => {
+        splitter.push(delta);
+      },
+      toolset: 'narrator',
+      // The read-only query executors (Rev 4 §6): run mid-call, feed their
+      // result back to the model, dev-trailed like every tool call (C11).
+      queries: {
+        query_sublocations: (input: unknown): string => {
+          devBus.publish({
+            type: 'dev.tool_call',
+            turn_id: turnId,
+            tool: 'query_sublocations',
+            input_json: JSON.stringify(input),
+          });
+          return turn.stage.querySublocations(input);
+        },
+        query_wiki: (input: unknown): string => {
+          devBus.publish({
+            type: 'dev.tool_call',
+            turn_id: turnId,
+            tool: 'query_wiki',
+            input_json: JSON.stringify(input),
+          });
+          return runWikiquery(storage, worldId, logger, input);
+        },
+      },
+      // The mid-call gate executor (M6 part 2, owner decision 2026-07-09):
+      // both B6 gates run DURING the call and the model reads the staged-ack
+      // or the refusal as its tool result. Staging stays in-memory;
+      // durability still only happens at turn.committed.
+      gate: (raw: RawToolCall): string => {
+        if (turn.interrupted) {
+          return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
+        }
+        const gated = gateOne(raw, turn.stage, turnId);
+        return gated.ok
+          ? stagedAck(gated.value)
+          : `ERROR: ${gated.error.message}`;
+      },
+      loop: {
+        determine_who_next: (input: unknown): string => {
+          devBus.publish({
+            type: 'dev.tool_call',
+            turn_id: turnId,
+            tool: 'determine_who_next',
+            input_json: JSON.stringify(input),
+          });
+          if (turn.interrupted) {
+            return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
+          }
+          return turn.stage.declareNext(input);
+        },
+        charactercall: async (input: unknown): Promise<string> => {
+          devBus.publish({
+            type: 'dev.tool_call',
+            turn_id: turnId,
+            tool: 'charactercall',
+            input_json: JSON.stringify(input),
+          });
+          if (turn.interrupted) {
+            return 'ERROR: the user interrupted this turn — stop; nothing will commit.';
+          }
+          const parsed = CharactercallToolSchema.safeParse(input);
+          if (!parsed.success) {
+            return 'charactercall: malformed input — use {"character_id": "char:...", "seed"?: "one line"}.';
+          }
+          if (characterCalls >= turnBudget) {
+            return `ERROR: the turn budget (${String(turnBudget)} character turns per player turn) is spent — no more character calls; close your narration and yield to the player.`;
+          }
+          const consumed = turn.stage.consumeDeclared(parsed.data.character_id);
+          if (!consumed.ok) {
+            return `ERROR: ${consumed.error.message}`;
+          }
+          const characterProfile = profileForCharacter(
+            parsed.data.character_id,
+            registry,
+            turn.stage,
+          );
+          if (characterProfile === undefined) {
+            return `ERROR: no callable profile for ${parsed.data.character_id}.`;
+          }
+          characterCalls += 1;
+          // Close the narrator segment BEFORE the character speaks, so the
+          // committed steps keep true display order.
+          splitter.flush();
+          const seed = parsed.data.seed;
+          const reply = await runCall(
+            {
+              kind: 'character',
+              profile: characterProfile,
+              instruction: `Reply as ${characterProfile.name} in 1-3 short sentences of dialogue, true to your voice. If the conversation touches something from your own past that your core memory does not hold, search your long-term memories with memoryquery before answering; look up unfamiliar places with wikiquery. If you durably place, move, or write content into a physical object that matters beyond this moment, call interact_object — most scenery stays prose.${seed === undefined ? '' : ` (Direction for this moment: ${seed})`}`,
+              toolset: 'character_scene',
+            },
+            turn,
+            turnId,
+            sceneId,
+            worldId,
+            stepsFromRecords(turn),
+            userInput,
+          );
+          // Later narrator sentences land in their OWN record — the classic
+          // narration step, exactly like the old scripted third call.
+          record = { call: 'narration', speaker: profile.name, sentences: [] };
+          turn.recorded.push(record);
+          sentenceIndex = 0;
+          if (!reply.ok) {
+            innerError = reply.error;
+            return `ERROR: the character call failed (${reply.error.code}) — stop; this turn will not commit.`;
+          }
+          // Data-path tool calls (the fake returns interact_object as data):
+          // both gates run now, actor = the called character.
+          runToolGates(
+            reply.value.toolCalls,
+            turn.stage,
+            turnId,
+            characterProfile.character_id,
+          );
+          return `${characterProfile.name} responds (speech is verbatim; narrate the observable surface of the rest):\n${reply.value.step.text}`;
+        },
+      },
+    });
+    if (!result.ok) return result;
+    if (innerError !== undefined) return err(innerError);
+    splitter.flush();
+    return ok({ toolCalls: result.value.toolCalls });
   }
 
   /** One raw call through both B6 gates: valid → staged (in-memory) + a
@@ -595,48 +873,37 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         handoff.placeRequest === undefined
           ? ''
           : ' The player context names a meeting place that is not yet a sublocation of this world: resolve it THIS turn — call query_sublocations first (mode parentless and/or search); if an existing sublocation plausibly fits, change_sublocation to it; otherwise create_sublocation (the query-first rule applies) and change_sublocation to the new place.';
-      const plans: CallPlan[] = [
-        {
-          kind: 'narrator',
-          profile: narrator,
-          instruction: `Narrate the next beat of the scene in 2-3 sentences, third person, present tense. End on a hook for Elias. You may call your scene tools when the fiction calls for it.${resolveInstruction} ${narratorToolContext(command.scene_id, command.world_id, sublocations)}`,
-          toolset: 'narrator',
-        },
-        {
-          kind: 'character',
-          profile: elias,
-          instruction:
-            'Reply as Elias in 1-3 short sentences of dialogue, true to his voice. If the conversation touches something from your own past that your core memory does not hold, search your long-term memories with memoryquery before answering; if it touches a place you are not sure about, look it up with wikiquery. The scene already gave you where you are — query only when you genuinely need more. If you durably place, move, or write content into a physical object that matters beyond this moment, call interact_object — most scenery stays prose.',
-          toolset: 'character_scene',
-        },
-        {
-          kind: 'narration',
-          profile: narrator,
-          instruction:
-            'Close the beat in 1-2 sentences of narration reacting to what was just said.',
-        },
-      ];
 
-      const stage = createToolStage(
-        {
-          storage,
-          worldId: command.world_id,
-          sublocations,
-          startSublocationId,
-          artSets,
-          presentCharacterIds,
-        },
-        command.scene_id,
+      // The live world registry (0.21.0): seeds ∪ every character.created —
+      // minted characters are callable from the very next turn, no restart.
+      const registry = characterProfilesOf(
+        storage,
+        command.world_id,
+        seedProfiles,
       );
-
-      const turn: RunningTurn = {
-        command,
-        recorded: [],
-        stage,
-        interrupted: false,
-        closed: false,
-      };
-      running.set(turnId, turn);
+      const registryKnown: KnownCharacter[] = registry.map((p) => ({
+        character_id: p.character_id,
+        name: p.name,
+      }));
+      for (const known of knownCharacters) {
+        if (!registryKnown.some((k) => k.character_id === known.character_id)) {
+          registryKnown.push(known);
+        }
+      }
+      // The scene's cast: the character.joined/left fold; only a scene with
+      // NO roster events at all (bare test worlds, pre-0.21 logs) keeps the
+      // configured fixture default — an emptied cast stays empty.
+      const roster = sceneRosterOf(storage, command.scene_id);
+      const presentIds = roster.tracked
+        ? roster.cast.map((r) => r.character_id)
+        : [...presentCharacterIds];
+      const cast: KnownCharacter[] = presentIds.map(
+        (id) =>
+          registryKnown.find((k) => k.character_id === id) ?? {
+            character_id: id,
+            name: id,
+          },
+      );
 
       // The handoff text is data from chat (user free text / a character
       // line) — it enters the prompt only inside the player-wrapped external
@@ -653,41 +920,96 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         .filter((line) => line !== '')
         .join('\n');
 
+      // The context-budget check (0.21.0, Rev 4 §6): estimate the narrator
+      // prompt (chars/4 — the same heuristic the fake's accounting uses)
+      // BEFORE the call; within the margin the tail carries the warning and
+      // end_scene(context_limit_reached) becomes legal (the stage flag).
+      const narratorProfile = narratorProfileFor(command.world_id);
+      const narratorContext = assembleContext(narratorProfile, {
+        scene_id: command.scene_id,
+        world_clock_text: worldClockText,
+        latest_turns: recentTurns(command.scene_id),
+        ...(firstTurnText === '' ? {} : { user_input: firstTurnText }),
+        wiki: [],
+      });
+      const estimatedTokens = Math.ceil(
+        (narratorContext.stablePrefix.length +
+          narratorContext.dynamicTail.length) /
+          4,
+      );
+      const contextWarned =
+        estimatedTokens > contextBudgetTokens - CONTEXT_WARNING_MARGIN;
+      const warningText = contextWarned
+        ? ` ENGINE WARNING: this scene's context (${String(estimatedTokens)} tokens) is within ${String(CONTEXT_WARNING_MARGIN)} tokens of its ${String(contextBudgetTokens)}-token budget — wind the scene down naturally (plant leave seeds through charactercall) and close with end_scene type context_limit_reached when it fits the fiction.`
+        : '';
+
+      const stage = createToolStage(
+        {
+          storage,
+          worldId: command.world_id,
+          sublocations,
+          startSublocationId,
+          artSets,
+          presentCharacterIds: presentIds,
+          worldCharacters: registryKnown,
+          presence: (characterId) =>
+            presenceOf(storage, command.world_id, characterId),
+          contextWarned,
+        },
+        command.scene_id,
+      );
+
+      const turn: RunningTurn = {
+        command,
+        recorded: [],
+        stage,
+        interrupted: false,
+        closed: false,
+      };
+      running.set(turnId, turn);
+
+      const instruction = `Narrate the next beat of the scene, third person, present tense. YOU drive the turn (Rev 4 §6): declare who acts next with determine_who_next, run them with charactercall, and weave each reply into your narration — spoken words verbatim, actions by their observable surface. Another character may follow (declare again first); the engine caps character turns per player turn, and when it says the budget is spent, close your narration and stop. When the beat lands, yield to the player. You may call your other scene tools whenever the fiction calls for it.${resolveInstruction} ${narratorToolContext(command.scene_id, command.world_id, sublocations, cast)}${warningText}`;
+
       const completion = (async (): Promise<void> => {
-        const steps: TurnStep[] = [];
-        for (const [index, plan] of plans.entries()) {
-          const result = await runCall(
-            plan,
-            turn,
+        const result = await runNarratorLoop(
+          turn,
+          turnId,
+          command.scene_id,
+          command.world_id,
+          narratorProfile,
+          registry,
+          narratorContext,
+          instruction,
+          // Every call of the turn hears the player's line (M7 part 1: the
+          // character needs it to decide a memory/wiki query; it enters
+          // each prompt only inside the player-wrapped external block, B14).
+          firstTurnText !== '' ? firstTurnText : undefined,
+        );
+        // The interrupt already closed the envelope — everything from here
+        // on (text and tool calls alike) finishes into the void (B6).
+        if (turn.interrupted) return;
+        if (!result.ok) {
+          voidTurn(turnId, result.error);
+          return;
+        }
+        // Data-path narrator tool calls (the fake returns mutations as data;
+        // a gate-wired real client already gated everything mid-call).
+        runToolGates(result.value.toolCalls, stage, turnId);
+        await faultPoint('between_calls');
+        const steps = stepsFromRecords(turn);
+        if (steps.length === 0) {
+          voidTurn(
             turnId,
-            command.scene_id,
-            command.world_id,
-            steps,
-            // Every call of the turn hears the player's line (M7 part 1: the
-            // character needs it to decide a memory/wiki query; it enters
-            // each prompt only inside the player-wrapped external block, B14).
-            firstTurnText !== '' ? firstTurnText : undefined,
+            new OperationalError('empty_turn', 'no displayable steps streamed'),
           );
-          // The interrupt already closed the envelope — everything from here
-          // on (text and tool calls alike) finishes into the void (B6).
-          if (turn.interrupted) return;
-          if (!result.ok) {
-            voidTurn(turnId, result.error);
-            return;
-          }
-          steps.push(result.value.step);
-          runToolGates(
-            result.value.toolCalls,
-            stage,
-            turnId,
-            plan.toolset === 'character_scene'
-              ? plan.profile.character_id
-              : undefined,
-          );
-          if (index === 0) await faultPoint('between_calls');
+          return;
         }
         await faultPoint('pre_commit');
-        if (turn.interrupted || turn.closed) return;
+        // Re-read through the map: an interrupt may have landed during the
+        // awaits above (the map lookup is what keeps this check visible to
+        // the type system — same object, fresh narrowing).
+        const live = running.get(turnId);
+        if (live === undefined || live.interrupted || live.closed) return;
 
         // A parentless create's materialize anchor: the sublocation the
         // creating scene was in (Rev 4 §14's default) — resolved before the
@@ -963,9 +1285,12 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
           }
           const end = stage.endScene();
           if (end?.kind === 'end_scene') {
+            // The LIVE registry names the fan-out's speakers (0.21.0): a
+            // character minted or joined this very session still gets its
+            // reflection job.
             const core = appendSceneEndWithFanOut(
               storage,
-              knownCharacters,
+              registryKnown,
               {
                 world_id: command.world_id,
                 actor_id: narrator.character_id,

@@ -75,6 +75,36 @@ function sceneEvents(storage: Storage, sceneId: string): WeltariEvent[] {
     .filter((e) => 'scene_id' in e.payload && e.payload.scene_id === sceneId);
 }
 
+/**
+ * The scene's live cast (0.21.0, Rev 4 §6): character.joined minus
+ * character.left, in event order — the turn engine's roster source (the
+ * agentic loop validates charactercalls against it) and the presence
+ * projection's per-scene mirror. `tracked` distinguishes a scene whose cast
+ * EMPTIED (every joiner left — stays empty) from one with no roster events
+ * at all (bare test worlds / pre-0.21 logs — the engine's fixture default
+ * applies there instead).
+ */
+export function sceneRosterOf(
+  storage: Storage,
+  sceneId: string,
+): { cast: KnownCharacter[]; tracked: boolean } {
+  const roster = new Map<string, KnownCharacter>();
+  let tracked = false;
+  for (const event of sceneEvents(storage, sceneId)) {
+    if (event.type === 'character.joined') {
+      tracked = true;
+      roster.set(event.payload.character_id, {
+        character_id: event.payload.character_id,
+        name: event.payload.name,
+      });
+    } else if (event.type === 'character.left') {
+      tracked = true;
+      roster.delete(event.payload.character_id);
+    }
+  }
+  return { cast: [...roster.values()], tracked };
+}
+
 /** Characters who actually spoke in the scene's committed turns. */
 function participantsOf(
   events: readonly WeltariEvent[],

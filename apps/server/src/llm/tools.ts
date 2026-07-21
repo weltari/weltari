@@ -139,9 +139,6 @@ export const DetermineWhoNextToolSchema = z.strictObject({
   /** The characters who should act next (V1: exactly one). */
   character_ids: z.array(z.string().min(1)).min(1).max(4),
 });
-export type DetermineWhoNextToolInput = z.infer<
-  typeof DetermineWhoNextToolSchema
->;
 
 /**
  * charactercall — run a present character's turn mid-loop (0.21.0, Rev 4
@@ -156,7 +153,6 @@ export const CharactercallToolSchema = z.strictObject({
    * a scene-end leave seed goes here too — Rev 4 §6 soft close). */
   seed: z.string().min(1).max(500).optional(),
 });
-export type CharactercallToolInput = z.infer<typeof CharactercallToolSchema>;
 
 /**
  * make_character — a character enters the story (0.21.0, Rev 4 §6): an

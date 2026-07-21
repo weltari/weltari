@@ -57,6 +57,18 @@ const envSchema = z.object({
    * 0 = disabled. Each fire is one chat-class LLM call on a real backend;
    * fires per advance are additionally capped at the freeze cap. */
   WELTARI_CRON_DM_GAME_MINUTES: z.coerce.number().nonnegative().default(1440),
+  /** The agentic scene's turn budget (0.21.0, Rev 4 §6): max charactercalls
+   * one user turn may run before the engine refuses and the Narrator yields. */
+  WELTARI_SCENE_TURN_BUDGET: z.coerce.number().int().positive().default(3),
+  /** The scene context budget in TOKENS (0.21.0, Rev 4 §6 — sized for the
+   * character LLM, which gets context injected too); the engine warns the
+   * Narrator when the estimate comes within 5000 of it, making
+   * end_scene(context_limit_reached) legal. Tests rig it tiny. */
+  WELTARI_SCENE_CONTEXT_BUDGET: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(100000),
   /** Chance-encounter marker floor/ceiling (Rev 4 §15: default 1–5) and the
    * default game-time TTL in minutes (M7 part 4). */
   WELTARI_MARKER_MIN: z.coerce.number().int().nonnegative().default(1),
@@ -156,6 +168,8 @@ export interface Env {
   leaseSeconds: number;
   chatIdleMinutes: number;
   cronDmGameMinutes: number;
+  sceneTurnBudget: number;
+  sceneContextBudget: number;
   markerMin: number;
   markerMax: number;
   markerTtlGameMinutes: number;
@@ -223,6 +237,8 @@ export function readEnv(
       leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
       chatIdleMinutes: parsed.data.WELTARI_CHAT_IDLE_MINUTES,
       cronDmGameMinutes: parsed.data.WELTARI_CRON_DM_GAME_MINUTES,
+      sceneTurnBudget: parsed.data.WELTARI_SCENE_TURN_BUDGET,
+      sceneContextBudget: parsed.data.WELTARI_SCENE_CONTEXT_BUDGET,
       markerMin: parsed.data.WELTARI_MARKER_MIN,
       markerMax: parsed.data.WELTARI_MARKER_MAX,
       markerTtlGameMinutes: parsed.data.WELTARI_MARKER_TTL_GAME_MINUTES,
