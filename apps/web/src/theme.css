@@ -1719,6 +1719,21 @@ body {
   padding: 0.4rem 0;
 }
 
+/* The GM reply streaming live (0.20.0): same bubble, a breathing caret —
+   display-only text the committed message replaces (B6). */
+.wl-chat-bubble.wl-chat-streaming::after {
+  content: '\258d';
+  margin-left: 0.15rem;
+  animation: wl-chat-caret 1s steps(1) infinite;
+  color: var(--wl-text-dim);
+}
+
+@keyframes wl-chat-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
 /* Cold-boot onboarding SKELETON (0.17.0, Rev 4 §9): centered stage naming
    the moment and handing the user to the GM chat. The Figma-designed page
    replaces the markup but should keep the data-slot names

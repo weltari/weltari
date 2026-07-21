@@ -230,6 +230,11 @@ export interface SceneStore {
   /** The latest turn that streamed display-only sentences (B6: never durable). */
   liveTurnId: string | null;
   liveSentences: SceneStreamSentence[];
+  /** The GM reply currently streaming (0.20.0): `call: 'gm'` frames for one
+   * conversation — display-only, replaced on index 0 (a correction-loop
+   * retry restarts the stream), cleared when the committed message lands. */
+  gmLiveConversationId: string | null;
+  gmLiveSentences: StreamSentence[];
   /** Dev channel ring buffer (?dev=1 only) — the log-only trail (UI Spec §2.8). */
   devFrames: DevEvent[];
   /** Latest update.available — the Config badge (untrusted metadata, B12). */
@@ -611,6 +616,13 @@ function applyOne(
         };
         return {
           chatThreads: { ...state.chatThreads, [characterId]: thread },
+          // The committed reply supersedes its live stream (B6): the GM
+          // buffer for this conversation is done the moment the durable
+          // message lands.
+          ...(event.payload.sender === 'character' &&
+          state.gmLiveConversationId === event.payload.conversation_id
+            ? { gmLiveConversationId: null, gmLiveSentences: [] }
+            : {}),
         };
       });
       return;
@@ -1009,6 +1021,8 @@ export const useSceneStore = create<SceneStore>((set) => ({
   openTurnId: null,
   liveTurnId: null,
   liveSentences: [],
+  gmLiveConversationId: null,
+  gmLiveSentences: [],
   devFrames: [],
   updateAvailable: null,
   updateStaged: null,
@@ -1057,9 +1071,19 @@ export const useSceneStore = create<SceneStore>((set) => ({
   },
 
   applyStream(frame: StreamSentence): void {
-    // GM frames (0.20.0) never touch the scene pacing buffer — they get
-    // their own thread-side buffer with the GM streaming rework.
-    if (frame.call === 'gm') return;
+    // GM frames (0.20.0) ride the GM thread's own buffer, never the scene
+    // pacing one. Index 0 replaces: a correction-loop retry restarted the
+    // stream and the earlier attempt's sentences are stale.
+    if (frame.call === 'gm') {
+      set((state) => ({
+        gmLiveConversationId: frame.turn_id,
+        gmLiveSentences:
+          frame.index === 0 || state.gmLiveConversationId !== frame.turn_id
+            ? [frame]
+            : [...state.gmLiveSentences, frame],
+      }));
+      return;
+    }
     const sceneFrame: SceneStreamSentence = { ...frame, call: frame.call };
     set((state) => {
       // Sentences for a stale turn (reconnect races) are dropped — the

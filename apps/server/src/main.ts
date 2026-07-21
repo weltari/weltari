@@ -367,6 +367,7 @@ const gmChatEngine = createGmChatEngine({
   logger,
   proposals: proposalEngine,
   modelConfigured: env.fakeLlm || env.openrouterApiKey !== undefined,
+  streamBus,
   devBus,
 });
 

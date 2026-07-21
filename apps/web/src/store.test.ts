@@ -3,7 +3,7 @@
 // Regression: a pose from an ended scene leaked into every later scene —
 // live navigation and full replay alike showed the stale pose.
 import { describe, expect, it } from 'vitest';
-import type { WeltariEvent } from '@weltari/protocol';
+import type { StreamSentence, WeltariEvent } from '@weltari/protocol';
 import { useSceneStore } from './store.js';
 
 const TS = '2026-07-10T00:00:00.000Z';
@@ -370,5 +370,45 @@ describe('the GM consent projection (0.17.0, Rev 4 §16)', () => {
       },
     });
     expect(useSceneStore.getState().worldSeeded).toBe(true);
+  });
+});
+
+describe('the GM live stream buffer (0.20.0, the GM proposal UX contract)', () => {
+  const CONV = 'chat:user:owner:char:gm';
+  function gmFrame(index: number, text: string): StreamSentence {
+    return { turn_id: CONV, call: 'gm', speaker: 'GM', text, index };
+  }
+
+  it('gm frames buffer apart from the scene, index 0 replaces, the committed reply clears', () => {
+    const store = useSceneStore.getState();
+    store.applyStream(gmFrame(0, 'One.'));
+    store.applyStream(gmFrame(1, 'Two.'));
+    expect(useSceneStore.getState().gmLiveSentences.map((f) => f.text)).toEqual(
+      ['One.', 'Two.'],
+    );
+    // The scene pacing buffer never sees a gm frame.
+    expect(useSceneStore.getState().liveSentences).toHaveLength(0);
+    // A correction-loop retry restarts the stream: index 0 replaces.
+    store.applyStream(gmFrame(0, 'Fresh.'));
+    expect(useSceneStore.getState().gmLiveSentences.map((f) => f.text)).toEqual(
+      ['Fresh.'],
+    );
+    // The durable message supersedes the live stream (B6).
+    apply({
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:gm',
+      ts: TS,
+      type: 'chat.message_committed',
+      payload: {
+        conversation_id: CONV,
+        character_id: 'char:gm',
+        sender: 'character',
+        text: 'Fresh.',
+        message_id: 'm-gm-1',
+      },
+    });
+    expect(useSceneStore.getState().gmLiveSentences).toHaveLength(0);
+    expect(useSceneStore.getState().gmLiveConversationId).toBeNull();
   });
 });

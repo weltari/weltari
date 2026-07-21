@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import type { SendChatMessageCommand } from '@weltari/protocol';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { Logger } from '../observability/logger.js';
-import type { DevBus } from '../http/bus.js';
+import type { DevBus, StreamBus } from '../http/bus.js';
 import {
   GM_TOOL_SCHEMA_HINTS,
   parseGmToolCall,
@@ -29,6 +29,7 @@ import {
   conversationIdFor,
   conversationState,
 } from './chat.js';
+import { createSentenceSplitter } from './sentences.js';
 import { runWikiquery } from './chat-queries.js';
 import { assembleContext, type TurnLine } from './context-assembler.js';
 import type { EventSink } from './event-sink.js';
@@ -51,6 +52,10 @@ export interface GmChatEngineOptions {
   llm: LlmClient;
   logger: Logger;
   proposals: ProposalEngine;
+  /** GM prose streams display-only into the GM thread (0.20.0, the UX
+   * contract): `call: 'gm'` frames with turn_id = conversation id — never
+   * durable, the committed message is the transcript (B6). */
+  streamBus: StreamBus;
   /** Whether a real model is configured (key present or fake selected) —
    * the interview's "keys" step is a status line, never stored state
    * (secrets live only in env, Guide rule 5). */
@@ -204,12 +209,30 @@ export function createGmChatEngine(options: GmChatEngineOptions): GmChatEngine {
         let submitted = 0;
         let correction = '';
         for (let attempt = 1; attempt <= PROPOSAL_RETRY_ATTEMPTS; attempt++) {
+          // The GM streams its prose (0.20.0): sentence frames on the
+          // display-only bus, index restarting at 0 per attempt — a
+          // correction-loop retry restarts the stream and the client
+          // replaces its buffer on index 0 (the durable message still
+          // commits whole, B6).
+          let sentenceIndex = 0;
+          const splitter = createSentenceSplitter((sentence) => {
+            options.streamBus.publish({
+              turn_id: conversationId,
+              call: 'gm',
+              speaker: 'GM',
+              text: sentence,
+              index: sentenceIndex,
+            });
+            sentenceIndex += 1;
+          });
           const result = await llm.streamCall({
             kind: 'gm',
             characterId: GM_CHARACTER_ID,
             system: context.stablePrefix,
             prompt: `${basePrompt}${correction}`,
-            onTextDelta: (): void => undefined, // GM replies do not stream (V1)
+            onTextDelta: (delta): void => {
+              splitter.push(delta);
+            },
             toolset: 'gm',
             queries: {
               wikiquery: (input: unknown): string => {
@@ -223,6 +246,7 @@ export function createGmChatEngine(options: GmChatEngineOptions): GmChatEngine {
               },
             },
           });
+          splitter.flush();
           if (!result.ok) {
             logger.error(
               { conversation_id: conversationId, code: result.error.code },
