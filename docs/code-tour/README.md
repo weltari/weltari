@@ -4,8 +4,8 @@ These pages explain Weltari's source code to a reader who is **not** a
 professional developer: what each file is for, what its main functions do,
 and how the modules connect. They are companions to the terse developer wiki
 pages in [docs/INDEX.md](../INDEX.md) — same modules, friendlier altitude.
-(Written 2026-07-10 against the post-week-10 codebase; if a module changes a
-lot in later weeks, its tour page may lag behind the wiki page.)
+(Written 2026-07-10 against the post-week-10 codebase; refreshed 2026-07-21
+at the V1 close-out — week 19. The pages now describe the finished V1.)
 
 ## Suggested reading order
 

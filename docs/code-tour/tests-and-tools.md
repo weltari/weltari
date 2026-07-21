@@ -9,12 +9,13 @@ code for known-bad patterns — banned constructs, wrong imports across module
 boundaries — and must report zero warnings, not just zero errors),
 **typecheck** (the TypeScript compiler proves every value is used the way its
 declared type promises, with no shortcuts), the **full test suite** (every
-automated test in the repo actually runs and passes), and **knip** (a tool
-that flags dead code — dependencies that are installed but never used,
-exported functions nobody imports). Every one of those five must exit
-cleanly before any task, feature, or fix is allowed to be called finished.
-This tour covers the four folders that make up that safety net: `tests/`,
-`tools/`, `scripts/`, and `fixtures/`.
+automated test in the repo actually runs and passes — by the V1 close-out
+that's roughly 670 individual tests), and **knip** (a tool that flags dead
+code — dependencies that are installed but never used, exported functions
+nobody imports). Every one of those five must exit cleanly before any task,
+feature, or fix is allowed to be called finished. This tour covers the four
+folders that make up that safety net: `tests/`, `tools/`, `scripts/`, and
+`fixtures/`.
 
 ## tests/
 
@@ -26,7 +27,10 @@ malicious plugin or player sends it, no matter how many times a job retries.
 Each file in `tests/invariants/` is a small proof, in code, that one specific
 promise is kept. These are the tests `npx vitest run --project invariants`
 runs on their own, and CI treats a failure here as a merge-blocker, not a
-suggestion.
+suggestion. The collection grew steadily as features landed; here is the
+full V1 set.
+
+The foundations:
 
 - **`event-log-append-only.test.ts`** — the database's history table
   (`events`) physically refuses any attempt to edit or delete a row after
@@ -38,6 +42,11 @@ suggestion.
   after the server restarts — still triggers exactly one reply. Oversized
   text gets capped before it can reach the AI, and malformed or
   suspiciously-shaped messages are dropped with zero side effects.
+- **`gateway-binding.test.ts`** — the first time a messenger conversation
+  ever reaches a world, the link is recorded and the GM's one-time welcome
+  message fires — once per pairing, ever. Every later message from that
+  conversation reuses the link; even a crash mid-welcome can't make the
+  greeting fire twice.
 - **`ledger-dead-letter.test.ts`** — a background job (a "ledger job" — a
   task like "write a reflection" or "check for game-world time passing"
   queued for later processing) that keeps failing past its retry limit gets
@@ -54,34 +63,94 @@ suggestion.
   end-of-scene notes) are serialized per game world, so two jobs for the same
   world can never run at once and race each other, while different worlds
   stay fully independent.
-- **`llm-tool-gates.test.ts`** — nothing the AI outputs is trusted directly.
-  Every "tool call" the AI makes (move to a new location, change a
-  character's expression, end the scene) must pass through two checks in a
-  row: first a strict shape check (is this even valid JSON in the expected
-  format?), then a game-state check (does this action make sense right now —
-  e.g. is that location real, is that scene actually open?). A call that
-  fails either check writes **zero** database rows — it's logged only to an
-  internal debug channel, never treated as something that happened in the
-  game.
-- **`materialize-gates.test.ts`** — the same two-gate discipline, applied to
-  the AI job that invents brand-new locations ("materializing" a map square).
-  A malformed invention or one that collides with an already-occupied map
-  square writes zero rows; and even if the same job is retried three times
-  after a simulated crash, a location is created exactly once, never twice.
+
+The AI gates (nothing an AI says is trusted directly):
+
+- **`llm-tool-gates.test.ts`** — every "tool call" the storytelling AI makes
+  (move to a new location, change a character's expression, end the scene)
+  must pass through two checks in a row: first a strict shape check (is this
+  even valid JSON in the expected format?), then a game-state check (does
+  this action make sense right now — e.g. is that location real, is that
+  scene actually open?). A call that fails either check writes **zero**
+  database rows — it's logged only to an internal debug channel, never
+  treated as something that happened in the game.
+- **`gm-tool-gates.test.ts`** — the same two-gate discipline for the game
+  master AI's own toolset (proposing places, characters, objects, world
+  seeds): a malformed or unknown authoring wish is rejected as plain data
+  with zero rows written.
+- **`materialize-gates.test.ts`** — the same discipline again, applied to
+  the AI job that invents brand-new locations ("materializing" a map
+  square). A malformed invention or one that collides with an
+  already-occupied square writes zero rows; and even if the same job is
+  retried three times after a simulated crash, a location is created exactly
+  once, never twice.
+- **`prompt-prefix/`** — a whole folder of byte-stability proofs. The fixed
+  opening portion of every prompt sent to the AI (the "stable prefix" —
+  world lore, character profile, rules) is required to come out
+  byte-for-byte identical every time, given the same inputs — because AI
+  providers charge much less for repeated ("cached") prompt text, this is
+  what keeps the app affordable. `context-assembler.test.ts` proves it for
+  the storytelling prompt, even against deliberately hostile player text;
+  `gm-prefix.test.ts` proves it for the game master's prompt;
+  `live-profile.test.ts` proves a character's memory only shifts the prefix
+  *between* AI calls (when a reflection actually commits), never in the
+  middle of one; and `story-goals.test.ts` proves the scene's ever-changing
+  goal checklist lives only in the prompt's changing tail, never in the
+  cached prefix.
+
+The consent and social features:
+
+- **`proposal-pipeline.test.ts`** — the GM's consent cards are real
+  consent: rejecting a proposal leaves zero trace in the world (the "no" is
+  the only record), approving applies the whole change in one atomic step,
+  exactly once per card, and only a listed approver may answer.
+- **`object-proposal.test.ts`** — the same promise for GM-authored objects:
+  a rejected object never exists, an approved one is created exactly once
+  with its approval recorded, and two objects with the same name can't be
+  smuggled into the same place.
+- **`gm-chat.test.ts`** — the GM rides the same chat plumbing as characters
+  but is *not* a character: it accrues no memory, writes no reflections,
+  and its replies commit together with any consent cards they fired —
+  both or neither. Also walks the entire cold-boot path (setup interview →
+  seed card → approval → a playable world) on the free fake AI.
+- **`gm-followup.test.ts`** — after you answer a consent card, the GM says
+  exactly one thing about your verdict — never zero (a crash is healed at
+  next boot), never two (a deterministic message id makes doubles
+  impossible), and the GM transcript shows chat lines and card outcomes in
+  true log order.
+- **`character-lock.test.ts`** — your lock on a character is checked live:
+  flip it between two scenes and the very next attempted personality
+  evolution is refused whole, while ordinary memories keep accruing;
+  unlock and evolution resumes.
+- **`profile-gdpr.test.ts`** — profiling off (the default) means zero
+  profile writes anywhere, even for a stale job that was already queued;
+  the GM's notes live in a genuinely deletable side store with only counts
+  in the permanent log; and after a delete, nothing — not even replaying
+  all of history — can resurrect the erased data.
+- **`social-post-ceiling.test.ts`** — skipping the world clock forward
+  many days produces at most 10 feed posts (the freshest ones), never an
+  endless backlog to scroll through.
+
+The living world:
+
+- **`marker-lifecycle.test.ts`** — the map's story hooks obey their rules:
+  always 1–5 live markers (the engine tops up below the floor, refuses
+  drops above the ceiling with zero rows), never one born already expired,
+  expiry is judged lazily against the world clock, the first click on a
+  marker wins and opens the one scene while a racing second click joins it,
+  and a scene ending re-tops-up the map in the same breath.
+- **`world-movement.test.ts`** — characters wander the world on the
+  background clock, but never while they're in an active scene, only to
+  fully-created places, and exactly once per clock occurrence — a retried
+  clock tick can't teleport someone twice.
+
+The plumbing and the exits:
+
 - **`plugin-hash.test.ts`** — every drop-in plugin folder is checked against
-  a cryptographic fingerprint (a SHA-256 hash) of its own files at load time.
-  Change even one byte of a plugin after it was approved, and the whole
-  plugin is refused — the app boots normally without it, and the refusal is
-  written down as a permanent record.
-- **`prompt-prefix/context-assembler.test.ts`** — the fixed opening portion of
-  every prompt sent to the AI (the "stable prefix" — world lore, character
-  profile, rules) is required to come out byte-for-byte identical every time,
-  given the same inputs, and to be completely unmoved by anything
-  session-specific (the player's latest message, in-game time, wiki text) —
-  even when that dynamic text is deliberately hostile and tries to trick the
-  AI into ignoring its instructions. This matters because providers charge
-  less for repeated ("cached") prompt text, so keeping the prefix stable
-  keeps the app affordable to run.
+  a cryptographic fingerprint (a SHA-256 hash) of its own files at load
+  time. Change even one byte of a plugin after it was approved, and the
+  whole plugin is refused — the app boots normally without it, and the
+  refusal is written down as a permanent record.
 - **`repository-fence.test.ts`** — only one folder in the codebase
   (`apps/server/src/storage/`) is allowed to talk to the SQLite database
   directly. This test greps the entire server source tree for any file
@@ -157,14 +226,23 @@ depending on a live AI provider being reachable.
 `tools/kill-harness.mjs` is the project's permanent crash-torture rig. In
 plain terms: it starts the real, compiled server (using the fake AI so it's
 free and fast), waits for the server to print that it has reached one of
-about a dozen named "fault points" — very specific, deliberately risky
-moments in its own code, like *midway through streaming an AI reply*, *just
-before committing a database write*, *midway through generating a new
-location*, *midway through applying a software update* — and then kills the
-process outright with SIGKILL (the operating system's most brutal "stop
-right now, no cleanup" signal, exactly like unplugging the power). It then
-restarts the server against the same, now-battered database and runs the
-offline consistency checker (below) against it.
+**26 named "fault points"** — very specific, deliberately risky moments in
+its own code — and then kills the process outright with SIGKILL (the
+operating system's most brutal "stop right now, no cleanup" signal, exactly
+like unplugging the power). It then restarts the server against the same,
+now-battered database and runs the offline consistency checker (below)
+against it.
+
+The 26 fault points grew with the features and now cover every dangerous
+window in V1: midway through streaming an AI reply, just before committing a
+database write, midway through generating a new location, midway through
+applying a software update, mid-chat-reflection, mid proactive DM, mid
+invitation expiry, mid feed post, mid memory commit and mid memory
+compaction, inside a consent-card approval, inside the profiling job, mid
+object clean-up, inside every phase of a map marker's life (sweep, click,
+top-up), inside the GM's post-verdict follow-up, and — the final addition —
+inside an agentic-scene "call the next character" step, proving a
+half-finished turn is voided whole rather than half-saved.
 
 Why this proves anything: if the server can be killed at literally its most
 dangerous moment — half-written database row, half-downloaded update,
@@ -172,28 +250,37 @@ half-invented map location — and come back up with a database that is still
 internally consistent (nothing duplicated, nothing half-written, nothing
 lost that shouldn't be), that is strong evidence the app is "crash-safe": a
 real power outage or an OS killing a hung process can never corrupt a
-player's game. The harness runs one full cycle per named fault point, 25
-cycles on every push/PR and 100 cycles overnight, and it also proves that a
-web browser reconnecting mid-stream (via a mechanism called
-"Last-Event-ID") receives exactly the events it missed — no duplicates, no
-gaps.
+player's game. The harness cycles through the fault points round-robin, so
+one full sweep of all 26 takes `CYCLES=26`; CI runs 25 cycles on every
+push/PR and 100 cycles overnight (covering the full set several times). It
+also proves that a web browser reconnecting mid-stream (via a mechanism
+called "Last-Event-ID") receives exactly the events it missed — no
+duplicates, no gaps.
 
 `tools/verify-consistency.mjs` is the harness's offline judge: after each
 kill, it opens the crashed database directly (something normally forbidden —
 this is one of the few places in the whole repo allowed to do that, purely
-for inspection) and runs a battery of checks: is the SQLite file itself
-intact; do row IDs strictly increase with no gaps or repeats; is every stored
-payload valid JSON; did every "turn" in the game get committed at most once,
-and never committed without first being properly started; did every
-multi-step database write (like ending a scene and fanning out follow-up
-jobs) either happen completely or not at all, never half-way; did every job
-that's supposed to run exactly once (reflections, world updates, painted
-images, materialized locations) actually run exactly once even after
-kill-triggered retries; does the game's internal clock only ever move
-forward; do all painted images on disk actually match their recorded
-fingerprint; and is the "which version is currently running" pointer file
-always pointing at a fully-written version, never a version that was only
-half-written when the kill happened. Any single violation is a hard failure.
+for inspection) and runs a battery of checks organized into numbered blocks,
+1 through 4r. The early blocks are the basics: is the SQLite file itself
+intact; do row IDs strictly increase with no gaps or repeats; is every
+stored payload valid JSON; did every "turn" get committed at most once and
+never without being started; did every multi-step write (like ending a
+scene and fanning out follow-up jobs) happen completely or not at all; did
+every "exactly once" job (reflections, world updates, painted images,
+materialized locations) actually run exactly once even after kill-triggered
+retries; does the game clock only move forward; do painted images on disk
+match their recorded fingerprints; and is the "which version is running"
+pointer never left half-written. The later blocks, added one per feature,
+apply the same discipline to everything V1 shipped: chat message and
+reflection keys, proactive DMs, invitation expiry, group chats, the feed
+(4k), the memory store and its search index (4l), consent proposals and the
+GM's world-seeding (4m), objects (4n), map markers (4o), world movement —
+now covering both the background clock and the storyteller moving people
+(4p), the GM's one-per-verdict follow-up messages (4q), and finally the
+agentic scene (4r): every goal snapshot belongs to a committed turn, scene
+casts never tear (no double joins, no one leaving who wasn't there), and
+every "continued" scene traces back to a real registration. Any single
+violation, in any block, is a hard failure.
 
 ### The other tools
 
@@ -264,7 +351,7 @@ joining, several turns of dialogue (including one that was deliberately cut
 off mid-stream, to show what an interrupted turn looks like), the
 AI-generated end-of-scene reflections, a skip forward in game time, a
 painted background image, a plugin that was refused, and an app update —
-covering nearly every kind of event the real game can produce.
+covering the classic early event kinds the real game produces.
 
 `fixtures/load-example-world.mjs` loads that file into a real, fresh SQLite
 database — but only through the same repository code path the live app uses,
@@ -298,9 +385,10 @@ be regenerated at any time with the command below.
   npx vitest run path/to/file.test.ts
   ```
 
-- **The kill harness** (crash-torture the real server):
+- **The kill harness** (crash-torture the real server; 26 cycles = one full
+  sweep of all 26 fault points):
   ```
-  CYCLES=25 node tools/kill-harness.mjs
+  CYCLES=26 node tools/kill-harness.mjs
   ```
   (CI runs 25 cycles on every push/PR and 100 cycles overnight.)
 
