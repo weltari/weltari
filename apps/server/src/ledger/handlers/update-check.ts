@@ -35,6 +35,17 @@ export function createUpdateCheckHandler(
     let raw: unknown;
     try {
       const response = await fetchFn(releasesUrl);
+      if (response.status === 404) {
+        // GitHub answers 404 on /releases/latest while a repo has ZERO
+        // releases — the standing dev-world state (week 19, audit item 5).
+        // Nothing published means nothing to announce: the job completes
+        // instead of parking a retrying failure on every boot.
+        logger.debug(
+          { releasesUrl },
+          'no releases published yet — nothing to announce',
+        );
+        return;
+      }
       if (!response.ok) {
         throw new OperationalError(
           'update_check_failed',
