@@ -279,7 +279,15 @@ const faultPoint: FaultPointHook | undefined = env.emitFaultPoints
       // The kill harness greps stdout for this marker (I4)…
       logger.info({ fault_point: point }, `FAULT_POINT:${point}`);
       // …and this hold gives its SIGKILL time to land inside the window.
-      if (env.faultPauseMs > 0 && point !== 'mid_stream') {
+      // Week 19: with a target set, ONLY the hunted point pauses — the
+      // window there stays exactly as wide, while untargeted points stop
+      // inflating accumulated CRON replays (which starved the runner past
+      // the harness's wait on loaded second-round cycles).
+      if (
+        env.faultPauseMs > 0 &&
+        point !== 'mid_stream' &&
+        (env.faultTarget === undefined || env.faultTarget === point)
+      ) {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, env.faultPauseMs);
         });
