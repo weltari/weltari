@@ -66,6 +66,15 @@ describe('readEnv (B-env boundary)', () => {
     expect(withKey.ok).toBe(true);
   });
 
+  it('the fault target is harness-only and optional (week 19: pause only at the hunted point)', () => {
+    const unset = readEnv({});
+    expect(unset.ok).toBe(true);
+    if (unset.ok) expect(unset.env.faultTarget).toBeUndefined();
+    const set = readEnv({ WELTARI_FAULT_TARGET: 'mid_reflection' });
+    expect(set.ok).toBe(true);
+    if (set.ok) expect(set.env.faultTarget).toBe('mid_reflection');
+  });
+
   it('image backend defaults to the free stub; openrouter is opt-in; junk is rejected', () => {
     const defaulted = readEnv({});
     expect(defaulted.ok).toBe(true);

@@ -993,7 +993,15 @@ for (let cycle = 0; cycle < CYCLES + 1; cycle++) {
   // 2026-07-10/11) — the default daily cadence stays on; fires only ever
   // happen when a cycle advances time, and Elias is in_scene during those,
   // so no stray outreach perturbs other cycles.
-  const child = spawnServer({});
+  // Week 19 hardening: pause ONLY at this cycle's kill needle. The pause
+  // exists to widen the SIGKILL window at the hunted point; pausing at every
+  // other fault point inflated accumulated CRON replays until the single
+  // runner starved interactive jobs (the round-2 mid_reflection timeout).
+  // Kill windows are unchanged — the hunted point still holds 400 ms.
+  // mid_stub_create is the one cycle whose kill lands at another point's
+  // marker (its stub-placement branch's mid_materialize window).
+  const killNeedle = point === 'mid_stub_create' ? 'mid_materialize' : point;
+  const child = spawnServer({ WELTARI_FAULT_TARGET: killNeedle });
   liveChild = child;
   await waitForLine(child, 'weltari listening');
 

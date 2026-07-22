@@ -43,6 +43,11 @@ const envSchema = z.object({
   WELTARI_PREFIX_TOKENS: z.coerce.number().int().positive().default(800),
   /** Harness only: hold at between_calls/pre_commit so SIGKILL lands inside the window. */
   WELTARI_FAULT_PAUSE_MS: z.coerce.number().int().nonnegative().default(0),
+  /** Harness only (week 19): pause ONLY at this fault point — the cycle's
+   * kill needle. Unset = pause at every point (the pre-week-19 behavior).
+   * Untargeted pauses inflated accumulated CRON replays until the runner
+   * starved interactive jobs (the round-2 mid_reflection timeout). */
+  WELTARI_FAULT_TARGET: z.string().min(1).optional(),
   /** Job lease length. The kill harness shortens it so a killed-mid-job lease
    * expires (and the sweep reclaims the job) within one harness cycle. */
   WELTARI_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
@@ -165,6 +170,7 @@ export interface Env {
   providerOrder: readonly string[] | undefined;
   prefixTokens: number;
   faultPauseMs: number;
+  faultTarget: string | undefined;
   leaseSeconds: number;
   chatIdleMinutes: number;
   cronDmGameMinutes: number;
@@ -234,6 +240,7 @@ export function readEnv(
               .filter((p) => p.length > 0),
       prefixTokens: parsed.data.WELTARI_PREFIX_TOKENS,
       faultPauseMs: parsed.data.WELTARI_FAULT_PAUSE_MS,
+      faultTarget: parsed.data.WELTARI_FAULT_TARGET,
       leaseSeconds: parsed.data.WELTARI_LEASE_SECONDS,
       chatIdleMinutes: parsed.data.WELTARI_CHAT_IDLE_MINUTES,
       cronDmGameMinutes: parsed.data.WELTARI_CRON_DM_GAME_MINUTES,
