@@ -11,7 +11,7 @@ import { ok, type Result } from '../../errors.js';
 import { buildNarratorProfile } from '../../engine/fixture/rainy-inn.js';
 import { createEventSink } from '../../engine/event-sink.js';
 import { Bus } from '../../http/bus.js';
-import type { LlmCallResult, LlmClient } from '../../llm/types.js';
+import type { LlmCall, LlmCallResult, LlmClient } from '../../llm/types.js';
 import { createRootLogger } from '../../observability/logger.js';
 import { openStorage, type Storage } from '../../storage/db.js';
 import type { LedgerJob } from '../../storage/repositories/ledger.js';
@@ -129,5 +129,69 @@ describe('world-cron handlers under lease-expiry overlap', () => {
       .readSince(0)
       .filter((e) => e.type === 'world_cron.completed');
     expect(completed).toHaveLength(1); // the loser no-oped at the fused re-check
+  });
+});
+
+describe('world-cron narration reads its own world and its own moment', () => {
+  it("a seeded world's occurrence speaks with that world's Narrator at scheduled_for, not the clock now", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-wcron-world-'));
+    const logger = quietLogger();
+    const storage = openStorage({ dbPath: join(dir, 'w.sqlite') });
+    storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'world.seeded',
+      payload: {
+        world_name: 'Brackwater',
+        language: 'en',
+        place_count: 2,
+        character_count: 1,
+      },
+    });
+    // The skip that replays the occurrence ran PAST it: the clock now reads
+    // a later day than the occurrence the narration is about.
+    storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'world.time_advanced',
+      payload: {
+        from: '2000-01-01T06:00:00.000Z',
+        to: '2000-01-08T09:00:00.000Z',
+        code_enqueued: 0,
+        llm_enqueued: 1,
+        llm_skipped: 0,
+      },
+    });
+    const calls: LlmCall[] = [];
+    const recording: LlmClient = {
+      streamCall: async (call): Promise<Result<LlmCallResult>> => {
+        calls.push(call);
+        return Promise.resolve(
+          ok({
+            text: 'The market stalls close early.',
+            usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+            model: 'fake/recording',
+            durationMs: 0,
+            toolCalls: [],
+          }),
+        );
+      },
+    };
+    const handler = createWorldCronLlmHandler({
+      storage,
+      sink: createEventSink(storage, new Bus(logger)),
+      llm: recording,
+      narrator: buildNarratorProfile(100),
+      logger,
+    });
+    await handler(jobWith('world_cron.llm'));
+
+    expect(calls).toHaveLength(1);
+    // PAYLOAD.scheduled_for = 2000-01-07T12:00Z → day 7, midday.
+    expect(calls[0]?.prompt).toContain('World clock: Day 7, 12:00, midday');
+    expect(calls[0]?.system).toContain('This world is Brackwater');
+    expect(calls[0]?.system).not.toContain('Rainy Inn');
+    expect(calls[0]?.system).not.toContain('Recorded note');
+    storage.close();
   });
 });

@@ -1091,3 +1091,161 @@ describe('the agentic loop (0.21.0, Rev 4 §6)', () => {
     ctx.storage.close();
   });
 });
+
+describe("the world's real clock and its own Narrator in scene prompts", () => {
+  async function runTurn(ctx: Ctx, text: string): Promise<void> {
+    const started = await ctx.engine.startTurn({ ...COMMAND, text });
+    expect(started.ok).toBe(true);
+    if (started.ok) await started.value.completion;
+  }
+
+  function seedScene(ctx: Ctx): void {
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'system:engine',
+      type: 'scene.started',
+      payload: { scene_id: 's1', title: 'A scene' },
+    });
+  }
+
+  function advance(ctx: Ctx, from: string, to: string): void {
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'world.time_advanced',
+      payload: { from, to, code_enqueued: 0, llm_enqueued: 0, llm_skipped: 0 },
+    });
+  }
+
+  /** A GM-built world's approved seed card, as the apply path logs it. */
+  function seedBrackwater(ctx: Ctx): void {
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'char:gm',
+      type: 'proposal.submitted',
+      payload: {
+        proposal_id: 'prop-seed1',
+        rationale: 'The interview is complete.',
+        proposer: 'char:gm',
+        approvers: ['user:owner'],
+        action: 'seed_world',
+        diff: {
+          world_name: 'Brackwater',
+          language: 'en',
+          chapter_seed: 'A town between two storms.',
+          places: [
+            {
+              name: 'The Salt Market',
+              description: 'Stalls of brine-cured fish under patched canvas.',
+              space: 'public',
+            },
+            {
+              name: 'The Chandler Loft',
+              description: 'A narrow attic room above the candle shop.',
+              space: 'private',
+            },
+          ],
+          characters: [
+            {
+              name: 'Ada Vell',
+              personality: 'Sharp and restless.',
+              goals: ['Find the missing tide ledger.'],
+              core: [],
+              skills: [],
+            },
+          ],
+        },
+      },
+    });
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'world.seeded',
+      payload: {
+        world_name: 'Brackwater',
+        language: 'en',
+        chapter_seed: 'A town between two storms.',
+        place_count: 2,
+        character_count: 1,
+        proposal_id: 'prop-seed1',
+      },
+    });
+  }
+
+  const FIXTURE_MARKERS = [
+    'Rainy Inn',
+    'Recorded note',
+    'Elias',
+    'wet wool',
+    'Storm season',
+    'ferry',
+  ];
+
+  it('an advanced clock reaches the Narrator AND the character — in the tail, fresh per turn, never the prefix', async () => {
+    const ctx = setup();
+    seedScene(ctx);
+    advance(ctx, '2000-01-01T06:00:00.000Z', '2000-01-02T14:30:00.000Z');
+    await runTurn(ctx, 'I shake out my coat.');
+    advance(ctx, '2000-01-02T14:30:00.000Z', '2000-01-03T21:05:00.000Z');
+    await runTurn(ctx, 'Later that night.');
+
+    const narratorCalls = ctx.llmCalls.filter((c) => c.toolset === 'narrator');
+    const characterCalls = ctx.llmCalls.filter((c) => c.kind === 'character');
+    expect(narratorCalls).toHaveLength(2);
+    expect(characterCalls).toHaveLength(2);
+    const expected = ['Day 2, 14:30, afternoon', 'Day 3, 21:05, evening'];
+    expected.forEach((clock, turn) => {
+      for (const call of [narratorCalls[turn], characterCalls[turn]]) {
+        expect(call?.prompt).toContain(`World clock: ${clock}`);
+        expect(call?.system).not.toContain(clock);
+        expect(`${call?.system ?? ''}${call?.prompt ?? ''}`).not.toContain(
+          'heavy rain',
+        );
+      }
+    });
+    // The clock moved between the turns; the prefixes did not (I5).
+    expect(narratorCalls[1]?.system).toBe(narratorCalls[0]?.system);
+    expect(characterCalls[1]?.system).toBe(characterCalls[0]?.system);
+    ctx.storage.close();
+  });
+
+  it('a GM-seeded world speaks with its OWN Narrator: seed-built prefix, no fixture text, byte-stable', async () => {
+    const ctx = setup();
+    seedBrackwater(ctx);
+    seedScene(ctx);
+    await runTurn(ctx, 'First turn.');
+    await runTurn(ctx, 'Second turn, a different tail.');
+    const narratorCalls = ctx.llmCalls.filter((c) => c.toolset === 'narrator');
+    expect(narratorCalls).toHaveLength(2);
+    const system = narratorCalls[0]?.system ?? '';
+    expect(system).toContain('This world is Brackwater');
+    expect(system).toContain('Founding place The Salt Market (public)');
+    // The story layer still rides on top of the world's own base.
+    expect(system).toContain('Chapter seed: A town between two storms.');
+    for (const marker of FIXTURE_MARKERS) {
+      expect(system).not.toContain(marker);
+    }
+    expect(
+      Buffer.compare(
+        Buffer.from(system, 'utf8'),
+        Buffer.from(narratorCalls[1]?.system ?? '', 'utf8'),
+      ),
+    ).toBe(0);
+    ctx.storage.close();
+  });
+
+  it('a world seeded AFTER the engine started speaks with its own Narrator on the next turn — no restart', async () => {
+    const ctx = setup();
+    seedScene(ctx);
+    await runTurn(ctx, 'Before the seed.');
+    seedBrackwater(ctx); // e.g. the GM seed card approved mid-session
+    await runTurn(ctx, 'After the seed.');
+    const [before, after] = ctx.llmCalls.filter(
+      (c) => c.toolset === 'narrator',
+    );
+    expect(before?.system).toContain('Rainy Inn'); // unseeded: the fixture
+    expect(after?.system).toContain('This world is Brackwater');
+    expect(after?.system).not.toContain('Rainy Inn');
+    ctx.storage.close();
+  });
+});

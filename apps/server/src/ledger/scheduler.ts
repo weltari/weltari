@@ -29,6 +29,15 @@ export function addMinutesIso(iso: string, minutes: number): string {
   return new Date(new Date(iso).getTime() + minutes * 60_000).toISOString();
 }
 
+/** Whole UTC calendar days from fromIso's date to toIso's date — the
+ * engine's game-day count (A16: the engine itself may not construct Dates).
+ * Times of day are ignored: 23:59 → 00:01 is one day. */
+export function utcDaysBetweenIso(fromIso: string, toIso: string): number {
+  const dayOf = (iso: string): number =>
+    Math.floor(new Date(iso).getTime() / 86_400_000);
+  return dayOf(toIso) - dayOf(fromIso);
+}
+
 /**
  * Every epoch-aligned interval boundary in (fromIso, toIso] (M6 part 4,
  * proactive DMs — owner ruling 2026-07-10/11: CRON fires only when the

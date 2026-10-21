@@ -28,7 +28,7 @@ import {
   pickReactionCandidates,
   SOCIAL_CONDUCT_SKILL,
 } from '../../engine/social.js';
-import { worldTimeOf } from '../../engine/world-clock.js';
+import { worldClockLine, worldTimeOf } from '../../engine/world-clock.js';
 import { parseChatToolCall } from '../../llm/tools.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Logger } from '../../observability/logger.js';
@@ -139,8 +139,11 @@ export function createSocialPostHandler(
       {
         scene_id: `feed:${job.world_id}`,
         heading: 'The Feed',
-        world_clock_text:
+        // The post's own game moment: its occurrence boundary.
+        world_clock_text: worldClockLine(
+          occurrence_iso,
           'You are outside any scene, thumbing through the feed on your phone.',
+        ),
         latest_turns: [],
         wiki: [],
         ...(recap === '' ? {} : { cache_recap: recap }),

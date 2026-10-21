@@ -14,6 +14,7 @@ import type { CharacterProfile } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
+import { narratorProfileOf } from '../../engine/narrator.js';
 import {
   knownSublocations,
   squareOf,
@@ -45,7 +46,8 @@ export interface MapEditHandlerOptions {
   storage: Storage;
   sink: EventSink;
   llm: LlmClient;
-  /** The narrator-class profile the GM form speaks with. */
+  /** The narrator-class profile the GM form speaks with in an UNSEEDED
+   * world; a seeded world speaks with its own (engine/narrator.ts). */
   narrator: CharacterProfile;
   logger: Logger;
   faultPoint?: FaultPointHook;
@@ -95,7 +97,10 @@ export function createMapEditHandler(
     const anchors = knownSublocations(storage, job.world_id)
       .map((s) => `${s.name}: ${s.description}`)
       .join('\n');
-    const context = assembleContext(narrator, {
+    // The world's OWN Narrator (folded live). No game time here on purpose:
+    // the form is durable place text, never a moment.
+    const worldNarrator = narratorProfileOf(storage, job.world_id, narrator);
+    const context = assembleContext(worldNarrator, {
       scene_id: `mapedit:${edit_id}`,
       world_clock_text: 'The user reshapes the world map.',
       latest_turns: [],
@@ -104,7 +109,7 @@ export function createMapEditHandler(
     });
     const result = await llm.streamCall({
       kind: 'map_edit',
-      characterId: narrator.character_id,
+      characterId: worldNarrator.character_id,
       system: context.stablePrefix,
       prompt: `${context.dynamicTail}\n\n## Instruction\nThe user drew a region on the world map and asked for what the player input above describes, near these known places:\n${anchors}\nAs the game master, fill the generation form for ONE new sublocation that realizes the request and fits this world. Respond with ONLY a JSON object: {"name": "...", "description": "..."} — name under 120 characters, description 1-2 sentences of what is visibly there.`,
       onTextDelta: (): void => undefined,
