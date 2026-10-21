@@ -14,12 +14,11 @@ import { err, ok, OperationalError, type Result } from './errors.js';
 import { createEventSink, type EventSink } from './engine/event-sink.js';
 import type { FaultPointHook } from './engine/fault-points.js';
 import {
-  buildEliasProfile,
-  buildMaraProfile,
   buildNarratorProfile,
   FIXTURE_SUBLOCATIONS,
   FIXTURE_WORLD_CRON,
   FIXTURE_WORLD_ID,
+  fixtureBootCast,
 } from './engine/fixture/rainy-inn.js';
 import { createChatEngine } from './engine/chat.js';
 import { enqueueCachePruneIfDue } from './engine/cache.js';
@@ -146,8 +145,6 @@ const stopGauges = startGauges({
   },
 });
 
-const elias = buildEliasProfile(env.prefixTokens);
-const mara = buildMaraProfile();
 // The UNSEEDED-world Narrator: every Narrator-class seam below resolves the
 // world's own seed-built profile per call (engine/narrator.ts) and falls back
 // to this fixture profile only while a world has no world.seeded event.
@@ -155,7 +152,12 @@ const narrator = buildNarratorProfile(env.prefixTokens);
 // The seed profiles (M7 part 2): the fixture pair on a fixture world; a
 // cold-boot world starts with NO seed characters — its people arrive via
 // approved seed/create proposals and fold in through the registry below.
-const seedProfiles = env.fixtureWorld ? [elias, mara] : [];
+// The untracked-scene cast and the switchable art sets follow the same
+// switch: a GM-seeded world never shows a fixture character anywhere.
+const { seedProfiles, untrackedSceneCast, artSets } = fixtureBootCast(
+  env.fixtureWorld,
+  env.prefixTokens,
+);
 // The DM-able roster: seeds ∪ every character.created (built at boot — a
 // character created THIS session becomes DM-able on the next boot; the turn
 // engine folds its own LIVE registry per turn since 0.21.0).
@@ -329,6 +331,8 @@ const engine = createTurnEngine({
   // are callable without a restart; the loop budget + context budget ride
   // env knobs (tests and the harness rig them small).
   seedProfiles,
+  presentCharacterIds: untrackedSceneCast,
+  artSets,
   turnBudget: env.sceneTurnBudget,
   contextBudgetTokens: env.sceneContextBudget,
   // A committed create's backdrop/materialize jobs start on the spot —
@@ -521,7 +525,7 @@ const runner = createRunner({
       storage,
       sink,
       llm,
-      profiles: [elias],
+      profiles: seedProfiles,
       logger,
       cacheKeep: env.cacheKeep,
       ...(faultPoint === undefined ? {} : { faultPoint }),
