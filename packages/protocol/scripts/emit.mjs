@@ -39,6 +39,7 @@ import {
   PaintRegionAcceptedSchema,
   PaintRegionCommandSchema,
   PluginListSchema,
+  CharacterRosterSchema,
   ResolveProposalAcceptedSchema,
   ResolveProposalCommandSchema,
   SendChatMessageAcceptedSchema,
@@ -122,6 +123,7 @@ const files = {
   'command-rejected.json': CommandRejectedSchema,
   'user-profile-view.json': UserProfileViewSchema,
   'plugin-list.json': PluginListSchema,
+  'character-roster.json': CharacterRosterSchema,
   'map-jump-detail.json': MapJumpDetailSchema,
 };
 

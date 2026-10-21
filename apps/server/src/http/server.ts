@@ -34,6 +34,7 @@ import {
   PaintRegionAcceptedSchema,
   PaintRegionCommandSchema,
   PluginListSchema,
+  CharacterRosterSchema,
   PROTOCOL_VERSION,
   SendChatMessageAcceptedSchema,
   SendGroupMessageAcceptedSchema,
@@ -87,6 +88,8 @@ import {
   type PaintRegionCommand,
   type PluginInfo,
   type PluginList,
+  type CharacterRoster,
+  type CharacterRosterEntry,
   type SendChatMessageAccepted,
   type SendGroupMessageAccepted,
   type SendGroupMessageCommand,
@@ -222,6 +225,10 @@ export interface HttpDeps {
   ) => Result<{ characterId: string; locked: boolean }>;
   /** The user's own view of the profiling store (view + export). */
   profileView: (worldId: string, actorId: string) => UserProfileView;
+  /** The world's character roster (0.22.0, GET /v1/characters): boot seeds
+   * ∪ every character.created, folded live per request — the client chat
+   * roster (never a fixture constant), presence-independent. */
+  characterRoster: (worldId: string) => readonly CharacterRosterEntry[];
   /** The startscene() bridge (Rev 4 §8): ends the chat range, opens a real
    * scene with the character; unresolved places ride scene.started. Async
    * since M6 part 3 — the bridge ends a still-open scene first and may wait
@@ -970,6 +977,29 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         removed: result.value.removed,
       };
       return accepted;
+    },
+  );
+
+  // The character roster (0.22.0): who the user can message — boot seeds
+  // ∪ every character.created, live per request; clients fold later
+  // character.created events from the stream on top.
+  const rosterQuerySchema = z.object({ world_id: z.string().min(1) });
+  app.get(
+    '/v1/characters',
+    {
+      schema: {
+        querystring: rosterQuerySchema,
+        response: { 200: CharacterRosterSchema },
+      },
+    },
+    (request, reply) => {
+      reply.code(200);
+      const roster: CharacterRoster = {
+        characters: deps
+          .characterRoster(request.query.world_id)
+          .map((c) => ({ character_id: c.character_id, name: c.name })),
+      };
+      return roster;
     },
   );
 

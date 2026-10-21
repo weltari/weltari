@@ -4,6 +4,7 @@
 import {
   AdvanceTimeAcceptedSchema,
   ApplyUpdateAcceptedSchema,
+  CharacterRosterSchema,
   CommandRejectedSchema,
   DeleteProfileAcceptedSchema,
   EndSceneAcceptedSchema,
@@ -23,6 +24,7 @@ import {
   StartTurnAcceptedSchema,
   SubwikiEditAcceptedSchema,
   UserProfileViewSchema,
+  type CharacterRosterEntry,
   type UserProfileView,
 } from '@weltari/protocol';
 
@@ -35,18 +37,26 @@ export const ACTOR_ID = 'user:owner';
  * Chat — always available, never a character (no lock, no End chat). */
 export const GM_CHARACTER_ID = 'char:gm';
 
-/** The DM-able roster (Weltari Chat, §2.4) — the fixture cast until a
- * character-list surface exists (same constant open-scene already uses).
- * The GM tops the list: it is the world's standing guide (M7 part 2). */
-export const CHAT_CHARACTERS: readonly {
-  character_id: string;
-  name: string;
-}[] = [
-  { character_id: GM_CHARACTER_ID, name: 'GM' },
-  { character_id: 'char:elias', name: 'Elias' },
-  // M6 part 4: the second DM-able fixture character — groups need >= 2.
-  { character_id: 'char:mara', name: 'Mara' },
-];
+/** The GM's chat-list entry: it tops the list as the world's standing
+ * guide (M7 part 2) — never a character, so never in the roster fetch. */
+export const GM_CHAT_ENTRY: CharacterRosterEntry = {
+  character_id: GM_CHARACTER_ID,
+  name: 'GM',
+};
+
+/** The world's character roster (0.22.0, GET /v1/characters): boot seeds ∪
+ * every character.created, presence-independent. Null on any failure — the
+ * caller still lists what the stream created (roster.ts). */
+export async function fetchCharacterRoster(): Promise<
+  CharacterRosterEntry[] | null
+> {
+  const response = await fetch(
+    `/v1/characters?world_id=${encodeURIComponent(WORLD_ID)}`,
+  );
+  if (!response.ok) return null;
+  const parsed = CharacterRosterSchema.safeParse(await response.json());
+  return parsed.success ? parsed.data.characters : null;
+}
 
 async function post(path: string, body: unknown): Promise<unknown> {
   const response = await fetch(path, {

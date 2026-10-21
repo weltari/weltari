@@ -526,3 +526,29 @@ describe('the replay flag across reconnects (hello vs the client resume point)',
     expect(useSceneStore.getState().replayCaughtUp).toBe(true);
   });
 });
+
+describe('character.created folds into the roster (0.22.0, the live chat roster)', () => {
+  it('a created character is listed once, by id — replay and live alike', () => {
+    const created: WeltariEvent = {
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'char:narrator',
+      ts: TS,
+      type: 'character.created',
+      payload: {
+        character_id: `char:minted-${String(nextId)}`,
+        name: 'Wren',
+        personality: 'Quiet.',
+        goals: ['Find the ferry.'],
+        core: [],
+        skills: [],
+      },
+    };
+    apply(created);
+    apply(created); // a duplicate delivery is a no-op
+    const listed = useSceneStore
+      .getState()
+      .createdCharacters.filter((c) => c.name === 'Wren');
+    expect(listed).toHaveLength(1);
+  });
+});
