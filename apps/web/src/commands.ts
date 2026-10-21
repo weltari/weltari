@@ -153,7 +153,8 @@ export async function postEndScene(
 }
 
 export interface OpenSceneOptions {
-  /** Character ids for the new scene's roster; defaults to the fixture cast. */
+  /** Character ids for the new scene's roster; absent = nobody named (the
+   * server applies its boot cast — the fixture world's Elias, else none). */
   participants?: string[];
   /** Open the scene AT this known sublocation (0.8.0 — Hang around, pin jumps). */
   sublocationId?: string;
@@ -407,7 +408,9 @@ async function tryOpenScene(
       actor_id: ACTOR_ID,
       scene_id: sceneId,
       title,
-      participants: options.participants ?? ['char:elias'],
+      // Naming nobody means "whoever is around" — the server applies its
+      // boot cast (never a fixture constant here, G-05).
+      participants: options.participants ?? [],
       ...(options.sublocationId === undefined
         ? {}
         : { sublocation_id: options.sublocationId }),
