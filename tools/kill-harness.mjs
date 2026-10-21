@@ -1592,6 +1592,15 @@ for (let cycle = 0; cycle < CYCLES + 1; cycle++) {
       break;
     }
     case 'mid_cron': {
+      // No skip while the user is in a scene (UI Spec §1.11, server-enforced
+      // 409 scene_active): close the cycle's scene first.
+      const endRes = await post('/v1/commands/end-scene', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: currentScene,
+      });
+      if (endRes.status !== 202) fail(`end-scene returned ${endRes.status}`);
+      needNewScene = true;
       const killAt = waitForLine(child, 'FAULT_POINT:mid_cron', 25000);
       const res = await post('/v1/commands/advance-time', {
         world_id: 'w1',
@@ -2023,6 +2032,14 @@ for (let cycle = 0; cycle < CYCLES + 1; cycle++) {
       // pushes the world clock past its 180-game-minute TTL; the sweep runs
       // inside the advance wrapper and the kill lands before its
       // marker.expired commit.
+      // The skip needs the cycle's scene closed first (409 scene_active).
+      const endRes = await post('/v1/commands/end-scene', {
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        scene_id: currentScene,
+      });
+      if (endRes.status !== 202) fail(`end-scene returned ${endRes.status}`);
+      needNewScene = true;
       const markers = await waitForFreshMarker();
       const killAt = waitForLine(child, 'FAULT_POINT:mid_marker_sweep', 30000);
       const res = await post('/v1/commands/advance-time', {
