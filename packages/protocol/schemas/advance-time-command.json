@@ -13,7 +13,7 @@
     "minutes": {
       "type": "integer",
       "exclusiveMinimum": 0,
-      "maximum": 527040
+      "maximum": 2880
     }
   },
   "required": [
