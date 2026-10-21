@@ -929,7 +929,10 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
 
       // The handoff text is data from chat (user free text / a character
       // line) — it enters the prompt only inside the player-wrapped external
-      // block, never an instruction slot (B14).
+      // block, never an instruction slot (B14). It is the NARRATOR's alone:
+      // premise, carried-over history and story goals are the story's hand,
+      // which characters never see (Rev 4 C-Module) — a character learns
+      // what happened from the Narrator's narration and its own memory.
       const handoffNotes = [
         ...(handoff.premise === undefined
           ? []
@@ -947,9 +950,10 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
               `(Story goals carried from the previous scene: ${handoff.carriedGoals.join('; ')})`,
             ]),
       ];
-      const firstTurnText = [command.text ?? '', ...handoffNotes]
+      const narratorInput = [command.text ?? '', ...handoffNotes]
         .filter((line) => line !== '')
         .join('\n');
+      const playerText = command.text ?? '';
 
       // The context-budget check (0.21.0, Rev 4 §6): estimate the narrator
       // prompt (chars/4 — the same heuristic the fake's accounting uses)
@@ -965,7 +969,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         scene_id: command.scene_id,
         world_clock_text: worldClockText,
         latest_turns: recentTurns(command.scene_id),
-        ...(firstTurnText === '' ? {} : { user_input: firstTurnText }),
+        ...(narratorInput === '' ? {} : { user_input: narratorInput }),
         wiki: [],
       });
       const estimatedTokens = Math.ceil(
@@ -1017,10 +1021,11 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
           registry,
           narratorContext,
           instruction,
-          // Every call of the turn hears the player's line (M7 part 1: the
-          // character needs it to decide a memory/wiki query; it enters
+          // Every character call of the turn hears the player's line — and
+          // ONLY that line, never the Narrator's handoff notes (M7 part 1:
+          // the character needs it to decide a memory/wiki query; it enters
           // each prompt only inside the player-wrapped external block, B14).
-          firstTurnText !== '' ? firstTurnText : undefined,
+          playerText !== '' ? playerText : undefined,
         );
         // The interrupt already closed the envelope — everything from here
         // on (text and tool calls alike) finishes into the void (B6).
