@@ -168,3 +168,20 @@ spec edits need fresh owner authorization every time.
 - The V1.5 / V2 lists above are the whole backlog; nothing else is
   pending. The documented-known list in week19-results.md names every
   deliberate deviation so nobody "fixes" working designs by accident.
+- **Recorded, deliberately NOT changed (owner ruling 2026-10-21):** the
+  Narrator's `end_scene` registers `next_scene.time_offset_hours`, which
+  rides `scene.ended` but never moves the clock — "Jump to the next scene"
+  should advance it (Rev 4 §16 counts the continue buttons as user-present
+  advances). The owner is redesigning time (World-Agent-judged durations,
+  the Narrator's advance-time tool, engine travel time — the design-review
+  decision records outside this repo), so it waits for that work.
+- **Next batch, owner-agreed 2026-10-21 (each its own task, details first):**
+  immediate reflection when a character leaves mid-scene (a rejoin waits
+  for it); the recent-EVENT memory block (last 5, injected every call,
+  written by the reflection tool; sessionquery limited to those sessions;
+  "query only if needed — say you don't remember"); chat model +
+  reasoning-effort selection (default medium); "sent, not received"
+  receipts for messages to busy characters; the World Agent updating
+  every involved place and a world file. Scene character calls still
+  carry the last few turns from before a character joined — the
+  per-turn `audience` (0.22.0) is the filter to use when that is fixed.
