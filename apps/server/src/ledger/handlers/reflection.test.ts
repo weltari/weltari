@@ -212,6 +212,53 @@ describe('reflection job handler', () => {
     ).rejects.toMatchObject({ kind: 'operational' });
     expect(ctx.storage.eventLog.readSince(0)).toHaveLength(0);
   });
+
+  it('a character reflects only on the turns it witnessed — its audience window (owner ruling 2026-10-21)', async () => {
+    const prompts: string[] = [];
+    const capturing: LlmClient = {
+      streamCall: async (call): Promise<Result<LlmCallResult>> => {
+        prompts.push(call.prompt);
+        return Promise.resolve(
+          ok({
+            text: 'I saw what I saw.',
+            usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+            model: 'fake/capture',
+            durationMs: 0,
+            toolCalls: [],
+          }),
+        );
+      },
+    };
+    const ctx = setup(capturing);
+    const turn = (turnId: string, text: string, audience?: string[]): void => {
+      ctx.storage.eventLog.append({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        type: 'turn.committed',
+        payload: {
+          scene_id: 's1',
+          turn_id: turnId,
+          steps: [{ call: 'narrator', speaker: 'Narrator', text }],
+          ...(audience === undefined ? {} : { audience }),
+        },
+      });
+    };
+    turn('t0', 'An old turn from before audiences existed.');
+    turn('t1', 'Elias arrives at the bell tower.', [ELIAS.character_id]);
+    turn('t2', 'Mara whispers to the stranger.', ['char:mara']);
+    turn('t3', 'Both watch the bell fall silent.', [
+      ELIAS.character_id,
+      'char:mara',
+    ]);
+    await ctx.handler(
+      jobWith({ scene_id: 's1', character_id: ELIAS.character_id }),
+    );
+    const prompt = prompts[0] ?? '';
+    expect(prompt).toContain('before audiences existed'); // pre-0.22: whole scene
+    expect(prompt).toContain('arrives at the bell tower');
+    expect(prompt).toContain('bell fall silent');
+    expect(prompt).not.toContain('whispers to the stranger');
+  });
 });
 
 describe('the live-registry lookup (0.21.0, the agentic scene)', () => {

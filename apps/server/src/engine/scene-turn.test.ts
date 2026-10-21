@@ -1027,6 +1027,68 @@ describe('the agentic loop (0.21.0, Rev 4 §6)', () => {
     ctx.storage.close();
   });
 
+  it('each committed turn records its audience: the cast at turn start + mid-turn joiners (0.22.0, owner ruling 2026-10-21)', async () => {
+    const ctx = setup();
+    seedScene(ctx, true);
+    // Turn 1: Elias is present; Rill is minted and joins during the turn.
+    await runTurn(ctx, '!mint rill !callchar char:rill');
+    // Turn 2: Elias leaves during the turn — he saw its first part.
+    await runTurn(ctx, '!leave char:elias !solo');
+    // Turn 3: only Rill is left.
+    await runTurn(ctx, 'Quiet now.');
+    const audiences = ctx.storage.eventLog
+      .readSince(0)
+      .flatMap((e) =>
+        e.type === 'turn.committed' ? [e.payload.audience] : [],
+      );
+    expect(audiences).toEqual([
+      ['char:elias', 'char:rill'],
+      ['char:elias', 'char:rill'],
+      ['char:rill'],
+    ]);
+    ctx.storage.close();
+  });
+
+  it('an interrupted turn records the cast at turn start — staged joins never happened', async () => {
+    const gate: { release?: () => void } = {};
+    const fake = createFakeLlmClient();
+    const slowNarrator: LlmClient = {
+      async streamCall(call): Promise<Result<LlmCallResult>> {
+        if (call.kind === 'narrator') {
+          call.onTextDelta('The door creaks open. ');
+          await new Promise<void>((resolve) => {
+            gate.release = resolve;
+          });
+        }
+        return fake.streamCall(call);
+      },
+    };
+    const ctx = setup(slowNarrator);
+    seedScene(ctx, true);
+    const started = await ctx.engine.startTurn({ ...COMMAND, text: 'Hello?' });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const cut = ctx.engine.interruptTurn({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      turn_id: started.value.turnId,
+      seen: { call: 'narrator', sentence_index: 0 },
+    });
+    expect(cut.ok).toBe(true);
+    gate.release?.();
+    await started.value.completion;
+    const committed = ctx.storage.eventLog
+      .readSince(0)
+      .find((e) => e.type === 'turn.committed');
+    if (committed?.type === 'turn.committed') {
+      expect(committed.payload.interrupted).toBe(true);
+      expect(committed.payload.audience).toEqual(['char:elias']);
+    } else {
+      expect.unreachable('the interrupted turn committed nothing');
+    }
+    ctx.storage.close();
+  });
+
   it('move_character commits character.location_changed with the NARRATOR as actor (criterion b)', async () => {
     const ctx = setup();
     seedScene(ctx);
