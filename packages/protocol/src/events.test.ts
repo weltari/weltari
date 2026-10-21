@@ -846,6 +846,43 @@ describe('WeltariEventSchema', () => {
     }
   });
 
+  it('turn.committed carries an optional audience — who was present (0.22.0)', () => {
+    const withAudience: unknown = {
+      id: 44,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-07T12:00:00.000Z',
+      type: 'turn.committed',
+      payload: {
+        scene_id: 's1',
+        turn_id: 't1',
+        steps: [{ call: 'narrator', speaker: 'Narrator', text: 'Rain falls.' }],
+        audience: ['char:elias', 'char:mara'],
+      },
+    };
+    const r = WeltariEventSchema.safeParse(withAudience);
+    expect(r.success).toBe(true);
+    if (r.success && r.data.type === 'turn.committed') {
+      expect(r.data.payload.audience).toEqual(['char:elias', 'char:mara']);
+    }
+    // An empty audience is valid (nobody but the player was there); a
+    // pre-0.22 turn simply omits the key (validCommitted above).
+    const empty: unknown = {
+      id: 45,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: '2026-07-07T12:00:00.000Z',
+      type: 'turn.committed',
+      payload: {
+        scene_id: 's1',
+        turn_id: 't2',
+        steps: [{ call: 'narrator', speaker: 'Narrator', text: 'Rain falls.' }],
+        audience: [],
+      },
+    };
+    expect(WeltariEventSchema.safeParse(empty).success).toBe(true);
+  });
+
   it('accepts an interrupted turn.committed and rejects interrupted: false', () => {
     const base = {
       id: 43,

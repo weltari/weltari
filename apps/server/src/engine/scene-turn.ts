@@ -151,6 +151,33 @@ interface RunningTurn {
   /** The world clock rendered at turn start — every call of the turn reads
    * the same game instant (tail-only, I5). */
   worldClockText: string;
+  /** The scene's cast when the turn started — the base of the committed
+   * turn's `audience` (0.22.0); mid-turn joiners are added at commit. */
+  castAtStart: readonly string[];
+}
+
+/**
+ * Who was present for a turn (0.22.0, owner ruling 2026-10-21): the cast at
+ * turn start plus every character who joined during it — a leaver saw the
+ * part before it left (turn granularity). Recorded on turn.committed so
+ * each character's reflection reads exactly the turns it witnessed.
+ */
+function turnAudience(
+  castAtStart: readonly string[],
+  staged: readonly StagedToolEffect[],
+): string[] {
+  const audience = [...castAtStart];
+  for (const effect of staged) {
+    const joinedId =
+      effect.kind === 'character_join' ||
+      (effect.kind === 'character_mint' && effect.present)
+        ? effect.characterId
+        : undefined;
+    if (joinedId !== undefined && !audience.includes(joinedId)) {
+      audience.push(joinedId);
+    }
+  }
+  return audience;
 }
 
 /**
@@ -1009,6 +1036,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         interrupted: false,
         closed: false,
         worldClockText,
+        castAtStart: presentIds,
       };
       running.set(turnId, turn);
 
@@ -1083,7 +1111,12 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
               world_id: command.world_id,
               actor_id: command.actor_id,
               type: 'turn.committed',
-              payload: { scene_id: command.scene_id, turn_id: turnId, steps },
+              payload: {
+                scene_id: command.scene_id,
+                turn_id: turnId,
+                steps,
+                audience: turnAudience(turn.castAtStart, stage.staged()),
+              },
             }),
           );
           for (const effect of stage.staged()) {
@@ -1443,6 +1476,8 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
             turn_id: command.turn_id,
             steps,
             interrupted: true,
+            // The cut discarded every staged effect: nobody joined.
+            audience: [...turn.castAtStart],
           },
         }),
       );
