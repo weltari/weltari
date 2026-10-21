@@ -1057,6 +1057,10 @@ const app = createHttpServer({
   setConfigFlag: createSetConfigFlagCommand({ sink }),
   deleteProfile: createDeleteProfileCommand({ storage, eventBus }),
   profileView: (worldId, actorId) => profileView(storage, worldId, actorId),
+  // The client chat roster (0.22.0): boot seeds ∪ every character.created,
+  // folded live per request — a GM-seeded world lists no fixture character.
+  characterRoster: (worldId) =>
+    knownCharactersOf(storage, worldId, knownCharacters),
   setCharacterLock: createSetCharacterLockCommand({
     storage,
     sink,
