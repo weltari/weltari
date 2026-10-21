@@ -696,6 +696,45 @@ describe('narrator tool pipeline (B6 two gates)', () => {
     ctx.storage.close();
   });
 
+  it('the handoff notes are the Narrator’s alone — a character hears only the player’s words (Rev 4: characters never see the story’s hand)', async () => {
+    const ctx = setup();
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'scene.started',
+      payload: {
+        scene_id: 's1',
+        title: 'Dawn at the cellar',
+        premise: 'Dawn finds the cellar door ajar.',
+        place_request: 'the old cellar',
+        brief_history: 'They agreed to inspect the flooded cellar at dawn.',
+        carried_goals: ['Find who silences the bell.'],
+      },
+    });
+    await runTurn(ctx, 'I push the door open.');
+    const narratorCall = ctx.llmCalls.find((c) => c.kind === 'narrator');
+    for (const note of [
+      'Dawn finds the cellar door ajar.',
+      'the old cellar',
+      'flooded cellar at dawn',
+      'Find who silences the bell.',
+    ]) {
+      expect(narratorCall?.prompt).toContain(note);
+    }
+    const characterCall = ctx.llmCalls.find((c) => c.kind === 'character');
+    expect(characterCall?.prompt).toContain('I push the door open.');
+    for (const note of [
+      'Scene premise',
+      'Meeting place requested',
+      'carried over',
+      'Story goals',
+      'Find who silences the bell.',
+    ]) {
+      expect(characterCall?.prompt).not.toContain(note);
+    }
+    ctx.storage.close();
+  });
+
   it('mid-call gate feedback: a refused parentless create self-corrects in ONE turn (M6 part 2)', async () => {
     // Mimics the real client with a gate executor: step 1 tries the create
     // unqueried (must read back the fixed Rev 4 refusal as a tool ERROR),
