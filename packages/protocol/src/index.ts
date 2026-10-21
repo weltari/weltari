@@ -154,8 +154,14 @@
  * make_character (same shape); character.location_changed now also arrives
  * from the Narrator's move_character (actor = the narrator, not
  * system:world_cron — consumers keying on the actor must accept both).
+ * 0.22.0 (the V1 latent-defect follow-up): GET /v1/characters
+ * (CharacterRoster — boot seeds ∪ every character.created, folded live,
+ * presence-independent: the client chat roster, never a fixture
+ * constant); advance-time's minutes cap drops from one fictional year to
+ * +48 h (UI Spec §1.11) and the command answers 409 `scene_active` while
+ * the user is in an open scene.
  */
-export const PROTOCOL_VERSION = '0.21.0';
+export const PROTOCOL_VERSION = '0.22.0';
 
 export {
   ArtSwitchedEventSchema,
@@ -264,6 +270,12 @@ export {
   type ProfileEntry,
   type UserProfileView,
 } from './profile.js';
+export {
+  CharacterRosterEntrySchema,
+  CharacterRosterSchema,
+  type CharacterRoster,
+  type CharacterRosterEntry,
+} from './characters.js';
 export {
   DevEventSchema,
   DevGaugesSchema,

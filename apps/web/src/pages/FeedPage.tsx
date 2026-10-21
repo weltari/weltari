@@ -7,17 +7,11 @@
 // (V1: answers to their replies); the popup lists them. Visiting the page
 // marks feed activity seen (the NavRail red dot clears).
 import { useEffect, useRef, useState } from 'react';
-import { CHAT_CHARACTERS, postFeedReply } from '../commands.js';
+import { postFeedReply } from '../commands.js';
 import { t } from '../i18n.js';
+import { useNameOf } from '../roster.js';
 import { markSeen, useSeen } from '../seen.js';
 import { useSceneStore, type FeedReaction } from '../store.js';
-
-function nameOf(characterId: string): string {
-  return (
-    CHAT_CHARACTERS.find((c) => c.character_id === characterId)?.name ??
-    characterId.replace('char:', '')
-  );
-}
 
 /** "2000-01-02 · 08:00" from the engine-owned fictional stamp. */
 function gameStamp(gameTime: string): string {
@@ -43,6 +37,7 @@ function CommentThread(props: {
   reaction: FeedReaction;
 }): React.JSX.Element {
   const { postId, reaction } = props;
+  const nameOf = useNameOf();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -130,6 +125,7 @@ function CommentThread(props: {
 const CATCHUP_CHIP_MS = 8000;
 
 export function FeedPage(): React.JSX.Element {
+  const nameOf = useNameOf();
   const feedPosts = useSceneStore((s) => s.feedPosts);
   const feedNotifications = useSceneStore((s) => s.feedNotifications);
   const feedLastEventId = useSceneStore((s) => s.feedLastEventId);

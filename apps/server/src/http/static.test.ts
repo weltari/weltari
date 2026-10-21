@@ -139,6 +139,7 @@ describe('GET /* (the SPA wildcard route)', () => {
       setCharacterLock: () =>
         err(new OperationalError('unknown_character', 'test stub')),
       deleteProfile: () => ok({ removed: 0 }),
+      characterRoster: () => [],
       profileView: (_worldId, actorId) => ({
         actor_id: actorId,
         profiling_enabled: false,
