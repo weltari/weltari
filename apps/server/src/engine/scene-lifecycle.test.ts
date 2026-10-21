@@ -230,6 +230,40 @@ describe('scene lifecycle (reflection fan-out + scoped open blocking)', () => {
     expect(published).toEqual(['scene.started', 'character.joined']);
   });
 
+  it('an open naming nobody gets the boot cast default — Elias in a fixture world, nobody in a GM-seeded one (G-05)', () => {
+    const ctx = setup();
+    const logger = quietLogger();
+    const known = [{ character_id: ELIAS.character_id, name: ELIAS.name }];
+    const fixtureWorld = createSceneLifecycle({
+      storage: ctx.storage,
+      eventBus: ctx.eventBus,
+      logger,
+      knownCharacters: known,
+      defaultParticipants: [ELIAS.character_id],
+    });
+    const open = (lifecycle: SceneLifecycle, sceneId: string): string[] => {
+      expect(
+        lifecycle.openScene({
+          world_id: 'w1',
+          actor_id: 'user:owner',
+          scene_id: sceneId,
+          title: 'Hang around',
+          participants: [],
+        }).ok,
+      ).toBe(true);
+      return ctx.storage.eventLog
+        .readSince(0)
+        .filter(
+          (e) =>
+            e.type === 'character.joined' && e.payload.scene_id === sceneId,
+        )
+        .map((e) => (e.type === 'character.joined' ? e.payload.name : ''));
+    };
+    expect(open(fixtureWorld, 's-fixture')).toEqual([ELIAS.name]);
+    // A GM-seeded world configures no default: nobody joins.
+    expect(open(ctx.lifecycle, 's-seeded')).toEqual([]);
+  });
+
   it('open-scene AT a known sublocation appends sublocation.changed atomically (0.8.0)', () => {
     const ctx = setup();
     const opened = ctx.lifecycle.openScene({
