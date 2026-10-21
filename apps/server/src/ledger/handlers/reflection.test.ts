@@ -8,7 +8,7 @@ import { buildEliasProfile } from '../../engine/fixture/rainy-inn.js';
 import { createEventSink } from '../../engine/event-sink.js';
 import { Bus } from '../../http/bus.js';
 import { createFakeLlmClient } from '../../llm/fake-client.js';
-import type { LlmCallResult, LlmClient } from '../../llm/types.js';
+import type { LlmCall, LlmCallResult, LlmClient } from '../../llm/types.js';
 import { createRootLogger } from '../../observability/logger.js';
 import { openStorage, type Storage } from '../../storage/db.js';
 import type { LedgerJob } from '../../storage/repositories/ledger.js';
@@ -138,6 +138,50 @@ describe('reflection job handler', () => {
       .readSince(0)
       .filter((e) => e.type === 'reflection.committed');
     expect(reflections).toHaveLength(1); // the loser no-oped at the fused re-check
+  });
+
+  it("reads the scene's own game moment — the clock when it ended, not when the job runs", async () => {
+    const calls: LlmCall[] = [];
+    const fake = createFakeLlmClient();
+    const recording: LlmClient = {
+      streamCall: async (call): Promise<Result<LlmCallResult>> => {
+        calls.push(call);
+        return fake.streamCall(call);
+      },
+    };
+    const ctx = setup(recording);
+    const advance = (from: string, to: string): void => {
+      ctx.storage.eventLog.append({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        type: 'world.time_advanced',
+        payload: {
+          from,
+          to,
+          code_enqueued: 0,
+          llm_enqueued: 0,
+          llm_skipped: 0,
+        },
+      });
+    };
+    advance('2000-01-01T06:00:00.000Z', '2000-01-01T07:00:00.000Z');
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'scene.ended',
+      payload: { scene_id: 's1', participants: [ELIAS.character_id] },
+    });
+    // A skip lands before the job runs — the reflection is still about the
+    // scene's moment.
+    advance('2000-01-01T07:00:00.000Z', '2000-01-02T07:00:00.000Z');
+    await ctx.handler(
+      jobWith({ scene_id: 's1', character_id: ELIAS.character_id }),
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.prompt).toContain(
+      'World clock: Day 1, 07:00, morning. The scene has just ended.',
+    );
+    expect(calls[0]?.system).not.toContain('Day 1, 07:00');
   });
 
   it('garbage payload is corrupt state, not input (Guide C2)', async () => {

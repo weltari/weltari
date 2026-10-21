@@ -192,6 +192,35 @@ describe('DM a character outside any scene (criterion a)', () => {
     ctx.storage.close();
   });
 
+  it('a DM reply reads the world clock NOW — in the tail, the prefix untouched by the skip', async () => {
+    const ctx = setup();
+    await sendAndAwait(ctx, SEND);
+    ctx.storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'world.time_advanced',
+      payload: {
+        from: '2000-01-01T06:00:00.000Z',
+        to: '2000-01-02T09:15:00.000Z',
+        code_enqueued: 0,
+        llm_enqueued: 0,
+        llm_skipped: 0,
+      },
+    });
+    await sendAndAwait(ctx, { ...SEND, request_id: 'm-2', text: 'Morning!' });
+
+    const chatCalls = ctx.llmCalls.filter((c) => c.kind === 'chat');
+    expect(chatCalls).toHaveLength(2);
+    expect(chatCalls[0]?.prompt).toContain(
+      'World clock: Day 1, 06:00, dawn. You are outside any scene, texting on your phone.',
+    );
+    expect(chatCalls[1]?.prompt).toContain(
+      'World clock: Day 2, 09:15, morning. You are outside any scene',
+    );
+    expect(chatCalls[1]?.system).toBe(chatCalls[0]?.system);
+    ctx.storage.close();
+  });
+
   it('the query escalation: a DM question runs wikiquery mid-call, the reply uses it, the dev trail shows it (M6 part 3)', async () => {
     const ctx = setup();
     // The registry knows a place the recap alone cannot answer.

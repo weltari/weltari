@@ -15,6 +15,8 @@ import type { CharacterProfile } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
+import { narratorProfileOf } from '../../engine/narrator.js';
+import { worldClockLine, worldTimeOf } from '../../engine/world-clock.js';
 import {
   knownSublocations,
   squareOf,
@@ -64,7 +66,8 @@ export interface MapClickHandlerOptions {
   sink: EventSink;
   llm: LlmClient;
   vlm: VlmClient;
-  /** The narrator-class profile the story invention speaks with. */
+  /** The narrator-class profile the story invention speaks with in an
+   * UNSEEDED world; a seeded world speaks with its own (engine/narrator.ts). */
   narrator: CharacterProfile;
   imagesDir: string;
   logger: Logger;
@@ -169,15 +172,22 @@ export function createMapClickHandler(
       classification.value.terrain_type ??
       classification.value.building_type ??
       'terrain';
-    const context = assembleContext(narrator, {
+    // The world's OWN Narrator (folded live) and the clock NOW: the jump-in
+    // is a moment the user lives as the job runs (a transient outcome IS
+    // that moment).
+    const worldNarrator = narratorProfileOf(storage, job.world_id, narrator);
+    const context = assembleContext(worldNarrator, {
       scene_id: `mapclick:${click_id}`,
-      world_clock_text: 'A traveler steps off the known paths.',
+      world_clock_text: worldClockLine(
+        worldTimeOf(storage, job.world_id),
+        'A traveler steps off the known paths.',
+      ),
       latest_turns: [],
       wiki: [],
     });
     const storyResult = await llm.streamCall({
       kind: 'jump_in',
-      characterId: narrator.character_id,
+      characterId: worldNarrator.character_id,
       system: context.stablePrefix,
       prompt: `${context.dynamicTail}\n\n## Instruction\nA traveler jumps into an unmarked spot on the world map. A vision model classified the spot as: ${kind} — "${classification.value.suggested_setting}" (enterable: ${String(classification.value.is_enterable)}; style: ${classification.value.style_tags.join(', ')}). Known places nearby:\n${anchors === '' ? '(none recorded)' : anchors}\nInvent what the traveler finds STRICTLY within that classification — a ${kind} stays a ${kind}. Decide whether it becomes a lasting place ("persistent": somewhere worth returning to) or a passing moment ("transient": resolves and vanishes). Respond with ONLY a JSON object: {"name": "...", "description": "...", "persistence": "persistent"|"transient"} — name under 120 characters, description 1-2 sentences.`,
       onTextDelta: (): void => undefined,

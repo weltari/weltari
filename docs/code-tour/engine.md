@@ -171,6 +171,15 @@ should speak, whether anyone enters or leaves, and when the scene is over.
   the position it left off. Handoff notes from a chat conversation (a premise
   or a requested meeting place — see `chat.ts`) are folded into the
   Narrator's very first turn with a nudge to resolve them immediately.
+- At the start of every turn the engine reads the world's real game clock
+  and writes it in plain words ("Day 3, 14:30, afternoon") into the changing
+  part of the prompt — for the Narrator and for every character it calls that
+  turn, all reading the same moment. It never goes into the cached part, so
+  a time skip doesn't cost the cache anything. (Before this, every scene in
+  every world read a fixed "Day 1, evening, heavy rain".)
+- The Narrator speaks as *this world's* Narrator (see `narrator.ts`): a world
+  the GM built gets a Narrator made from its own seed, looked up fresh each
+  turn, so approving a world's seed card takes effect on the very next turn.
 
 ## scene-tools.ts
 
@@ -583,6 +592,32 @@ need to stamp things).
   (default 10) so skipping a fictional month can't flood the system. The new
   time and every job it schedules commit together in one all-or-nothing
   write, and the runner is kicked so code jobs land near-instantly.
+- `describeWorldTime(time)` — turns a fictional moment into the words the AI
+  reads: "Day 3, 14:30, afternoon". The day number is the same one the
+  Gameday page shows (counted in calendar days from the world's first day);
+  the part of the day is night, dawn, morning, midday, afternoon or evening.
+  There is no weather — that comes later (V1.5). `worldClockLine` puts that
+  in front of a call's own situation sentence ("…. You are outside any
+  scene, texting on your phone."), and `worldTimeAt` answers "what did the
+  clock say at that past moment?" — for background jobs that happen a little
+  after the moment they are about.
+
+## narrator.ts
+
+`apps/server/src/engine/narrator.ts` decides which Narrator a world speaks
+with. Several jobs talk "as the Narrator" — the scene itself, the World Agent
+after a scene, world-calendar events, and the map jobs that invent places.
+
+- `narratorProfileOf(storage, world, fallback)` looks the answer up fresh on
+  every call. A world without a seed (the Rainy Inn demo world, test worlds)
+  keeps the demo Narrator exactly as before, byte for byte. A world the GM
+  built gets a Narrator made only from its own seed: the world's name and
+  language and one line per founding place from the approved seed card —
+  nothing from any other world. Because the seed never changes once
+  approved, the result is identical on every call, which keeps the AI
+  provider's cache working.
+- Unlike the demo Narrator, a seeded world's Narrator is not padded with
+  filler to reach a target size: it carries only real content.
 
 ## fault-points.ts
 
@@ -645,6 +680,8 @@ nothing but what the player approved.
   character's and the Narrator's full profiles, sized up to roughly a target
   "token" count (a token is roughly a word-ish chunk of text — the unit AI
   providers charge by) so tests can exercise a prompt of realistic size.
+  The demo Narrator is used only by worlds without a seed; a GM-built world
+  gets its own (see `narrator.ts`).
 
 ## How this connects to the rest of the app
 

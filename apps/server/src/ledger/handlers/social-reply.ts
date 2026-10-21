@@ -20,6 +20,7 @@ import {
 import type { EventSink } from '../../engine/event-sink.js';
 import { liveProfile } from '../../engine/memory.js';
 import { SOCIAL_CONDUCT_SKILL } from '../../engine/social.js';
+import { worldClockLine, worldTimeOf } from '../../engine/world-clock.js';
 import { parseSocialToolCall } from '../../llm/tools.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Logger } from '../../observability/logger.js';
@@ -147,8 +148,11 @@ export function createSocialReplyHandler(
       {
         scene_id: `feed:${job.world_id}`,
         heading: 'The Feed',
-        world_clock_text:
+        // NOW: the answer is user-triggered and lands as it generates.
+        world_clock_text: worldClockLine(
+          worldTimeOf(storage, job.world_id),
           'You are outside any scene, answering under your own feed comment.',
+        ),
         latest_turns: thread,
         wiki: [],
         ...(recap === '' ? {} : { cache_recap: recap }),

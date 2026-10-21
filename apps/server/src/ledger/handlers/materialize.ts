@@ -14,6 +14,7 @@ import type { CharacterProfile } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
+import { narratorProfileOf } from '../../engine/narrator.js';
 import {
   knownSublocations,
   solveFrontierSquare,
@@ -52,7 +53,8 @@ export interface MaterializeHandlerOptions {
   storage: Storage;
   sink: EventSink;
   llm: LlmClient;
-  /** The narrator-class profile the stub generation speaks with. */
+  /** The narrator-class profile the stub generation speaks with in an
+   * UNSEEDED world; a seeded world speaks with its own (engine/narrator.ts). */
   narrator: CharacterProfile;
   logger: Logger;
   faultPoint?: FaultPointHook;
@@ -184,7 +186,11 @@ export function createMaterializeHandler(
     const anchors = knownSublocations(storage, job.world_id)
       .map((s) => `${s.name}: ${s.description}`)
       .join('\n');
-    const context = assembleContext(narrator, {
+    // The world's OWN Narrator (folded live). No game time here on purpose:
+    // the stub is durable place text, and an hour baked into it would read
+    // false at every later hour.
+    const worldNarrator = narratorProfileOf(storage, job.world_id, narrator);
+    const context = assembleContext(worldNarrator, {
       scene_id: `materialize:${sublocationIdForSquare(square)}`,
       world_clock_text: 'The map grows at its explored frontier.',
       latest_turns: [],
@@ -192,7 +198,7 @@ export function createMaterializeHandler(
     });
     const result = await llm.streamCall({
       kind: 'materialize',
-      characterId: narrator.character_id,
+      characterId: worldNarrator.character_id,
       system: context.stablePrefix,
       prompt: `${context.dynamicTail}\n\n## Instruction\nA traveler explores an uncharted map square near these known places:\n${anchors}\nInvent ONE new sublocation that fits this world. Respond with ONLY a JSON object: {"name": "...", "description": "..."} — name under 120 characters, description 1-2 sentences.`,
       onTextDelta: (): void => undefined,
