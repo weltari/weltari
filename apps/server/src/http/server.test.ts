@@ -292,6 +292,14 @@ describe('HTTP layer (SSE + commands)', () => {
               locked: command.locked,
             }),
       deleteProfile: () => ok({ removed: 2 }),
+      // w1 = a fixture-world roster; any other world has nobody yet.
+      characterRoster: (worldId) =>
+        worldId === 'w1'
+          ? [
+              { character_id: 'char:elias', name: 'Elias' },
+              { character_id: 'char:minted-1', name: 'Wren' },
+            ]
+          : [],
       profileView: (worldId, actorId) => ({
         actor_id: actorId,
         profiling_enabled: worldId === 'w1',
@@ -876,6 +884,37 @@ describe('HTTP layer (SSE + commands)', () => {
       llm_enqueued: 1,
       llm_skipped: 0,
     });
+  });
+
+  it('advance-time past the +48 h cap -> 400, nothing reaches the clock (UI Spec §1.11)', async () => {
+    const ctx = await setup();
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/commands/advance-time`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        minutes: 2881,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /v1/characters -> the live roster for the world (0.22.0)', async () => {
+    const ctx = await setup();
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/characters?world_id=w1`);
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toEqual({
+      characters: [
+        { character_id: 'char:elias', name: 'Elias' },
+        { character_id: 'char:minted-1', name: 'Wren' },
+      ],
+    });
+    const other = await fetchRetry(`${ctx.baseUrl}/v1/characters?world_id=w9`);
+    expect(await other.json()).toEqual({ characters: [] });
+    const missing = await fetchRetry(`${ctx.baseUrl}/v1/characters`);
+    expect(missing.status).toBe(400);
   });
 
   it('paint-region -> 202 echoing the job key', async () => {

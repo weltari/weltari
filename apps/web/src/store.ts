@@ -297,6 +297,10 @@ export interface SceneStore {
   /** character_id → evolution lock (0.17.0, Rev 4 §7) — latest
    * character.lock_set wins; absent = the seed default (unlocked). */
   characterLocks: Record<string, boolean>;
+  /** Every character.created (0.22.0): the stream's half of the live chat
+   * roster — merged over GET /v1/characters (roster.ts), so a character
+   * minted mid-story or approved via a GM card is reachable at once. */
+  createdCharacters: CastMember[];
   /** True once world.seeded arrived (0.17.0, Rev 4 §9) — cold boot's
    * terminal state; the onboarding surface keys off it. */
   worldSeeded: boolean;
@@ -1040,11 +1044,28 @@ function applyOne(
       set({ worldSeeded: true });
       return;
     }
-    // Engine-side state (0.17.0): created characters enter the roster fold
-    // server-side; binding pushes and profile references carry no client
-    // surface (the hypotheses never ride the log: GDPR — the Config page
-    // fetches them from GET /v1/profile instead).
+    // A created character joins the live chat roster (0.22.0) — once, by
+    // id, replay and live alike.
     case 'character.created':
+      set((state) =>
+        state.createdCharacters.some(
+          (c) => c.character_id === event.payload.character_id,
+        )
+          ? {}
+          : {
+              createdCharacters: [
+                ...state.createdCharacters,
+                {
+                  character_id: event.payload.character_id,
+                  name: event.payload.name,
+                },
+              ],
+            },
+      );
+      return;
+    // Binding pushes and profile references carry no client surface (the
+    // hypotheses never ride the log: GDPR — the Config page fetches them
+    // from GET /v1/profile instead).
     case 'gateway.binding_established':
     case 'profile.updated':
     case 'profile.deleted':
@@ -1097,6 +1118,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
   gmProposals: [],
   profilingEnabled: false,
   characterLocks: {},
+  createdCharacters: [],
   worldSeeded: false,
 
   setConnected(connected: boolean): void {

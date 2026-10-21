@@ -6,8 +6,8 @@
 // row says so instead of pretending a reply is coming.
 import { useEffect, useRef, useState } from 'react';
 import {
-  CHAT_CHARACTERS,
   GM_CHARACTER_ID,
+  GM_CHAT_ENTRY,
   postExitChat,
   postExitGroupChat,
   postSendChatMessage,
@@ -18,13 +18,8 @@ import {
 } from '../commands.js';
 import { ProposalCard } from '../components/ProposalCard.js';
 import { t } from '../i18n.js';
+import { useCharacterRoster } from '../roster.js';
 import { useSceneStore, type ChatThread, type GroupThread } from '../store.js';
-
-/** V1 groups everyone DM-able EXCEPT the GM — it is the meta-guide, not a
- * group member (Rev 4 §9). */
-const GROUPABLE = CHAT_CHARACTERS.filter(
-  (c) => c.character_id !== GM_CHARACTER_ID,
-);
 
 interface ChatPageProps {
   /** Hand a startscene() 202 to the shell: navigate to the Scene route (the
@@ -73,16 +68,20 @@ export function ChatPage({
 }: ChatPageProps): React.JSX.Element {
   const threads = useSceneStore((s) => s.chatThreads);
   const groups = useSceneStore((s) => s.groupThreads);
-  const [selectedId, setSelectedId] = useState(
-    CHAT_CHARACTERS[0]?.character_id ?? '',
-  );
+  // The live roster (0.22.0): boot seeds ∪ every created character, never
+  // filtered by presence. The GM tops the list as the standing guide; V1
+  // groups everyone DM-able EXCEPT the GM — it is the meta-guide, not a
+  // group member (Rev 4 §9).
+  const roster = useCharacterRoster();
+  const groupable = roster.filter((c) => c.character_id !== GM_CHARACTER_ID);
+  const chatList = [GM_CHAT_ENTRY, ...groupable];
+  const [selectedId, setSelectedId] = useState(GM_CHAT_ENTRY.character_id);
   // A selected group swaps the right pane (UI Spec §2.4 group view, 0.14.0).
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const selectedGroup =
     selectedGroupId === null ? undefined : groups[selectedGroupId];
   const selected =
-    CHAT_CHARACTERS.find((c) => c.character_id === selectedId) ??
-    CHAT_CHARACTERS[0];
+    chatList.find((c) => c.character_id === selectedId) ?? chatList[0];
   const thread =
     selected === undefined ? undefined : threads[selected.character_id];
   const isGm = selected?.character_id === GM_CHARACTER_ID;
@@ -194,7 +193,7 @@ export function ChatPage({
     <div className="wl-chat-page">
       <aside className="wl-chat-list">
         <h2 className="wl-chat-list-title">Chats</h2>
-        {CHAT_CHARACTERS.map((character) => (
+        {chatList.map((character) => (
           <CharacterRow
             key={character.character_id}
             characterId={character.character_id}
@@ -236,13 +235,13 @@ export function ChatPage({
         <button
           type="button"
           className="wl-chat-action"
-          disabled={busy || GROUPABLE.length < 2}
+          disabled={busy || groupable.length < 2}
           onClick={() => {
             // User-started only (Rev 4 §8) — V1 groups everyone DM-able
             // except the GM.
             postStartGroupChat(
-              GROUPABLE.map((c) => c.character_id),
-              GROUPABLE.map((c) => c.name).join(' & '),
+              groupable.map((c) => c.character_id),
+              groupable.map((c) => c.name).join(' & '),
             )
               .then((started) => {
                 if (started !== null)
@@ -258,7 +257,7 @@ export function ChatPage({
       </aside>
 
       {selectedGroup !== undefined ? (
-        <GroupConversation group={selectedGroup} />
+        <GroupConversation group={selectedGroup} roster={roster} />
       ) : (
         <section className="wl-chat-conversation">
           <header className="wl-chat-head">
@@ -441,7 +440,10 @@ export function ChatPage({
 /** The group pane (0.14.0): member replies arrive routed by the Group-chat
  * Narrator — up to the engine's turn budget per user line; speaker names
  * label every character bubble. */
-function GroupConversation(props: { group: GroupThread }): React.JSX.Element {
+function GroupConversation(props: {
+  group: GroupThread;
+  roster: readonly { character_id: string; name: string }[];
+}): React.JSX.Element {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -451,9 +453,7 @@ function GroupConversation(props: { group: GroupThread }): React.JSX.Element {
   }, [count]);
 
   function nameOf(id: string | undefined): string {
-    return (
-      CHAT_CHARACTERS.find((c) => c.character_id === id)?.name ?? 'Someone'
-    );
+    return props.roster.find((c) => c.character_id === id)?.name ?? 'Someone';
   }
   function fireSend(): void {
     const text = draft.trim();
