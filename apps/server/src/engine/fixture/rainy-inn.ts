@@ -180,6 +180,33 @@ export function buildMaraProfile(): CharacterProfile {
 }
 
 /**
+ * The boot-time cast (main.ts): a fixture world plays the Rainy-Inn pair —
+ * Elias + Mara seed every character registry, Elias stays the cast of a
+ * scene with no roster events (pre-0.21 logs, an open nobody rode along) and
+ * his art poses are switchable. A GM-seeded world (fixture off) has NO
+ * fixture character anywhere: its people arrive through approved proposals
+ * and fold in from the log (minted characters have no art sets yet — V1.5).
+ */
+export function fixtureBootCast(
+  fixtureWorld: boolean,
+  targetPrefixTokens: number,
+): {
+  seedProfiles: readonly CharacterProfile[];
+  untrackedSceneCast: readonly string[];
+  artSets: ReadonlyMap<string, readonly string[]>;
+} {
+  if (!fixtureWorld) {
+    return { seedProfiles: [], untrackedSceneCast: [], artSets: new Map() };
+  }
+  const elias = buildEliasProfile(targetPrefixTokens);
+  return {
+    seedProfiles: [elias, buildMaraProfile()],
+    untrackedSceneCast: [elias.character_id],
+    artSets: FIXTURE_ART_SETS,
+  };
+}
+
+/**
  * The narrator makes the FIRST call of every turn, so its prefix carries the
  * ~50K-token load in the success-criteria run (criterion a measures a real
  * big-prefix prefill, not a small warm-up call). UNSEEDED worlds only: a

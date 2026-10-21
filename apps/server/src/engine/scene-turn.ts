@@ -309,9 +309,12 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     const sublocationList = sublocations
       .map((s) => `${s.sublocation_id} (${s.name})`)
       .join(', ');
-    const artList = [...artSets.entries()]
-      .map(([characterId, poses]) => `${characterId}: ${poses.join('|')}`)
-      .join('; ');
+    const artList =
+      artSets.size === 0
+        ? 'none'
+        : [...artSets.entries()]
+            .map(([characterId, poses]) => `${characterId}: ${poses.join('|')}`)
+            .join('; ');
     // The durable objects lying here (M7 part 3, Rev 4 §7): the Narrator
     // narrates an existing payload VERBATIM in spirit and may describe_object
     // only the ones marked empty — write-on-first-read, exactly once.
