@@ -85,7 +85,7 @@ export function createChatGatewayBridge(
    * text you received), else the first roster character. Deterministic. */
   function targetCharacterId(): string {
     let latest: string | undefined;
-    for (const event of storage.eventLog.readSince(0, 100000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (
         event.type === 'chat.outreach_recorded' &&
         event.world_id === worldId
@@ -102,7 +102,7 @@ export function createChatGatewayBridge(
     conversationId: string,
     messageId: string,
   ): string | null {
-    for (const event of storage.eventLog.readSince(0, 100000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (
         event.type === 'chat.message_committed' &&
         event.payload.conversation_id === conversationId &&
@@ -116,7 +116,7 @@ export function createChatGatewayBridge(
 
   function latestCharacterLine(conversationId: string): string | null {
     let latest: string | null = null;
-    for (const event of storage.eventLog.readSince(0, 100000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (
         event.type === 'chat.message_committed' &&
         event.payload.conversation_id === conversationId &&
@@ -137,7 +137,7 @@ export function createChatGatewayBridge(
    * redeliveries: the record is a durable event). */
   function bindingKnown(chatId: string): boolean {
     return storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (event) =>
           event.type === 'gateway.binding_established' &&

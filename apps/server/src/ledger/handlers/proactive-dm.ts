@@ -73,7 +73,7 @@ function recentTranscript(
   characterName: string,
 ): TurnLine[] {
   const lines: TurnLine[] = [];
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'chat.message_committed' &&
       event.payload.conversation_id === conversationId
@@ -109,7 +109,7 @@ export function createProactiveDmHandler(
 
     const alreadyRecorded = (): boolean =>
       storage.eventLog
-        .readSince(0, 100000)
+        .readAllSince(0)
         .some(
           (e) =>
             e.type === 'chat.outreach_recorded' &&

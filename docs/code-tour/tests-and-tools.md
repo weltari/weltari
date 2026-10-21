@@ -36,6 +36,14 @@ The foundations:
   (`events`) physically refuses any attempt to edit or delete a row after
   it's written, even via a raw, no-safety-rails database connection. History
   can only ever grow, never be rewritten.
+- **`event-log-full-read.test.ts`** — whenever the server works something
+  out from the whole history (the world clock, who is in a scene, "has this
+  already happened?"), it must read the *whole* history, however long it has
+  grown. This test greps the server source and fails if any file other than
+  the live-stream catch-up (`http/sse.ts`, which reads page by page on
+  purpose) uses the one-page read; everything else must use `readAllSince`.
+  It guards against the old bug where those reads quietly stopped at the
+  oldest 100,000 rows.
 - **`gateway-inbound.test.ts`** — messages arriving from outside chat
   connectors (e.g. Telegram) are deduplicated by a real database constraint,
   not by in-memory bookkeeping, so a duplicate delivery — even one replayed

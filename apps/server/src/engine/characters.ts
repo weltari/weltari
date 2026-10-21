@@ -22,7 +22,7 @@ export function createdCharactersOf(
   worldId: string,
 ): CharacterCreated[] {
   const created: CharacterCreated[] = [];
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (event.type === 'character.created') created.push(event.payload);
   }
@@ -90,7 +90,7 @@ export function withLiveLock(
   profile: CharacterProfile,
 ): CharacterProfile {
   let locked = profile.locked;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (
       event.type === 'character.lock_set' &&
@@ -115,7 +115,7 @@ export function characterProfilesOf(
       byId.set(payload.character_id, profileOf(payload));
     }
   }
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (event.type !== 'character.lock_set') continue;
     const profile = byId.get(event.payload.character_id);

@@ -60,7 +60,7 @@ function proposalRecordsOf(
   worldId: string,
 ): Map<string, ProposalRecord> {
   const records = new Map<string, ProposalRecord>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (event.type === 'proposal.submitted') {
       records.set(event.payload.proposal_id, {
@@ -89,7 +89,7 @@ export function pendingProposalsOf(
 /** True once a world.seeded event exists — cold boot's terminal state. */
 export function worldSeeded(storage: Storage, worldId: string): boolean {
   return storage.eventLog
-    .readSince(0, 100000)
+    .readAllSince(0)
     .some((e) => e.world_id === worldId && e.type === 'world.seeded');
 }
 

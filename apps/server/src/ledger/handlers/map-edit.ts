@@ -70,7 +70,7 @@ export function createMapEditHandler(
 
     const created = (): boolean =>
       storage.eventLog
-        .readSince(0, 100000)
+        .readAllSince(0)
         .some(
           (e) =>
             e.type === 'sublocation.created' &&

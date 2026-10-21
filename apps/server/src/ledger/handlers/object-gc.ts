@@ -56,7 +56,7 @@ export function createObjectGcHandler(
     const swept: WeltariEvent[] = [];
     storage.transact(() => {
       const endedScenes = new Set<string>();
-      for (const event of storage.eventLog.readSince(0, 100000)) {
+      for (const event of storage.eventLog.readAllSince(0)) {
         if (
           (event.type === 'scene.ended' || event.type === 'scene.expired') &&
           event.world_id === job.world_id

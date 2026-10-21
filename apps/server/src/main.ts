@@ -806,7 +806,7 @@ catchAndLog(
 // path — a kill inside mid_gm_followup heals here, and a card resolved
 // moments before a crash still gets its durable tool-result turn.
 const followupWorlds = new Set<string>();
-for (const bootEvent of storage.eventLog.readSince(0, 100000)) {
+for (const bootEvent of storage.eventLog.readAllSince(0)) {
   if (
     bootEvent.type === 'proposal.resolved' ||
     bootEvent.type === 'proposal.discussed'

@@ -192,7 +192,7 @@ export function currentSublocationId(
   startSublocationId: string,
 ): string {
   let current = startSublocationId;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'sublocation.changed' &&
       event.payload.scene_id === sceneId
@@ -205,7 +205,7 @@ export function currentSublocationId(
 
 function sceneIsOpen(storage: Storage, sceneId: string): boolean {
   let started = false;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (!('scene_id' in event.payload) || event.payload.scene_id !== sceneId)
       continue;
     if (event.type === 'scene.started') started = true;

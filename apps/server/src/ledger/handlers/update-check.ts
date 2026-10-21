@@ -93,7 +93,7 @@ export function createUpdateCheckHandler(
     }
 
     const alreadyAnnounced = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (event) =>
           event.type === 'update.available' &&

@@ -91,7 +91,7 @@ export function createMaterializeHandler(
       }
       const alreadyAt = ((): boolean =>
         storage.eventLog
-          .readSince(0, 100000)
+          .readAllSince(0)
           .some(
             (event) =>
               event.type === 'sublocation.materialized' &&
@@ -128,7 +128,7 @@ export function createMaterializeHandler(
       // Last-instant idempotency re-check fused to the append (the week-7
       // lease-expiry overlap class): NO await between here and the append.
       const committedMeanwhile = storage.eventLog
-        .readSince(0, 100000)
+        .readAllSince(0)
         .some(
           (event) =>
             event.type === 'sublocation.materialized' &&

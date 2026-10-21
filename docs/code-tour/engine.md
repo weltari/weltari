@@ -23,7 +23,9 @@ Two ideas come up in almost every file here, so it's worth defining them once:
   Anything the engine needs to know "right now" (who's in a scene, what places
   exist, what a character last said) is worked out by re-reading that log —
   this is called a **projection** (the code often says "fold"), like replaying
-  a recording to see the current frame.
+  a recording to see the current frame. Every fold re-reads the WHOLE log,
+  however long it has grown (`eventLog.readAllSince(0)`, which storage reads
+  in pages) — never just its first page.
 - **`{ stablePrefix, dynamicTail }`**: when the engine builds a prompt for the
   AI, it splits it into two pieces. The `stablePrefix` is the part that must
   come out byte-for-byte identical every single time for the same character
