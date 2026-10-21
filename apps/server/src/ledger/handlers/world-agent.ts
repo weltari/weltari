@@ -21,7 +21,7 @@ import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Storage } from '../../storage/db.js';
 import type { JobHandler } from '../runner.js';
-import { sceneNarrationTranscript, sceneTranscript } from './reflection.js';
+import { sceneNarrationTranscript } from './reflection.js';
 
 const SUBWIKI_ENTRY_MAX = 4000;
 
@@ -127,17 +127,26 @@ export function createWorldAgentHandler(
       ),
       'The scene has just ended.',
     );
+    // Week 19 (§10 source-typing, hardened) and the owner ruling of
+    // 2026-10-21: EVERY World Agent call reads the NARRATION-ONLY transcript
+    // — `character` steps never enter the prompt, so a character's words or
+    // attempts reach the world record only as the Narrator resolved them,
+    // by construction, not by instruction. What each character saw is its
+    // own memory (reflection), never the World Agent's.
     const context = assembleContext(worldNarrator, {
       scene_id,
       world_clock_text: clockText,
-      latest_turns: sceneTranscript(storage, scene_id),
+      latest_turns: sceneNarrationTranscript(storage, scene_id),
       wiki: [],
     });
+    // The change note: what the scene CHANGED, not a retelling of it —
+    // objective, lasting, and nothing that drifts on its own with the clock
+    // (weather, light, crowds stay the Narrator's room to improvise).
     const result = await llm.streamCall({
       kind: 'world_agent',
       characterId: worldNarrator.character_id,
       system: context.stablePrefix,
-      prompt: `${context.dynamicTail}\n\n## Instruction\nAs the world agent, note in 1-3 sentences how the world moves on after this scene (weather, schedules, off-screen consequences). Third person, factual.`,
+      prompt: `${context.dynamicTail}\n\n## Instruction\nAs the world agent, note in 1-3 sentences what this scene changed in the world: lasting, objective changes to places, objects, people's situations or the state of the world. Do not retell the scene. What a character says or attempts is not a change by itself: record only the outcomes the narration shows as resolved, and never record that someone merely claims something. Leave out anything that changes on its own over time, such as weather, light or crowds. Third person, factual.`,
       onTextDelta: (): void => undefined,
     });
     if (!result.ok) throw result.error; // operational -> runner retries (C7)
@@ -145,18 +154,9 @@ export function createWorldAgentHandler(
     // The subwiki pass (Rev 4 §10): one entry per participating
     // Narrator-created sublocation, observable-now snapshots only. Each
     // generation is its own call; a failure retries the whole job (nothing
-    // committed yet — the pass is one transaction below).
-    //
-    // Week 19 (§10 source-typing, hardened): the wiki calls read a
-    // NARRATION-ONLY transcript — `character` steps never enter the prompt,
-    // so speech is excluded by construction, not by instruction. The summary
-    // note above reads the whole scene (a summary may mention claims).
-    const wikiContext = assembleContext(worldNarrator, {
-      scene_id,
-      world_clock_text: clockText,
-      latest_turns: sceneNarrationTranscript(storage, scene_id),
-      wiki: [],
-    });
+    // committed yet — the pass is one transaction below). It reads the same
+    // narration-only context as the note above.
+    const wikiContext = context;
     // The latest-wins wiki view (the chat-queries fold): the base the
     // zero-activity fallback and the parent-mention dedup both read; staged
     // entries from THIS pass overlay it as they are built.
