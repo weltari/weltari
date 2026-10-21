@@ -151,6 +151,15 @@ export const TurnCommittedEventSchema = z.strictObject({
      * after it is durable (UI Spec §1.4, Guide B6).
      */
     interrupted: z.literal(true).optional(),
+    /**
+     * Who was present for this turn (0.22.0): the character ids in the
+     * scene's cast when the turn started plus everyone who joined during
+     * it (a character who left mid-turn saw the part before it left —
+     * turn granularity). Recorded, never inferred later: each character's
+     * reflection reads only the turns whose audience names it. Absent on
+     * pre-0.22 turns (readers fall back to the old whole-scene rule).
+     */
+    audience: z.array(z.string().min(1)).max(50).optional(),
   }),
 });
 
