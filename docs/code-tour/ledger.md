@@ -119,9 +119,11 @@ the GM built speaks from its own seed, never from the Rainy Inn demo.
 **The living world**
 
 - `apps/server/src/ledger/handlers/world-agent.ts` — the "World Agent":
-  one pass per world, per ended scene, narrating how the wider world moves
-  on (weather, schedules, background events). Only one runs per world at a
-  time. The pass also writes one short wiki entry per Narrator-created
+  one pass per world, per ended scene, noting what the scene changed in
+  the world — objective, lasting changes only, read from the narration
+  alone (a character's claim never becomes a fact; weather and other
+  things that change by themselves are left out). Only one runs per world
+  at a time. The pass also writes one short wiki entry per Narrator-created
   place that genuinely took part in the scene. Week-19 hardenings: the
   wiki entries are generated from a *narration-only* transcript (character
   speech is filtered out by the committed step's own label, so gossip can
