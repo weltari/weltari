@@ -37,7 +37,7 @@ export function characterLocationsOf(
   worldId: string,
 ): Map<string, string> {
   const locations = new Map<string, string>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (event.type === 'character.location_changed') {
       locations.set(

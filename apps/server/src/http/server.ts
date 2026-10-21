@@ -265,6 +265,8 @@ export interface HttpDeps {
   heartbeatMs?: number;
   /** Running app version, echoed in the SSE hello (0.8.0 — splash footer). */
   appVersion?: string;
+  /** Events per SSE replay page (default 1000) — a test seam only. */
+  sseReplayPageSize?: number;
 }
 
 const sseQuerySchema = z.object({
@@ -295,6 +297,7 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         eventBus: deps.eventBus,
         streamBus: deps.streamBus,
         devBus: deps.devBus,
+        logger: deps.logger,
         devChannel: request.query.dev === '1',
         protocolVersion: PROTOCOL_VERSION,
         ...(deps.heartbeatMs === undefined
@@ -303,6 +306,9 @@ export function createHttpServer(deps: HttpDeps): FastifyInstance {
         ...(deps.appVersion === undefined
           ? {}
           : { appVersion: deps.appVersion }),
+        ...(deps.sseReplayPageSize === undefined
+          ? {}
+          : { replayPageSize: deps.sseReplayPageSize }),
       });
     },
   );

@@ -50,7 +50,7 @@ export interface ProfileAnalysisHandlerOptions {
  * input is external data). */
 function transcriptOf(storage: Storage, contextId: string): TurnLine[] {
   const lines: TurnLine[] = [];
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'turn.committed' &&
       event.payload.scene_id === contextId

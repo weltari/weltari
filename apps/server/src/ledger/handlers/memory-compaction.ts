@@ -75,7 +75,7 @@ export function createMemoryCompactionHandler(
 
     const alreadyCompacted = (): boolean =>
       storage.eventLog
-        .readSince(0, 100000)
+        .readAllSince(0)
         .some(
           (e) =>
             e.type === 'memory.compacted' &&

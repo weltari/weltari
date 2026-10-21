@@ -33,7 +33,7 @@ export function outreachState(
   let lastEndedAt = 0;
   const messageIds: number[] = [];
   const outreaches: { id: number; occurrenceIso: string }[] = [];
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'chat.message_committed' &&
       event.payload.conversation_id === conversationId

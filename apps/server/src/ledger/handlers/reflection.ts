@@ -54,7 +54,7 @@ export interface ReflectionHandlerOptions {
 /** Transcript of the scene's committed turns — the reflection's raw material. */
 export function sceneTranscript(storage: Storage, sceneId: string): TurnLine[] {
   const lines: TurnLine[] = [];
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.type === 'turn.committed' && event.payload.scene_id === sceneId) {
       for (const step of event.payload.steps) {
         lines.push({ speaker: step.speaker, text: step.text });
@@ -76,7 +76,7 @@ export function sceneNarrationTranscript(
   sceneId: string,
 ): TurnLine[] {
   const lines: TurnLine[] = [];
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.type === 'turn.committed' && event.payload.scene_id === sceneId) {
       for (const step of event.payload.steps) {
         if (step.call === 'character') continue;
@@ -120,7 +120,7 @@ export function createReflectionHandler(
 
     // Idempotency gate: the retry after a kill -9 must not reflect twice.
     const already = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (e) =>
           e.type === 'reflection.committed' &&
@@ -179,7 +179,7 @@ export function createReflectionHandler(
     // await points in this single-process runtime, so check+append
     // back-to-back is race-free — the loser no-ops here.
     const committedMeanwhile = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (e) =>
           e.type === 'reflection.committed' &&

@@ -77,9 +77,20 @@ in the codebase is allowed to run SQL against this table directly.
   matching projection **inside the same transaction** — so a committed
   event can never exist without its projection row, even if the process is
   killed mid-write.
-- **`readSince(sinceId, limit)`** — fetches every event newer than a given
-  sequence number, oldest first. This is how a reconnecting browser tab
-  catches up after a dropped connection.
+- **`readAllSince(sinceId)`** — fetches EVERY event newer than a given
+  sequence number, oldest first, no matter how long the logbook has grown.
+  This is what the rest of the server uses whenever it works something out
+  from history (the world clock, who is in a scene, "was this already
+  done?"). Behind the scenes it reads the logbook in pages of 1,000 rows at
+  a time, so it never asks the database for one giant chunk; tests shrink
+  the page to a few rows to prove the page-by-page reading is seamless.
+- **`readSince(sinceId, limit)`** — fetches ONE page: at most `limit`
+  events (1,000 by default) newer than a given sequence number, oldest
+  first. This is how a reconnecting browser tab catches up after a dropped
+  connection, one page after another. It must never be used to mean "the
+  whole logbook": the shared logbook (all worlds write into it) eventually
+  outgrows any page, and a reader that stops after one page silently misses
+  everything newer.
 - **`lastId()`** — the highest sequence number so far (0 if empty), used to
   tell a freshly-connecting client where "now" is.
 - Every row read back is checked against the app's formal event schema (from

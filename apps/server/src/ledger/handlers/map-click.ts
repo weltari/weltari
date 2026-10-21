@@ -89,7 +89,7 @@ export function createMapClickHandler(
 
     const resolved = (): boolean =>
       storage.eventLog
-        .readSince(0, 100000)
+        .readAllSince(0)
         .some(
           (e) =>
             e.type === 'map_click.resolved' &&
@@ -108,7 +108,7 @@ export function createMapClickHandler(
     // around the click (the event log names the current image, Brief §2.1).
     const imageId = `map:${job.world_id}`;
     let currentPath: string | null = null;
-    for (const event of storage.eventLog.readSince(0, 100000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (
         event.type === 'painter.completed' &&
         event.payload.image_id === imageId

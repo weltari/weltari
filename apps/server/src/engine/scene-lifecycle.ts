@@ -72,7 +72,7 @@ const reflectionPayloadSchema = z.strictObject({
 
 function sceneEvents(storage: Storage, sceneId: string): WeltariEvent[] {
   return storage.eventLog
-    .readSince(0, 100000)
+    .readAllSince(0)
     .filter((e) => 'scene_id' in e.payload && e.payload.scene_id === sceneId);
 }
 
@@ -319,7 +319,7 @@ function pendingRegistrationAt(
         carried_goals?: string[] | undefined;
       }
     | undefined;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (
       event.type === 'scene.ended' &&

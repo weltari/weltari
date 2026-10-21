@@ -60,7 +60,7 @@ export function latestPerOrigin(
   let chat: (CacheEntry & { event_id: number }) | undefined;
   let social: (CacheEntry & { event_id: number }) | undefined;
   let watermark = 0;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'cache.pruned' &&
       event.payload.character_id === characterId
@@ -121,7 +121,7 @@ export function cachePruneDue(
 ): { watermark_id: number; kept: number } | undefined {
   let watermark = 0;
   const visibleIds: number[] = [];
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'cache.pruned' &&
       event.payload.character_id === characterId

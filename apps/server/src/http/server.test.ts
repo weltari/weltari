@@ -6,9 +6,16 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { PROTOCOL_VERSION, type StartTurnCommand } from '@weltari/protocol';
-import { err, ok, OperationalError, type Result } from '../errors.js';
+import {
+  CorruptStateError,
+  err,
+  ok,
+  OperationalError,
+  type Result,
+} from '../errors.js';
 import { createRootLogger } from '../observability/logger.js';
 import { openStorage, type Storage } from '../storage/db.js';
+import type { EventLogRepository } from '../storage/repositories/event-log.js';
 import { Bus, type DevBus, type EventBus, type StreamBus } from './bus.js';
 import { createHttpServer } from './server.js';
 
@@ -104,7 +111,13 @@ describe('HTTP layer (SSE + commands)', () => {
     devBus: DevBus;
   }
 
-  async function setup(): Promise<Setup> {
+  interface SetupOptions {
+    /** Decorates the event log the SSE route reads (replay-race seams). */
+    wrapEventLog?: (real: EventLogRepository) => EventLogRepository;
+    sseReplayPageSize?: number;
+  }
+
+  async function setup(options: SetupOptions = {}): Promise<Setup> {
     const dir = mkdtempSync(join(tmpdir(), 'weltari-http-'));
     const logger = quietLogger();
     storage = openStorage({ dbPath: join(dir, 'w.sqlite') });
@@ -146,7 +159,8 @@ describe('HTTP layer (SSE + commands)', () => {
     }
 
     app = createHttpServer({
-      eventLog: localStorage.eventLog,
+      eventLog:
+        options.wrapEventLog?.(localStorage.eventLog) ?? localStorage.eventLog,
       eventBus,
       streamBus,
       devBus,
@@ -324,6 +338,9 @@ describe('HTTP layer (SSE + commands)', () => {
           jobsEnqueued: 2,
         }),
       heartbeatMs: 60000,
+      ...(options.sseReplayPageSize === undefined
+        ? {}
+        : { sseReplayPageSize: options.sseReplayPageSize }),
     });
     // Windows: listen({port: 0}) draws from the ephemeral range (49152+),
     // where outbound sockets roam — connects to such a port intermittently
@@ -620,6 +637,137 @@ describe('HTTP layer (SSE + commands)', () => {
     const res = await fetchRetry(`${ctx.baseUrl}/v1/events?last_event_id=2`);
     const frames = await readFrames(res, 2);
     expect(frames.slice(1).map((f) => f.id)).toEqual([3]);
+  });
+
+  /** The real log with a hook after every bounded page read — the seam that
+   * lands a concurrent writer between replay pages, deterministically. */
+  function hookedReads(
+    afterRead: (count: number) => void,
+  ): (real: EventLogRepository) => EventLogRepository {
+    return (real) => {
+      let count = 0;
+      return {
+        append: (event) => real.append(event),
+        readAllSince: (sinceId) => real.readAllSince(sinceId),
+        lastId: () => real.lastId(),
+        readSince(sinceId, limit): ReturnType<EventLogRepository['readSince']> {
+          const page = real.readSince(sinceId, limit);
+          count += 1;
+          afterRead(count);
+          return page;
+        },
+      };
+    };
+  }
+
+  it('a fresh client on a log longer than one replay page gets every event exactly once, appends during the replay included', async () => {
+    let ctx: Setup | null = null;
+    const append = (n: number): void => {
+      if (ctx !== null) seed(ctx.storage, ctx.eventBus, n);
+    };
+    ctx = await setup({
+      wrapEventLog: hookedReads((count) => {
+        // A writer lands between replay pages 1 and 2 (durable, then
+        // published — what a running turn does), and another one right
+        // after the replay went live.
+        if (count === 1) {
+          setImmediate(() => {
+            append(2);
+          });
+        }
+        if (count === 2) {
+          setImmediate(() => {
+            append(1);
+          });
+        }
+      }),
+    });
+    const localCtx = ctx;
+    localCtx.storage.transact(() => {
+      seed(localCtx.storage, localCtx.eventBus, 1500);
+    });
+
+    // No Last-Event-ID: every fresh page load replays from 0.
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/events`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    const frames = await readFrames(res, 1 + 1503);
+    const hello: unknown = JSON.parse(frames[0]?.data ?? '');
+    expect(hello).toMatchObject({ last_event_id: 1500 });
+    expect(frames.slice(1).map((f) => f.id)).toEqual(
+      Array.from({ length: 1503 }, (_, i) => i + 1),
+    );
+  });
+
+  it('paged replay from ?last_event_id=: frames published mid-replay follow it in publish order, then live', async () => {
+    let ctx: Setup | null = null;
+    const append = (n: number): void => {
+      if (ctx !== null) seed(ctx.storage, ctx.eventBus, n);
+    };
+    ctx = await setup({
+      sseReplayPageSize: 2,
+      wrapEventLog: hookedReads((count) => {
+        if (count === 1) {
+          setImmediate(() => {
+            append(1); // id 8
+            ctx?.streamBus.publish({
+              turn_id: 't-live',
+              call: 'narrator',
+              speaker: 'Narrator',
+              text: 'Rain.',
+              index: 0,
+            });
+            append(1); // id 9
+          });
+        }
+        if (count === 2) {
+          setImmediate(() => {
+            append(1); // id 10, mid-replay
+          });
+        }
+        if (count === 3) {
+          setImmediate(() => {
+            append(1); // id 11, live
+          });
+        }
+      }),
+    });
+    seed(ctx.storage, ctx.eventBus, 7);
+
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/events?last_event_id=2`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    const frames = await readFrames(res, 11);
+    // Replay 3..7 in pages of 2 (head 7); the bus frames queued meanwhile
+    // flush in publish order — the sentence never overtakes the history.
+    expect(frames.map((f) => (f.event === 'stream' ? 'stream' : f.id))).toEqual(
+      [undefined, 3, 4, 5, 6, 7, 8, 'stream', 9, 10, 11],
+    );
+  });
+
+  it('a replay page that cannot be read ends the stream instead of going live past the hole', async () => {
+    let ctx: Setup | null = null;
+    ctx = await setup({
+      sseReplayPageSize: 2,
+      wrapEventLog: hookedReads((count) => {
+        if (count === 1) {
+          // Published mid-replay: must never reach this client past the hole.
+          setImmediate(() => {
+            if (ctx !== null) seed(ctx.storage, ctx.eventBus, 1);
+          });
+        }
+        if (count === 2) {
+          throw new CorruptStateError('event_row_invalid', 'unreadable row');
+        }
+      }),
+    });
+    seed(ctx.storage, ctx.eventBus, 5);
+
+    const res = await fetchRetry(`${ctx.baseUrl}/v1/events`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    const frames = await readFrames(res, 10); // returns when the stream ends
+    expect(frames.map((f) => f.id)).toEqual([undefined, 1, 2]);
   });
 
   it('dev frames reach only clients that opted in with ?dev=1 (Guide C11)', async () => {
