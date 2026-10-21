@@ -159,7 +159,10 @@
  * presence-independent: the client chat roster, never a fixture
  * constant); advance-time's minutes cap drops from one fictional year to
  * +48 h (UI Spec §1.11) and the command answers 409 `scene_active` while
- * the user is in an open scene.
+ * the user is in an open scene. turn.committed gains optional `audience` —
+ * who was present for the turn (cast at turn start + mid-turn joiners),
+ * recorded instead of inferred: each character reflects only on the turns
+ * naming it, and every witness reflects (owner ruling 2026-10-21).
  */
 export const PROTOCOL_VERSION = '0.22.0';
 

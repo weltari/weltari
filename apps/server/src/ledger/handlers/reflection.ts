@@ -52,14 +52,26 @@ export interface ReflectionHandlerOptions {
   cacheKeep?: number;
 }
 
-/** Transcript of the scene's committed turns — the reflection's raw material. */
-function sceneTranscript(storage: Storage, sceneId: string): TurnLine[] {
+/**
+ * What ONE character witnessed of the scene — the reflection's raw
+ * material (owner ruling 2026-10-21: each character recalls only what it
+ * could see while present). Since 0.22.0 every committed turn records its
+ * `audience`; a turn that does not name this character is invisible to it.
+ * A pre-0.22 turn carries no audience and keeps the old whole-scene rule.
+ */
+function witnessedTranscript(
+  storage: Storage,
+  sceneId: string,
+  characterId: string,
+): TurnLine[] {
   const lines: TurnLine[] = [];
   for (const event of storage.eventLog.readAllSince(0)) {
-    if (event.type === 'turn.committed' && event.payload.scene_id === sceneId) {
-      for (const step of event.payload.steps) {
-        lines.push({ speaker: step.speaker, text: step.text });
-      }
+    if (event.type !== 'turn.committed' || event.payload.scene_id !== sceneId)
+      continue;
+    const audience = event.payload.audience;
+    if (audience !== undefined && !audience.includes(characterId)) continue;
+    for (const step of event.payload.steps) {
+      lines.push({ speaker: step.speaker, text: step.text });
     }
   }
   return lines;
@@ -148,7 +160,7 @@ export function createReflectionHandler(
         ),
         'The scene has just ended.',
       ),
-      latest_turns: sceneTranscript(storage, scene_id),
+      latest_turns: witnessedTranscript(storage, scene_id, character_id),
       wiki: [],
     });
     const result = await llm.streamCall({

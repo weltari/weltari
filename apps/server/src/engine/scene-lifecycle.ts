@@ -110,7 +110,14 @@ export function sceneRosterOf(
   return { cast: [...roster.values()], tracked };
 }
 
-/** Characters who actually spoke in the scene's committed turns. */
+/**
+ * The characters who witnessed the scene — each reflects on what it saw
+ * (owner ruling 2026-10-21). Since 0.22.0 every committed turn records its
+ * `audience` (the cast present for it), so a SILENT present character
+ * reflects too, resolved by id — two characters sharing a display name
+ * never collide. A pre-0.22 turn carries no audience: it falls back to the
+ * old rule (characters who spoke, resolved by display name).
+ */
 function participantsOf(
   events: readonly WeltariEvent[],
   idByName: ReadonlyMap<string, string>,
@@ -118,6 +125,10 @@ function participantsOf(
   const ids = new Set<string>();
   for (const event of events) {
     if (event.type !== 'turn.committed') continue;
+    if (event.payload.audience !== undefined) {
+      for (const id of event.payload.audience) ids.add(id);
+      continue;
+    }
     for (const step of event.payload.steps) {
       if (step.call !== 'character') continue;
       const id = idByName.get(step.speaker);

@@ -116,6 +116,57 @@ describe('scene lifecycle (reflection fan-out + scoped open blocking)', () => {
     expect(worldAgentJobs[0]?.serial_group).toBe('world_agent:w1');
   });
 
+  it('everyone a turn’s audience names reflects — silent ones too, by id, never by display name (owner ruling 2026-10-21)', () => {
+    const ctx = setup();
+    const s = ctx.storage;
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'scene.started',
+      payload: { scene_id: 's1', title: 'The Rainy Inn' },
+    });
+    // Elias speaks; Mara stands silently in the audience; a second "Elias"
+    // (same display name, different id) shows the id path cannot collide.
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'turn.committed',
+      payload: {
+        scene_id: 's1',
+        turn_id: 't1',
+        steps: [
+          { call: 'narrator', speaker: 'Narrator', text: 'Rain falls.' },
+          { call: 'character', speaker: ELIAS.name, text: '"Late again."' },
+        ],
+        audience: [ELIAS.character_id, 'char:mara'],
+      },
+    });
+    s.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'turn.committed',
+      payload: {
+        scene_id: 's1',
+        turn_id: 't2',
+        steps: [{ call: 'narrator', speaker: 'Narrator', text: 'Later.' }],
+        audience: ['char:elias-2'],
+      },
+    });
+    const ended = ctx.lifecycle.endScene({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      scene_id: 's1',
+    });
+    expect(ended.ok).toBe(true);
+    const event = s.eventLog.readSince(0).find((e) => e.type === 'scene.ended');
+    expect(event?.type === 'scene.ended' && event.payload.participants).toEqual(
+      [ELIAS.character_id, 'char:mara', 'char:elias-2'],
+    );
+    for (const id of [ELIAS.character_id, 'char:mara', 'char:elias-2']) {
+      expect(s.ledger.countByKey(`reflection:${id}:s1`)).toBe(1);
+    }
+  });
+
   it('end-scene is rejected twice: already-ended and unknown scenes', () => {
     const ctx = setup();
     seedScene(ctx.storage);
