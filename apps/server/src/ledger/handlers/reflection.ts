@@ -53,7 +53,7 @@ export interface ReflectionHandlerOptions {
 }
 
 /** Transcript of the scene's committed turns — the reflection's raw material. */
-export function sceneTranscript(storage: Storage, sceneId: string): TurnLine[] {
+function sceneTranscript(storage: Storage, sceneId: string): TurnLine[] {
   const lines: TurnLine[] = [];
   for (const event of storage.eventLog.readAllSince(0)) {
     if (event.type === 'turn.committed' && event.payload.scene_id === sceneId) {

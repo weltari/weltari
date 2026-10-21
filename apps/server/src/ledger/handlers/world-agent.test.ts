@@ -264,15 +264,44 @@ describe('world agent job handler', () => {
 
     await ctx.handler(jobWith({ scene_id: 's1' }));
 
-    // Call 1 = the summary note (whole scene — a summary may mention claims);
-    // call 2 = the wiki entry (narration-only, by construction).
+    // Call 1 = the change note, call 2 = the wiki entry — BOTH read the
+    // narration-only transcript (owner ruling 2026-10-21: a character's
+    // words or attempts count only as the narration resolved them).
     expect(prompts).toHaveLength(2);
-    const summary = prompts[0];
+    const note = prompts[0];
     const wiki = prompts[1];
-    expect(summary?.prompt).toContain('poisoned the mayor');
+    expect(note?.prompt).not.toContain('poisoned');
+    expect(note?.prompt).toContain('tucks something out of sight');
     expect(wiki?.prompt).not.toContain('poisoned');
     expect(wiki?.prompt).toContain('smells of smoke');
     expect(wiki?.prompt).toContain('tucks something out of sight');
+  });
+
+  it('the change note asks for what the scene CHANGED — no weather, no claims (owner ruling 2026-10-21)', async () => {
+    const prompts: string[] = [];
+    const capturingLlm: LlmClient = {
+      streamCall: async (call): Promise<Result<LlmCallResult>> => {
+        prompts.push(call.prompt);
+        return Promise.resolve(
+          ok({
+            text: 'The cellar door now stands unbarred.',
+            usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+            model: 'fake/capture',
+            durationMs: 0,
+            toolCalls: [],
+          }),
+        );
+      },
+    };
+    const ctx = setup(capturingLlm);
+    await ctx.handler(jobWith({ scene_id: 's1' }));
+    const instruction = prompts[0]?.split('## Instruction\n')[1] ?? '';
+    expect(instruction).toContain('changed');
+    expect(instruction).toContain('resolved');
+    // Weather appears only as something to LEAVE OUT (it changes on its own).
+    expect(instruction).not.toContain('(weather');
+    expect(instruction).toMatch(/Leave out[^.]*weather/);
+    expect(instruction).not.toContain('off-screen consequences');
   });
 
   it('an empty generation writes the name-derived fallback, never nothing (week 19, Rev 4 §10 zero-activity)', async () => {
