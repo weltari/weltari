@@ -67,7 +67,15 @@ into a live SSE stream for one browser tab.
   heartbeat comment every 15 seconds by default to keep the connection alive
   through proxies, and cleans up all its subscriptions when the browser
   disconnects. The replay is done in a way that guarantees no event can be
-  missed or duplicated between "catching up" and "going live."
+  missed or duplicated between "catching up" and "going live," however far
+  behind the browser is: it sends the history in pages of 1,000 events
+  (waiting for a slow connection to catch its breath between pages, so the
+  whole history is never held in memory at once). Anything that happens
+  while it is still catching up — new events, narration sentences — waits
+  in a queue in the order it happened and is sent right after the last old
+  event, at which point the stream is live. If a page of history can't be
+  read (a damaged row), the server ends the connection rather than skip
+  ahead; the browser reconnects from the last event it got.
 
 ## `apps/server/src/http/static.ts`
 

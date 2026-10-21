@@ -78,7 +78,7 @@ export function presenceOf(
   characterId: string,
 ): Presence {
   const openScenes = new Set<string>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (
       event.type === 'character.joined' &&
@@ -129,7 +129,7 @@ export function conversationState(
 ): ConversationState {
   const allMessages: WeltariEvent[] = [];
   let lastEndedAt = 0;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'chat.message_committed' &&
       event.payload.conversation_id === conversationId
@@ -205,7 +205,7 @@ const STARTSCENE_RETRY_ATTEMPTS = 10;
  * targets. A pure fold like every other projection here. */
 function openSceneIds(storage: Storage, worldId: string): string[] {
   const open = new Set<string>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (event.type === 'scene.started') open.add(event.payload.scene_id);
     else if (event.type === 'scene.ended' || event.type === 'scene.expired')
@@ -812,7 +812,7 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
         string,
         { worldId: string; characterId: string }
       >();
-      for (const event of storage.eventLog.readSince(0, 100000)) {
+      for (const event of storage.eventLog.readAllSince(0)) {
         if (event.type === 'chat.message_committed') {
           conversations.set(event.payload.conversation_id, {
             worldId: event.world_id,

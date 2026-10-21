@@ -57,7 +57,7 @@ export function runWikiquery(
   }
   const query = parsed.value.query;
   const latestEntry = new Map<string, string>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       (event.type === 'subwiki.updated' || event.type === 'subwiki.edited') &&
       event.world_id === worldId
@@ -112,7 +112,7 @@ export function runExploreQuery(
     return `No sublocation ${targetId} exists in this world.`;
   }
   let entry: string | undefined;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       (event.type === 'subwiki.updated' || event.type === 'subwiki.edited') &&
       event.world_id === worldId &&
@@ -173,7 +173,7 @@ export function runSessionquery(
   const titles = new Map<string, string>();
   const recaps = new Map<string, string>();
   const lines = new Map<string, string[]>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (event.type === 'scene.started') {
       titles.set(event.payload.scene_id, event.payload.title);

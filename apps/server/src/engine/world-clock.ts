@@ -62,7 +62,7 @@ interface Occurrence {
  * the V2 trigger-base bridge, owner ruling 2026-07-10). */
 export function worldTimeOf(storage: Storage, worldId: string): string {
   let time = WORLD_EPOCH;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.type === 'world.time_advanced' && event.world_id === worldId) {
       time = event.payload.to;
     }

@@ -52,7 +52,7 @@ export function createMapEditCommand(
     // Idempotent re-submit: the intent event exists — do not append a twin.
     // Single process, no await between check and append (race-free).
     const alreadyRequested = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (e) =>
           e.type === 'map_edit.requested' &&

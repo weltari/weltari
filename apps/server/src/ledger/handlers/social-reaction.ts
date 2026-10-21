@@ -61,7 +61,7 @@ export function createSocialReactionHandler(
     // The post is this job's cause — enqueued atomically with it, so a
     // missing post is corrupted state, not an operational retry.
     const post = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .find(
         (e) =>
           e.type === 'social.post_committed' &&
@@ -77,7 +77,7 @@ export function createSocialReactionHandler(
 
     const alreadyReacted = (): boolean =>
       storage.eventLog
-        .readSince(0, 100000)
+        .readAllSince(0)
         .some(
           (e) =>
             e.type === 'social.reaction_committed' &&

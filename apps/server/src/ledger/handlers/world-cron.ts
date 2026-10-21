@@ -27,7 +27,7 @@ function alreadyCompleted(
   scheduledFor: string,
 ): boolean {
   return storage.eventLog
-    .readSince(0, 100000)
+    .readAllSince(0)
     .some(
       (e) =>
         e.type === 'world_cron.completed' &&

@@ -26,7 +26,7 @@ export function createFeedReplyCommand(
 ): (command: FeedReplyCommand) => Result<FeedReplyOutcome> {
   const { storage, sink, kick } = options;
   return (command): Result<FeedReplyOutcome> => {
-    const events = storage.eventLog.readSince(0, 100000);
+    const events = storage.eventLog.readAllSince(0);
     // The reply target must be a real COMMENT on the named post (likes have
     // no text to answer; clicking one never opens the reply box — a request
     // naming one is a stale or hand-crafted client).

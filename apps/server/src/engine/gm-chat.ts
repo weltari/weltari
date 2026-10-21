@@ -169,7 +169,7 @@ export function gmTranscriptOf(
   conversationId: string,
 ): TurnLine[] {
   const lines: TurnLine[] = [];
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'chat.message_committed' &&
       event.payload.conversation_id === conversationId
@@ -682,7 +682,7 @@ export function createGmChatEngine(options: GmChatEngineOptions): GmChatEngine {
       let approvers: readonly string[] | undefined;
       let resolved = false;
       let discussed = false;
-      for (const event of storage.eventLog.readSince(0, 100000)) {
+      for (const event of storage.eventLog.readAllSince(0)) {
         if (event.world_id !== command.world_id) continue;
         if (
           event.type === 'proposal.submitted' &&
@@ -766,7 +766,7 @@ export function createGmChatEngine(options: GmChatEngineOptions): GmChatEngine {
       // log order, and enqueue each — the loop serializes the generations.
       const messageIds = new Set<string>();
       const missing: ProposalOutcomeNote[] = [];
-      for (const event of storage.eventLog.readSince(0, 100000)) {
+      for (const event of storage.eventLog.readAllSince(0)) {
         if (event.world_id !== worldId) continue;
         if (event.type === 'chat.message_committed') {
           messageIds.add(event.payload.message_id);

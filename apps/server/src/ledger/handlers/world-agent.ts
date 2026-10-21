@@ -43,7 +43,7 @@ function participatingStubs(
 ): ParticipatingStub[] {
   const stubsById = new Map<string, ParticipatingStub>();
   const participating = new Set<string>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.type === 'sublocation.stub_created') {
       stubsById.set(event.payload.sublocation_id, {
         sublocation_id: event.payload.sublocation_id,
@@ -99,7 +99,7 @@ export function createWorldAgentHandler(
     const { scene_id } = payload.data;
 
     const already = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (e) =>
           e.type === 'world_agent.committed' && e.payload.scene_id === scene_id,
@@ -146,7 +146,7 @@ export function createWorldAgentHandler(
     // zero-activity fallback and the parent-mention dedup both read; staged
     // entries from THIS pass overlay it as they are built.
     const latestEntries = new Map<string, string>();
-    for (const event of storage.eventLog.readSince(0, 100000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (
         (event.type === 'subwiki.updated' || event.type === 'subwiki.edited') &&
         event.world_id === job.world_id
@@ -229,7 +229,7 @@ export function createWorldAgentHandler(
     // The subwiki entries ride the same transaction, so the ONE natural key
     // (world_agent.committed per scene) covers the entire pass.
     const committedMeanwhile = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (e) =>
           e.type === 'world_agent.committed' && e.payload.scene_id === scene_id,
