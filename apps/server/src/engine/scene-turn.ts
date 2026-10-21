@@ -45,8 +45,9 @@ import {
   runWikiquery,
 } from './chat-queries.js';
 import { characterLocationsOf } from './locations.js';
-import { worldTimeOf } from './world-clock.js';
+import { describeWorldTime, worldTimeOf } from './world-clock.js';
 import { archiveRecapText, liveProfile } from './memory.js';
+import { narratorProfileOf } from './narrator.js';
 import {
   buildEliasProfile,
   buildNarratorProfile,
@@ -88,8 +89,6 @@ export interface TurnEngineOptions {
    * Awaited at between_calls/pre_commit (mid_stream fires from a sync callback).
    */
   faultPoint?: FaultPointHook;
-  /** Fixture world clock — engine-owned fictional time, injected (A16). */
-  worldClockText?: string;
   stablePrefixTokens?: number;
   /** Speaker-name → character-id map for the end_scene fan-out (fixture default). */
   knownCharacters?: readonly KnownCharacter[];
@@ -149,6 +148,9 @@ interface RunningTurn {
   interrupted: boolean;
   /** True once ANY turn.committed was written (normal or interrupt path). */
   closed: boolean;
+  /** The world clock rendered at turn start — every call of the turn reads
+   * the same game instant (tail-only, I5). */
+  worldClockText: string;
 }
 
 /**
@@ -199,7 +201,6 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     llm,
     logger,
     faultPoint = (): void => undefined,
-    worldClockText = 'Day 1, evening, heavy rain',
     stablePrefixTokens = 800,
     startSublocationId = FIXTURE_START_SUBLOCATION_ID,
     artSets = FIXTURE_ART_SETS,
@@ -240,12 +241,14 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
 
   /** The Narrator profile with the world's story layer folded into the
    * stable prefix (Rev 4 §6 input 2: chapter seed + story goals — Narrator
-   * only, never characters). */
+   * only, never characters). The base is the WORLD's own Narrator, folded
+   * live: a seeded world's seed-built profile, else the fixture one. */
   function narratorProfileFor(worldId: string): CharacterProfile {
+    const base = narratorProfileOf(storage, worldId, narrator);
     const seed = chapterSeedOf(worldId);
     return seed === undefined
-      ? narrator
-      : { ...narrator, goals: [...narrator.goals, `Chapter seed: ${seed}`] };
+      ? base
+      : { ...base, goals: [...base.goals, `Chapter seed: ${seed}`] };
   }
 
   /** The latest committed subgoal snapshot (0.21.0, Rev 4 §6) — DYNAMIC
@@ -429,7 +432,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         : '';
     const context = assembleContext(liveProfile(storage, plan.profile), {
       scene_id: sceneId,
-      world_clock_text: worldClockText,
+      world_clock_text: turn.worldClockText,
       latest_turns: transcript,
       ...(userInput === undefined ? {} : { user_input: userInput }),
       wiki: [],
@@ -953,6 +956,11 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
       // BEFORE the call; within the margin the tail carries the warning and
       // end_scene(context_limit_reached) becomes legal (the stage flag).
       const narratorProfile = narratorProfileFor(command.world_id);
+      // The world clock at call time (Rev 4 glossary): read fresh per turn —
+      // the clock advances between scenes — and shared by every call below.
+      const worldClockText = describeWorldTime(
+        worldTimeOf(storage, command.world_id),
+      );
       const narratorContext = assembleContext(narratorProfile, {
         scene_id: command.scene_id,
         world_clock_text: worldClockText,
@@ -993,6 +1001,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
         stage,
         interrupted: false,
         closed: false,
+        worldClockText,
       };
       running.set(turnId, turn);
 

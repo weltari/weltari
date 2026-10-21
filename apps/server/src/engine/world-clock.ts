@@ -7,16 +7,75 @@
 // keep only the newest per-skip budget (default 10 — Brief §4).
 //
 // A16 note: the engine may not construct Dates; calendar math is delegated to
-// ledger/scheduler.js (addMinutesIso / occurrencesBetween — pure functions).
-import type { AdvanceTimeCommand } from '@weltari/protocol';
+// ledger/scheduler.js (addMinutesIso / occurrencesBetween / utcDaysBetweenIso
+// — pure functions).
+import type { AdvanceTimeCommand, WeltariEvent } from '@weltari/protocol';
 import { err, ok, OperationalError, type Result } from '../errors.js';
 import type { EventBus } from '../http/bus.js';
-import { addMinutesIso, occurrencesBetween } from '../ledger/scheduler.js';
+import {
+  addMinutesIso,
+  occurrencesBetween,
+  utcDaysBetweenIso,
+} from '../ledger/scheduler.js';
 import type { Logger } from '../observability/logger.js';
 import type { Storage } from '../storage/db.js';
 
 /** Where every world's fictional clock starts. */
 export const WORLD_EPOCH = '2000-01-01T06:00:00.000Z';
+
+/** The named part of the fictional day for an hour 0–23 — dawn holds the
+ * 06:00 epoch (the fixture's lamplighter dawn), evening the 18:00 dusk. */
+function partOfDay(hour: number): string {
+  if (hour < 5) return 'night';
+  if (hour < 7) return 'dawn';
+  if (hour < 12) return 'morning';
+  if (hour < 14) return 'midday';
+  if (hour < 18) return 'afternoon';
+  if (hour < 22) return 'evening';
+  return 'night';
+}
+
+/**
+ * A fictional instant as prompts read it (Rev 4 glossary: the world clock is
+ * injected into Narrator and character prompts): "Day 3, 14:30, afternoon".
+ * The day number is the Gameday page's GAMEDAY N — UTC calendar days since
+ * the epoch's day, 1-based — and HH:MM is its digital readout. DYNAMIC by
+ * nature (the clock advances between calls): it belongs in the dynamic tail
+ * only, never a stable prefix (I5). No weather — that is V1.5.
+ */
+export function describeWorldTime(iso: string): string {
+  const day = utcDaysBetweenIso(WORLD_EPOCH, iso) + 1;
+  return `Day ${String(day)}, ${iso.slice(11, 16)}, ${partOfDay(Number(iso.slice(11, 13)))}`;
+}
+
+/** The world-clock line for a call that carries a situational sentence:
+ * "Day 3, 14:30, afternoon. You are outside any scene, texting on your
+ * phone." — the instant first, the call's own framing kept after it. */
+export function worldClockLine(iso: string, situation: string): string {
+  return `${describeWorldTime(iso)}. ${situation}`;
+}
+
+/**
+ * The clock as it stood at a PAST log position: the latest
+ * world.time_advanced appended before the first event `at` matches (the
+ * current clock when nothing matches). Background jobs about a specific game
+ * moment — a scene that ended, a chat range that closed — read THAT moment,
+ * not the clock at run time (a skip may land between the moment and the job).
+ */
+export function worldTimeAt(
+  storage: Storage,
+  worldId: string,
+  at: (event: WeltariEvent) => boolean,
+): string {
+  let time = WORLD_EPOCH;
+  for (const event of storage.eventLog.readAllSince(0)) {
+    if (at(event)) return time;
+    if (event.type === 'world.time_advanced' && event.world_id === worldId) {
+      time = event.payload.to;
+    }
+  }
+  return time;
+}
 
 export interface WorldCronDefinition {
   /** 5/6-field cron pattern over FICTIONAL time (UTC calendar math). */

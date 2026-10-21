@@ -31,6 +31,7 @@ import {
 } from './context-assembler.js';
 import type { EventSink } from './event-sink.js';
 import { liveProfile } from './memory.js';
+import { worldClockLine, worldTimeOf } from './world-clock.js';
 
 /** How many recent group lines a router/character call sees. */
 const GROUP_TRANSCRIPT_LINES = 32;
@@ -295,8 +296,10 @@ export function createGroupChatEngine(
       {
         scene_id: conversationId,
         heading: 'Group chat',
-        world_clock_text:
+        world_clock_text: worldClockLine(
+          worldTimeOf(storage, worldId),
           'You are outside any scene, texting in a group chat on your phone.',
+        ),
         latest_turns: transcript(worldId, conversationId),
         wiki: [],
         ...(recap === '' ? {} : { cache_recap: recap }),

@@ -9,6 +9,8 @@ import type { CharacterProfile } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
+import { narratorProfileOf } from '../../engine/narrator.js';
+import { describeWorldTime } from '../../engine/world-clock.js';
 import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Storage } from '../../storage/db.js';
@@ -111,7 +113,8 @@ export interface WorldCronLlmHandlerOptions {
   storage: Storage;
   sink: EventSink;
   llm: LlmClient;
-  /** The narrator-class profile world-cron narration speaks with. */
+  /** The narrator-class profile world-cron narration speaks with in an
+   * UNSEEDED world; a seeded world speaks with its own (engine/narrator.ts). */
   narrator: CharacterProfile;
   logger: Logger;
   faultPoint?: FaultPointHook;
@@ -140,15 +143,19 @@ export function createWorldCronLlmHandler(
       return;
     }
 
-    const context = assembleContext(narrator, {
+    // The world's OWN Narrator (folded live) and the occurrence's own game
+    // moment — scheduled_for, readable, never the clock at run time (a skip
+    // replays several occurrences after the fact).
+    const worldNarrator = narratorProfileOf(storage, job.world_id, narrator);
+    const context = assembleContext(worldNarrator, {
       scene_id: `wcron:${cron_type}`,
-      world_clock_text: `Fictional time ${scheduled_for}`,
+      world_clock_text: describeWorldTime(scheduled_for),
       latest_turns: [],
       wiki: [],
     });
     const result = await llm.streamCall({
       kind: 'world_agent',
-      characterId: narrator.character_id,
+      characterId: worldNarrator.character_id,
       system: context.stablePrefix,
       prompt: `${context.dynamicTail}\n\n## Instruction\nThe recurring world event "${cron_type}" just occurred off-screen. Note its outcome in 1-2 factual sentences.`,
       onTextDelta: (): void => undefined,

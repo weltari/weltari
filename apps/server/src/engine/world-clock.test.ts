@@ -16,7 +16,10 @@ import { createFakeLlmClient } from '../llm/fake-client.js';
 import { buildNarratorProfile } from './fixture/rainy-inn.js';
 import {
   createWorldClock,
+  describeWorldTime,
   WORLD_EPOCH,
+  worldClockLine,
+  worldTimeAt,
   type WorldClock,
   type WorldCronDefinition,
 } from './world-clock.js';
@@ -204,5 +207,90 @@ describe('world clock + time-skip replay', () => {
     expect(completed).toHaveLength(2); // 1 lamplighter (code) + 1 rumor (llm)
     const llmOne = completed.find((e) => e.payload.job_class === 'llm');
     expect(llmOne?.payload.note).toBeDefined();
+  });
+});
+
+describe('the clock as prompts read it (Rev 4 glossary: injected into prompts)', () => {
+  it('renders the Gameday convention: day N from the epoch day, HH:MM, part of day — no weather', () => {
+    expect(describeWorldTime(WORLD_EPOCH)).toBe('Day 1, 06:00, dawn');
+    expect(describeWorldTime('2000-01-03T14:30:00.000Z')).toBe(
+      'Day 3, 14:30, afternoon',
+    );
+    // The day turns at midnight, not 24 h after the 06:00 epoch (the
+    // Gameday page counts calendar days the same way).
+    expect(describeWorldTime('2000-01-01T23:59:00.000Z')).toBe(
+      'Day 1, 23:59, night',
+    );
+    expect(describeWorldTime('2000-01-02T00:01:00.000Z')).toBe(
+      'Day 2, 00:01, night',
+    );
+    expect(describeWorldTime('2000-02-01T12:00:00.000Z')).toBe(
+      'Day 32, 12:00, midday',
+    );
+    const parts = [
+      '04:59',
+      '05:00',
+      '07:00',
+      '12:00',
+      '14:00',
+      '18:00',
+      '22:00',
+    ]
+      .map((hhmm) => describeWorldTime(`2000-01-01T${hhmm}:00.000Z`))
+      .map((text) => text.split(', ')[2]);
+    expect(parts).toEqual([
+      'night',
+      'dawn',
+      'morning',
+      'midday',
+      'afternoon',
+      'evening',
+      'night',
+    ]);
+    expect(worldClockLine(WORLD_EPOCH, 'The chat has just ended.')).toBe(
+      'Day 1, 06:00, dawn. The chat has just ended.',
+    );
+  });
+
+  it('worldTimeAt reads the clock as it stood at a past log moment, per world', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weltari-worldclock-at-'));
+    const logger = quietLogger();
+    const storage = openStorage({ dbPath: join(dir, 'w.sqlite') });
+    const clock = createWorldClock({
+      storage,
+      eventBus: new Bus(logger),
+      logger,
+      definitions: [],
+    });
+    const advance = (worldId: string, minutes: number): void => {
+      expect(
+        clock.advanceTime({
+          world_id: worldId,
+          actor_id: 'user:owner',
+          minutes,
+        }).ok,
+      ).toBe(true);
+    };
+    advance('w1', 60); // w1 → 07:00
+    advance('w2', 600); // another world's skip never leaks into w1
+    storage.eventLog.append({
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      type: 'scene.ended',
+      payload: { scene_id: 's1', participants: [] },
+    });
+    advance('w1', 24 * 60); // a skip AFTER the scene ended
+    expect(
+      worldTimeAt(
+        storage,
+        'w1',
+        (e) => e.type === 'scene.ended' && e.payload.scene_id === 's1',
+      ),
+    ).toBe('2000-01-01T07:00:00.000Z');
+    // No matching moment = the current clock.
+    expect(worldTimeAt(storage, 'w1', () => false)).toBe(
+      '2000-01-02T07:00:00.000Z',
+    );
+    storage.close();
   });
 });

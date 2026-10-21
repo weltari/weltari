@@ -30,6 +30,7 @@ import {
   type ValidatedReflectionToolCall,
 } from '../../llm/tools.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
+import { worldClockLine, worldTimeAt } from '../../engine/world-clock.js';
 import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Storage } from '../../storage/db.js';
@@ -137,7 +138,16 @@ export function createReflectionHandler(
 
     const context = assembleContext(liveProfile(storage, profile), {
       scene_id,
-      world_clock_text: 'The scene has just ended.',
+      // The scene's own game moment (the clock when it ended), not the
+      // clock at run time — a skip may land before this job runs.
+      world_clock_text: worldClockLine(
+        worldTimeAt(
+          storage,
+          job.world_id,
+          (e) => e.type === 'scene.ended' && e.payload.scene_id === scene_id,
+        ),
+        'The scene has just ended.',
+      ),
       latest_turns: sceneTranscript(storage, scene_id),
       wiki: [],
     });

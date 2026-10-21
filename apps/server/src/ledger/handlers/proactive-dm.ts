@@ -36,7 +36,7 @@ import {
   outreachState,
   pickIndex,
 } from '../../engine/outreach.js';
-import { worldTimeOf } from '../../engine/world-clock.js';
+import { worldClockLine, worldTimeOf } from '../../engine/world-clock.js';
 import { parseChatToolCall } from '../../llm/tools.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Logger } from '../../observability/logger.js';
@@ -183,7 +183,12 @@ export function createProactiveDmHandler(
       {
         scene_id: conversationId,
         heading: 'Conversation',
-        world_clock_text: 'You are outside any scene, texting on your phone.',
+        // The DM's own game moment: the occurrence boundary it fires for
+        // (a skip enqueues several — each lives in its own fictional time).
+        world_clock_text: worldClockLine(
+          occurrence_iso,
+          'You are outside any scene, texting on your phone.',
+        ),
         latest_turns: recentTranscript(storage, conversationId, profile.name),
         wiki: [],
         ...(recap === '' ? {} : { cache_recap: recap }),
