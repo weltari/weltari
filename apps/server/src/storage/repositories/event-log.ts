@@ -3,7 +3,7 @@
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { WeltariEventSchema, type WeltariEvent } from '@weltari/protocol';
-import { CorruptStateError } from '../../errors.js';
+import { BugError, CorruptStateError } from '../../errors.js';
 import type { MarkersRepository } from './markers.js';
 import type { MemoryIndexRepository } from './memory-index.js';
 import type { ObjectsRepository } from './objects.js';
@@ -18,11 +18,24 @@ export type NewEvent = WeltariEvent extends infer E
 export interface EventLogRepository {
   /** Sole write path (Brief §2.1). Returns the persisted event with its log seq. */
   append(event: NewEvent): WeltariEvent;
-  /** Events with id > sinceId, ascending — the SSE Last-Event-ID replay read. */
+  /** ONE bounded page: at most `limit` events with id > sinceId, ascending —
+   * a cursor read for code that pages on purpose (the SSE Last-Event-ID
+   * replay). Never "the whole log": a fold that reads one page silently
+   * stops seeing new events once the shared log outgrows it — use
+   * `readAllSince`. */
   readSince(sinceId: number, limit?: number): WeltariEvent[];
+  /** EVERY event with id > sinceId, ascending, however long the log is — the
+   * read for folds and existence checks. Pages through the log internally
+   * (bounded page size, keyset on the primary key); the result is a
+   * snapshot: the read is synchronous on the one connection, so no append
+   * can interleave. */
+  readAllSince(sinceId: number): WeltariEvent[];
   /** Highest assigned event id, 0 on an empty log (the hello frame's last_event_id). */
   lastId(): number;
 }
+
+/** Rows per internal page of `readAllSince` — bounds the raw rows held at once. */
+const DEFAULT_PAGE_SIZE = 1000;
 
 const rowSchema = z.object({
   id: z.int().positive(),
@@ -75,7 +88,16 @@ export function createEventLogRepository(
   /** Folds marker events into the markers table inside the append's own
    * transaction (M7 part 4). */
   markers?: MarkersRepository,
+  /** Rows per internal `readAllSince` page — injectable so a test can prove
+   * the paging across many pages with a handful of rows. */
+  pageSize = DEFAULT_PAGE_SIZE,
 ): EventLogRepository {
+  if (!Number.isInteger(pageSize) || pageSize < 1) {
+    throw new BugError(
+      'event_page_size',
+      `event-log page size must be a positive integer, got ${String(pageSize)}`,
+    );
+  }
   const insert = db.prepare(
     'INSERT INTO events (world_id, actor_id, type, payload, ts) VALUES (?, ?, ?, ?, ?)',
   );
@@ -130,6 +152,20 @@ export function createEventLogRepository(
     readSince(sinceId: number, limit = 1000): WeltariEvent[] {
       const rows: unknown[] = selectSince.all(sinceId, limit);
       return rows.map(rowToEvent);
+    },
+    readAllSince(sinceId: number): WeltariEvent[] {
+      const events: WeltariEvent[] = [];
+      let cursor = sinceId;
+      for (;;) {
+        const rows: unknown[] = selectSince.all(cursor, pageSize);
+        for (const raw of rows) {
+          const event = rowToEvent(raw);
+          events.push(event);
+          cursor = event.id;
+        }
+        // A short page is the end of the log; a full one may have more.
+        if (rows.length < pageSize) return events;
+      }
     },
     lastId(): number {
       const row = z

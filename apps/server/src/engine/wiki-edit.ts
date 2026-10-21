@@ -30,7 +30,7 @@ export function createSubwikiEditCommand(
     // also exist for an interior stub — accept any sublocation the SUBWIKI
     // already knows, even if the registry does not list it.
     const hasEntry = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (e) =>
           (e.type === 'subwiki.updated' || e.type === 'subwiki.edited') &&

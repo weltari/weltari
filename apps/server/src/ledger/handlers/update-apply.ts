@@ -54,7 +54,7 @@ export function createUpdateApplyHandler(
 
     // Idempotency gate: the retry after a kill -9 must not stage twice.
     const alreadyStaged = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (event) =>
           event.type === 'update.staged' && event.payload.version === version,

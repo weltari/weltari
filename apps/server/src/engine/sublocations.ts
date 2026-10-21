@@ -51,12 +51,12 @@ export function knownSublocations(
   // into the Rainy Inn). Fixture/dev/test worlds (no world.seeded) keep the
   // fixture base that seeds their map.
   const gmBuilt = storage.eventLog
-    .readSince(0, 100000)
+    .readAllSince(0)
     .some((e) => e.world_id === worldId && e.type === 'world.seeded');
   const byId = new Map<string, SublocationDefinition>(
     gmBuilt ? [] : FIXTURE_SUBLOCATIONS.map((s) => [s.sublocation_id, s]),
   );
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (event.type === 'sublocation.materialized') {
       byId.set(event.payload.sublocation_id, {
@@ -123,7 +123,7 @@ export function materializedSublocations(
   worldId: string,
 ): SublocationDefinition[] {
   const stubOnly = new Set<string>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (event.type === 'sublocation.stub_created') {
       stubOnly.add(event.payload.sublocation_id);
@@ -233,7 +233,7 @@ export function sublocationAt(
  * a world can appear but never vanish). */
 export function worldExists(storage: Storage, worldId: string): boolean {
   return storage.eventLog
-    .readSince(0, 100000)
+    .readAllSince(0)
     .some((event) => event.world_id === worldId);
 }
 
@@ -327,7 +327,7 @@ export function latestBackdropPath(
   sublocationId: string,
 ): string | undefined {
   let path: string | undefined;
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'painter.completed' &&
       event.payload.image_id === `backdrop:${sublocationId}`

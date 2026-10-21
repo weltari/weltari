@@ -77,7 +77,7 @@ export function createSocialPostHandler(
 
     const alreadyPosted = (): boolean =>
       storage.eventLog
-        .readSince(0, 100000)
+        .readAllSince(0)
         .some(
           (e) =>
             e.type === 'social.post_committed' &&

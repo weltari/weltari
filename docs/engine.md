@@ -4,9 +4,9 @@ Purpose: engine-owned truth and prompt assembly. No wall-clock reads here (lint-
 
 ## Contract
 
-- Inputs: character profiles, scene context (rendered world-clock text, transcript, external text).
+- Inputs: character profiles, scene context (rendered world-clock text, transcript, external text); the event log — every fold here (projections, idempotency / "committed meanwhile" re-checks, transcripts and the scene's recent-turns window) reads it WHOLE through `eventLog.readAllSince(0)`, which pages the shared log however long it grows ([storage.md](storage.md)).
 - Outputs: `{ stablePrefix, dynamicTail }` — the I5 structural guard; events via `EventSink` (append-then-publish).
-- Never: interpolate dynamic or external text into the stable prefix (Brief §2.6); treat external text as instructions (B14); read `Date.now()`/`new Date()`.
+- Never: interpolate dynamic or external text into the stable prefix (Brief §2.6); treat external text as instructions (B14); read `Date.now()`/`new Date()`; fold one bounded `readSince` page as if it were the whole log (it silently stops seeing new events once the log outgrows it — `tests/invariants/event-log-full-read.test.ts`).
 
 ## File table
 

@@ -230,7 +230,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
    * world's life; a fixture world without one changes nothing). */
   function chapterSeedOf(worldId: string): string | undefined {
     let seed: string | undefined;
-    for (const event of storage.eventLog.readSince(0, 100000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (event.type === 'world.seeded' && event.world_id === worldId) {
         seed = event.payload.chapter_seed;
       }
@@ -255,7 +255,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     sceneId: string,
   ): readonly { id: string; text: string; status: string }[] {
     let goals: readonly { id: string; text: string; status: string }[] = [];
-    for (const event of storage.eventLog.readSince(0, 100000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (
         event.type === 'scene.goals_updated' &&
         event.payload.scene_id === sceneId
@@ -361,7 +361,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
     let hasTurns = false;
     let hasMoved = false;
     let hasGoals = false;
-    for (const event of storage.eventLog.readSince(0, 100000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (!('scene_id' in event.payload) || event.payload.scene_id !== sceneId)
         continue;
       if (event.type === 'scene.started') {
@@ -391,7 +391,7 @@ export function createTurnEngine(options: TurnEngineOptions): TurnEngine {
 
   function recentTurns(sceneId: string, limit = 4): TurnLine[] {
     const lines: TurnLine[] = [];
-    for (const event of storage.eventLog.readSince(0, 10000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (
         event.type === 'turn.committed' &&
         event.payload.scene_id === sceneId

@@ -42,6 +42,9 @@ export interface StorageOptions {
   migrationsDir?: string;
   /** Wall-time source for row timestamps; injectable for deterministic tests. */
   nowIso?: () => string;
+  /** Rows per internal page of `eventLog.readAllSince` (default 1000);
+   * injectable so tests prove whole-log folds across many pages. */
+  eventPageSize?: number;
 }
 
 export interface Storage {
@@ -178,6 +181,7 @@ export function openStorage(options: StorageOptions): Storage {
     memoryIndex,
     objects,
     markers,
+    options.eventPageSize,
   );
   const ledger = createLedgerRepository(db, nowIso);
   const gateway = createGatewayRepository(db, nowIso);

@@ -25,7 +25,7 @@ export function flagOf(
   flag: ConfigFlag,
 ): boolean {
   const values: Record<ConfigFlag, boolean> = { ...FLAG_DEFAULTS };
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (event.type === 'config.flag_set') {
       values[event.payload.flag] = event.payload.value;

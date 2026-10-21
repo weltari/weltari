@@ -229,7 +229,7 @@ export function createPainterHandler(
     // composite wins; a fresh image gets the deterministic fixture base.
     let currentPath: string | null = null;
     let already = false;
-    for (const event of storage.eventLog.readSince(0, 100000)) {
+    for (const event of storage.eventLog.readAllSince(0)) {
       if (
         event.type === 'painter.completed' &&
         event.payload.image_id === image_id
@@ -278,7 +278,7 @@ export function createPainterHandler(
     // race-free — the loser lands here, sees the winner's event, and no-ops
     // (its content-addressed file is an unreferenced orphan, not a lie).
     const committedMeanwhile = storage.eventLog
-      .readSince(0, 100000)
+      .readAllSince(0)
       .some(
         (event) =>
           event.type === 'painter.completed' &&

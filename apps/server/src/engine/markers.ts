@@ -246,7 +246,7 @@ export function planCronMarkerDrop(
 /** Worlds holding any marker history — the boot sweep's list. */
 export function markerWorlds(storage: Storage): string[] {
   const worlds = new Set<string>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.type === 'marker.dropped') worlds.add(event.world_id);
   }
   return [...worlds];

@@ -52,7 +52,7 @@ export function memoryStateOf(
   let goals: readonly string[] | undefined;
   let compaction: MemoryCompaction | undefined;
   const deltas: MemoryDelta[] = [];
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'memory.delta_committed' &&
       event.payload.character_id === characterId

@@ -40,7 +40,7 @@ export function pendingInvitations(
   const started = new Map<string, PendingInvitation>();
   const entered = new Set<string>();
   const closed = new Set<string>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (event.world_id !== worldId) continue;
     if (
       event.type === 'scene.started' &&
@@ -64,7 +64,7 @@ export function pendingInvitations(
 /** Worlds holding at least one pending invitation — the boot sweep's list. */
 export function pendingInvitationWorlds(storage: Storage): string[] {
   const worlds = new Set<string>();
-  for (const event of storage.eventLog.readSince(0, 100000)) {
+  for (const event of storage.eventLog.readAllSince(0)) {
     if (
       event.type === 'scene.started' &&
       event.payload.invitation !== undefined
@@ -119,7 +119,7 @@ export function createInvitationExpiry(
           // Fused re-check (the standing triad pattern): a racing sweep or a
           // retry that lost the race commits NOTHING — one expiry per scene.
           const already = storage.eventLog
-            .readSince(0, 100000)
+            .readAllSince(0)
             .some(
               (e) =>
                 e.type === 'scene.expired' &&

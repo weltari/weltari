@@ -63,7 +63,7 @@ export function createSocialReplyHandler(
 
     const alreadyAnswered = (): boolean =>
       storage.eventLog
-        .readSince(0, 100000)
+        .readAllSince(0)
         .some(
           (e) =>
             e.type === 'social.reply_answered' &&
@@ -81,7 +81,7 @@ export function createSocialReplyHandler(
     // The thread this answer lands in — post, comment, and every reply
     // exchange so far, in log order. All enqueued atomically with their
     // causes, so a missing piece is corrupted state.
-    const events = storage.eventLog.readSince(0, 100000);
+    const events = storage.eventLog.readAllSince(0);
     const post = events.find(
       (e) =>
         e.type === 'social.post_committed' &&
