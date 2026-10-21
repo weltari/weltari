@@ -233,13 +233,14 @@ export type MarkerClickAccepted = z.infer<typeof MarkerClickAcceptedSchema>;
  * POST /v1/commands/advance-time — move the fictional world clock forward
  * (a time skip). Due world-cron occurrences replay in scheduled-game-timestamp
  * order: code-class instantly, LLM-class in background under the per-skip
- * budget (Brief §4).
+ * budget (Brief §4). Refused (409 `scene_active`) while the user is in an
+ * open scene (UI Spec §1.11).
  */
 export const AdvanceTimeCommandSchema = z.strictObject({
   world_id: z.string().min(1),
   actor_id: z.string().min(1),
-  /** Fictional minutes to skip; capped at one fictional year. */
-  minutes: z.int().positive().max(527040),
+  /** Fictional minutes to skip; capped at +48 h (UI Spec §1.11). */
+  minutes: z.int().positive().max(2880),
 });
 export type AdvanceTimeCommand = z.infer<typeof AdvanceTimeCommandSchema>;
 

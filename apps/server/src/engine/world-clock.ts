@@ -116,6 +116,33 @@ interface Occurrence {
   jobClass: 'code' | 'llm';
 }
 
+/**
+ * The scene the user is in, if any — a world's open scene (started, neither
+ * ended nor expired) that blocks a time skip (UI Spec §1.11: no skip while a
+ * scene is active, enforced here, not only by the greyed client control).
+ * A character's invitation the user has not entered yet (no committed turn)
+ * does not count: the user is not there, and skipping past its game-time
+ * deadline is exactly how an unattended invitation lapses (invitation.ts).
+ */
+function activeSceneOf(storage: Storage, worldId: string): string | undefined {
+  const open = new Set<string>();
+  const pendingInvitations = new Set<string>();
+  for (const event of storage.eventLog.readAllSince(0)) {
+    if (event.world_id !== worldId) continue;
+    if (event.type === 'scene.started') {
+      open.add(event.payload.scene_id);
+      if (event.payload.invitation !== undefined) {
+        pendingInvitations.add(event.payload.scene_id);
+      }
+    } else if (event.type === 'turn.committed') {
+      pendingInvitations.delete(event.payload.scene_id);
+    } else if (event.type === 'scene.ended' || event.type === 'scene.expired') {
+      open.delete(event.payload.scene_id);
+    }
+  }
+  return [...open].find((sceneId) => !pendingInvitations.has(sceneId));
+}
+
 /** The fictional clock as a standalone projection (M6 part 3: the
  * proactive_dm handler stamps outreach entries with it — game-day stamps are
  * the V2 trigger-base bridge, owner ruling 2026-07-10). */
@@ -147,6 +174,15 @@ export function createWorldClock(options: WorldClockOptions): WorldClock {
     currentTime,
 
     advanceTime(command: AdvanceTimeCommand): Result<AdvanceTimeResult> {
+      const activeScene = activeSceneOf(storage, command.world_id);
+      if (activeScene !== undefined) {
+        return err(
+          new OperationalError(
+            'scene_active',
+            `scene ${activeScene} is in progress — end it before skipping time`,
+          ),
+        );
+      }
       const from = currentTime(command.world_id);
       const to = addMinutesIso(from, command.minutes);
 

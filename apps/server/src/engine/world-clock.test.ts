@@ -208,6 +208,93 @@ describe('world clock + time-skip replay', () => {
     const llmOne = completed.find((e) => e.payload.job_class === 'llm');
     expect(llmOne?.payload.note).toBeDefined();
   });
+
+  describe('no skip while the user is in a scene (UI Spec §1.11, server-enforced)', () => {
+    const SKIP = { world_id: 'w1', actor_id: 'user:owner', minutes: 60 };
+
+    function startScene(
+      s: Storage,
+      sceneId: string,
+      invitation?: { character_id: string },
+    ): void {
+      s.eventLog.append({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        type: 'scene.started',
+        payload: {
+          scene_id: sceneId,
+          title: 'A scene',
+          ...(invitation === undefined
+            ? {}
+            : {
+                invitation: {
+                  character_id: invitation.character_id,
+                  place: 'the shrine',
+                  wait_hours: 6,
+                  expires_at_game: '2000-01-01T12:00:00.000Z',
+                },
+              }),
+        },
+      });
+    }
+
+    function commitTurn(s: Storage, sceneId: string): void {
+      s.eventLog.append({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        type: 'turn.committed',
+        payload: {
+          scene_id: sceneId,
+          turn_id: `t-${sceneId}`,
+          steps: [{ call: 'narrator', speaker: 'Narrator', text: 'Rain.' }],
+        },
+      });
+    }
+
+    it('refuses while an open scene exists, writing nothing; allows it once the scene ends', () => {
+      const ctx = setup();
+      startScene(ctx.storage, 's1');
+      const refused = ctx.clock.advanceTime(SKIP);
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) expect(refused.error.code).toBe('scene_active');
+      expect(ctx.clock.currentTime('w1')).toBe(WORLD_EPOCH);
+      expect(ctx.storage.ledger.listActive('w1')).toHaveLength(0);
+
+      ctx.storage.eventLog.append({
+        world_id: 'w1',
+        actor_id: 'user:owner',
+        type: 'scene.ended',
+        payload: { scene_id: 's1', participants: [] },
+      });
+      expect(ctx.clock.advanceTime(SKIP).ok).toBe(true);
+    });
+
+    it('a pending invitation the user never entered does not block (skipping is how it lapses)', () => {
+      const ctx = setup();
+      startScene(ctx.storage, 'inv1', { character_id: 'char:elias' });
+      expect(ctx.clock.advanceTime(SKIP).ok).toBe(true);
+    });
+
+    it('an invitation the user entered blocks like any scene', () => {
+      const ctx = setup();
+      startScene(ctx.storage, 'inv1', { character_id: 'char:elias' });
+      commitTurn(ctx.storage, 'inv1');
+      const refused = ctx.clock.advanceTime(SKIP);
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) expect(refused.error.code).toBe('scene_active');
+    });
+
+    it('another world’s open scene does not block this world', () => {
+      const ctx = setup();
+      ctx.storage.eventLog.append({
+        world_id: 'w2',
+        actor_id: 'user:owner',
+        type: 'scene.started',
+        payload: { scene_id: 'other', title: 'Elsewhere' },
+      });
+      expect(ctx.clock.advanceTime(SKIP).ok).toBe(true);
+    });
+  });
 });
 
 describe('the clock as prompts read it (Rev 4 glossary: injected into prompts)', () => {

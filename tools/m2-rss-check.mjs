@@ -105,7 +105,8 @@ await post('/v1/commands/start-turn', {
 });
 await sleep(2000); // FakeLLM streams in ms; leave room for the commit
 
-// The measured burst: reflection fan-out + painter composite + 3-day skip.
+// The measured burst: reflection fan-out + painter composite + the maximum
+// +48 h skip (UI Spec §1.11 — the server refuses longer ones).
 await post('/v1/commands/end-scene', {
   world_id: 'w1',
   actor_id: 'user:owner',
@@ -121,7 +122,7 @@ await post('/v1/commands/paint-region', {
 await post('/v1/commands/advance-time', {
   world_id: 'w1',
   actor_id: 'user:owner',
-  minutes: 3 * 1440,
+  minutes: 2 * 1440,
 });
 
 const drainDeadline = Date.now() + 60000;
