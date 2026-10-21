@@ -206,6 +206,10 @@ export interface SceneStore {
   /** hello's last_event_id — everything at or below it is replay, not live. */
   replayTarget: number;
   replayCaughtUp: boolean;
+  /** The id of the last event this client applied — EventSource resumes
+   * from it (Last-Event-ID), so a hello whose head equals it has nothing
+   * to replay: the very next event is live. */
+  lastAppliedEventId: number;
   /** The scene's roster — character.joined since scene.started (VN line-up). */
   cast: CastMember[];
   /** Every materialized sublocation (fog projection, 0.8.0) — the splash's
@@ -1058,6 +1062,7 @@ export const useSceneStore = create<SceneStore>((set) => ({
   sceneEndedLive: false,
   replayTarget: 0,
   replayCaughtUp: false,
+  lastAppliedEventId: 0,
   cast: [],
   knownSublocations: [],
   history: [],
@@ -1103,12 +1108,16 @@ export const useSceneStore = create<SceneStore>((set) => ({
     appVersion: string | undefined,
     lastEventId: number,
   ): void {
-    set({
+    // Caught up when nothing lies between our resume point and the head:
+    // an empty log, or a no-gap reconnect (the head IS our last event —
+    // nothing will replay, so nothing would ever flip the flag later).
+    set((state) => ({
       protocolVersion,
       appVersion: appVersion ?? null,
       replayTarget: lastEventId,
-      replayCaughtUp: lastEventId === 0,
-    });
+      replayCaughtUp:
+        lastEventId === 0 || lastEventId <= state.lastAppliedEventId,
+    }));
   },
 
   applyEvent(event: WeltariEvent): void {
@@ -1116,11 +1125,12 @@ export const useSceneStore = create<SceneStore>((set) => ({
     // Flipped AFTER the event applied: the event at the replay head is still
     // replay — only what comes later counts as live (scene.ended relies on
     // reading the pre-event value inside its own case).
-    set((state) =>
-      !state.replayCaughtUp && event.id >= state.replayTarget
+    set((state) => ({
+      lastAppliedEventId: Math.max(state.lastAppliedEventId, event.id),
+      ...(!state.replayCaughtUp && event.id >= state.replayTarget
         ? { replayCaughtUp: true }
-        : {},
-    );
+        : {}),
+    }));
   },
 
   applyStream(frame: StreamSentence): void {

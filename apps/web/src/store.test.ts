@@ -483,3 +483,46 @@ describe('the GM live stream buffer (0.20.0, the GM proposal UX contract)', () =
     expect(useSceneStore.getState().gmLiveConversationId).toBeNull();
   });
 });
+
+describe('the replay flag across reconnects (hello vs the client resume point)', () => {
+  function sceneEnded(sceneId: string): WeltariEvent {
+    return {
+      id: nextId++,
+      world_id: 'w1',
+      actor_id: 'user:owner',
+      ts: TS,
+      type: 'scene.ended',
+      payload: { scene_id: sceneId, participants: [] },
+    };
+  }
+
+  it('a no-gap reconnect (hello head = last applied event) is caught up: the next event is LIVE', () => {
+    const store = useSceneStore.getState();
+    const scene = `s-reconnect-${String(nextId)}`;
+    store.applyHello('0.21.0', undefined, 0);
+    apply(sceneStarted(scene));
+    // The connection drops; EventSource resumes with Last-Event-ID = the
+    // last applied id and the server's hello names that same head.
+    store.applyHello('0.21.0', undefined, nextId - 1);
+    expect(useSceneStore.getState().replayCaughtUp).toBe(true);
+    apply(sceneEnded(scene));
+    // A live end keeps its soft close (UI Spec §1.7), never the splash.
+    expect(useSceneStore.getState().sceneEndedLive).toBe(true);
+  });
+
+  it('a reconnect with a gap replays up to the head first, then goes live', () => {
+    const store = useSceneStore.getState();
+    const scene = `s-gap-${String(nextId)}`;
+    store.applyHello('0.21.0', undefined, 0);
+    apply(sceneStarted(scene));
+    // Two events happened while disconnected: the head is two past ours.
+    const head = nextId + 1;
+    store.applyHello('0.21.0', undefined, head);
+    expect(useSceneStore.getState().replayCaughtUp).toBe(false);
+    apply(sceneStarted(`${scene}-b`));
+    apply(sceneEnded(`${scene}-b`));
+    // The replayed end is not live; everything after the head is.
+    expect(useSceneStore.getState().sceneEndedLive).toBe(false);
+    expect(useSceneStore.getState().replayCaughtUp).toBe(true);
+  });
+});
