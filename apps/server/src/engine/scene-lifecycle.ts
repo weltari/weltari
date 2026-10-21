@@ -34,6 +34,10 @@ export interface SceneLifecycleOptions {
   knownCharacters: readonly KnownCharacter[];
   /** M7 part 4: the marker engine's scene-end fan-out (follow-up / top-up). */
   markerFanOut?: SceneEndMarkerFanOut;
+  /** Who joins an open that names nobody (a Hang-around, a Jump with no
+   * expected participants): the boot cast — Elias in a fixture world,
+   * nobody in a GM-seeded one (main.ts, fixtureBootCast). Default: nobody. */
+  defaultParticipants?: readonly string[];
 }
 
 /**
@@ -445,7 +449,13 @@ export function appendSceneOpen(
 export function createSceneLifecycle(
   options: SceneLifecycleOptions,
 ): SceneLifecycle {
-  const { storage, eventBus, logger, knownCharacters } = options;
+  const {
+    storage,
+    eventBus,
+    logger,
+    knownCharacters,
+    defaultParticipants = [],
+  } = options;
 
   /** Week 19 (audit item 2, the 6a657d9 pattern): the id↔name roster folds
    * LIVE per call — seeds ∪ character.created — so scene opens and ends
@@ -501,7 +511,13 @@ export function createSceneLifecycle(
       return ok({ jobsEnqueued });
     },
 
-    openScene(command: OpenSceneRequest): Result<{ opened: true }> {
+    openScene(request: OpenSceneRequest): Result<{ opened: true }> {
+      // An open naming nobody takes the boot cast (never a client-side
+      // fixture constant — G-05): the client says "whoever is around".
+      const command: OpenSceneRequest =
+        request.participants.length > 0
+          ? request
+          : { ...request, participants: [...defaultParticipants] };
       const events = sceneEvents(storage, command.scene_id);
       if (events.some((e) => e.type === 'scene.started')) {
         return err(

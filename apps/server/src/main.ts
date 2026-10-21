@@ -350,6 +350,7 @@ const lifecycle = createSceneLifecycle({
   logger,
   knownCharacters,
   markerFanOut: markerEngine,
+  defaultParticipants: untrackedSceneCast,
 });
 
 // Weltari Chat (M6 part 2, Rev 4 §8): DMs outside any scene. The idle sweep
