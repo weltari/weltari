@@ -70,6 +70,13 @@ describe('postOpenScene ends the active scene before opening (one active scene)'
     expect(calls[0]?.body).toContain('"scene_id":"s-old"');
   });
 
+  it('an open naming nobody sends an empty cast — never a fixture character (G-05)', async () => {
+    const calls = stubFetch(() => jsonResponse(202, OPEN_OK));
+    await postOpenScene('Hang around', {}, { retryDelayMs: 0 });
+    expect(calls[0]?.body).toContain('"participants":[]');
+    expect(calls[0]?.body).not.toContain('char:elias');
+  });
+
   it('skips end-scene when no scene is open', async () => {
     const calls = stubFetch(() => jsonResponse(202, OPEN_OK));
     const sceneId = await postOpenScene('Fresh start', {}, { retryDelayMs: 0 });

@@ -16,6 +16,7 @@ export function SoftClose(props: {
   const sceneEnd = useSceneStore((s) => s.sceneEnd);
   const sceneTitle = useSceneStore((s) => s.sceneTitle);
   const sublocationId = useSceneStore((s) => s.sublocationId);
+  const cast = useSceneStore((s) => s.cast);
 
   if (sceneEnd === null) return null;
 
@@ -33,8 +34,14 @@ export function SoftClose(props: {
             disabled={busy}
             onClick={() => {
               // Stay longer = the resume path (Rev 4 §6): the new scene
-              // loads with the SAME sublocation, re-grounded.
-              open(sceneTitle, sublocationId === '' ? {} : { sublocationId });
+              // loads with the SAME sublocation, re-grounded, and the same
+              // people still present at the close.
+              open(sceneTitle, {
+                ...(sublocationId === '' ? {} : { sublocationId }),
+                ...(cast.length === 0
+                  ? {}
+                  : { participants: cast.map((m) => m.character_id) }),
+              });
             }}
           >
             Stay longer
