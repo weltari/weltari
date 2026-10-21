@@ -3,6 +3,11 @@
 // built from it is byte-identical across process restarts (Invariant I5 and
 // the real-provider cache-hit check both depend on this).
 import type { CharacterProfile } from '../context-assembler.js';
+import {
+  NARRATOR_GOALS,
+  NARRATOR_PERSONALITY,
+  NARRATOR_SKILLS,
+} from '../narrator.js';
 import type { WorldCronDefinition } from '../world-clock.js';
 
 export const FIXTURE_WORLD_ID = 'w1';
@@ -177,7 +182,8 @@ export function buildMaraProfile(): CharacterProfile {
 /**
  * The narrator makes the FIRST call of every turn, so its prefix carries the
  * ~50K-token load in the success-criteria run (criterion a measures a real
- * big-prefix prefill, not a small warm-up call).
+ * big-prefix prefill, not a small warm-up call). UNSEEDED worlds only: a
+ * GM-built world speaks with its own seed-built Narrator (engine/narrator.ts).
  */
 export function buildNarratorProfile(
   targetPrefixTokens = 800,
@@ -186,19 +192,13 @@ export function buildNarratorProfile(
   return {
     character_id: 'char:narrator',
     name: 'Narrator',
-    skills: [
-      'Scene-setting: establishes place, weather and mood in two sentences.',
-      'Pacing: ends every beat on a hook that invites a reply.',
-    ],
-    personality:
-      'Third-person, present tense, concrete sensory detail. Never speaks for player characters.',
+    skills: NARRATOR_SKILLS,
+    personality: NARRATOR_PERSONALITY,
     memory_core: [
       'The Rainy Inn sits where the north road meets the river ferry.',
       'Storm season has just begun; the common room smells of wet wool.',
       ...generateLore(sentenceCount),
     ],
-    goals: [
-      'Keep the scene moving; hand the spotlight to a character each turn.',
-    ],
+    goals: NARRATOR_GOALS,
   };
 }

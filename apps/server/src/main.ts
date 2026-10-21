@@ -148,6 +148,9 @@ const stopGauges = startGauges({
 
 const elias = buildEliasProfile(env.prefixTokens);
 const mara = buildMaraProfile();
+// The UNSEEDED-world Narrator: every Narrator-class seam below resolves the
+// world's own seed-built profile per call (engine/narrator.ts) and falls back
+// to this fixture profile only while a world has no world.seeded event.
 const narrator = buildNarratorProfile(env.prefixTokens);
 // The seed profiles (M7 part 2): the fixture pair on a fixture world; a
 // cold-boot world starts with NO seed characters — its people arrive via

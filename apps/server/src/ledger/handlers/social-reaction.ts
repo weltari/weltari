@@ -19,6 +19,7 @@ import {
 import type { EventSink } from '../../engine/event-sink.js';
 import { liveProfile } from '../../engine/memory.js';
 import { SOCIAL_CONDUCT_SKILL } from '../../engine/social.js';
+import { worldClockLine } from '../../engine/world-clock.js';
 import { parseSocialToolCall, type ReactToolInput } from '../../llm/tools.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Logger } from '../../observability/logger.js';
@@ -116,8 +117,12 @@ export function createSocialReactionHandler(
       {
         scene_id: `feed:${job.world_id}`,
         heading: 'The Feed',
-        world_clock_text:
+        // The post's game moment — the reaction decision is enqueued with
+        // the post and reads it as it lands.
+        world_clock_text: worldClockLine(
+          post.payload.occurrence_iso,
           'You are outside any scene, thumbing through the feed on your phone.',
+        ),
         latest_turns: [
           { speaker: `${posterName} (feed post)`, text: post.payload.body },
         ],

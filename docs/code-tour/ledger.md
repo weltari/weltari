@@ -56,6 +56,8 @@ and appears on the social feed, without restarting the server.
     game's fictional clock — the latter lists every time a pattern would
     have fired between two timestamps (used when the story clock jumps
     forward in one go), capped so a bad pattern can't flood the ledger.
+    `utcDaysBetweenIso` counts whole calendar days between two fictional
+    moments — the "Day N" the prompts show.
   - `intervalOccurrencesBetween` does the same for simple "every N game
     minutes" cadences croner can't express — it's what paces the proactive
     messages and the social feed on the *game* clock, so a paused world
@@ -69,6 +71,21 @@ idempotency check), do the real work (often an AI call), re-check right
 before saving (in case a duplicate "twin" snuck in while waiting on the AI
 — the lease-overlap re-check explained at the bottom), then save everything
 as one atomic write.
+
+Two things every AI-calling handler gets right about *where and when* the
+story is. First, the time: a job whose writing depends on the hour is told
+the world's real game time (e.g. "Day 3, 14:30, afternoon") in the changing
+part of its prompt — and a job *about* a particular moment uses that moment,
+not whatever the clock says when the job happens to run: a reflection or
+World Agent pass reads the clock as it stood when the scene ended, a chat
+reflection the clock at the chat's last message, a proactive message or
+feed post (and the reactions to it) its own scheduled slot, a world-calendar
+narration its scheduled time. Jobs that write lasting place descriptions
+(materialize, map edit) are deliberately told no hour, since a "moonlit"
+description would read wrong at noon forever after. Second, the voice: the
+jobs that speak as the Narrator (World Agent, world calendar, materialize,
+map edit, map click) look up *that world's* Narrator at call time — a world
+the GM built speaks from its own seed, never from the Rainy Inn demo.
 
 **Memory and reflection**
 

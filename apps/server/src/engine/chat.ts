@@ -41,6 +41,7 @@ import type { EventSink } from './event-sink.js';
 import type { OpenSceneRequest } from './scene-lifecycle.js';
 import { slugifyName } from './scene-tools.js';
 import { knownSublocations } from './sublocations.js';
+import { worldClockLine, worldTimeOf } from './world-clock.js';
 
 /** How many recent transcript lines a chat reply sees (short context — chat
  * turns are the cheapest call class; deep recall arrives with the query
@@ -471,8 +472,12 @@ export function createChatEngine(options: ChatEngineOptions): ChatEngine {
           {
             scene_id: conversationId,
             heading: 'Conversation',
-            world_clock_text:
+            // The world clock NOW (read per reply — a skip may land between
+            // two messages of one conversation).
+            world_clock_text: worldClockLine(
+              worldTimeOf(storage, command.world_id),
               'You are outside any scene, texting on your phone.',
+            ),
             latest_turns: transcript,
             wiki: [],
             ...(recap === '' ? {} : { cache_recap: recap }),

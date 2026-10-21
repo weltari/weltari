@@ -15,6 +15,8 @@ import { CorruptStateError } from '../../errors.js';
 import type { CharacterProfile } from '../../engine/context-assembler.js';
 import { assembleContext } from '../../engine/context-assembler.js';
 import type { EventSink } from '../../engine/event-sink.js';
+import { narratorProfileOf } from '../../engine/narrator.js';
+import { worldClockLine, worldTimeAt } from '../../engine/world-clock.js';
 import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Storage } from '../../storage/db.js';
@@ -78,7 +80,8 @@ export interface WorldAgentHandlerOptions {
   storage: Storage;
   sink: EventSink;
   llm: LlmClient;
-  /** The narrator-class profile the World Agent speaks with. */
+  /** The narrator-class profile the World Agent speaks with in an UNSEEDED
+   * world; a seeded world speaks with its own (engine/narrator.ts). */
   narrator: CharacterProfile;
   logger: Logger;
 }
@@ -112,15 +115,27 @@ export function createWorldAgentHandler(
       return;
     }
 
-    const context = assembleContext(narrator, {
+    // The world's OWN Narrator (folded live: a seeded world's seed-built
+    // profile, else the fixture one) and the scene's own game moment — the
+    // clock when it ended, not at run time.
+    const worldNarrator = narratorProfileOf(storage, job.world_id, narrator);
+    const clockText = worldClockLine(
+      worldTimeAt(
+        storage,
+        job.world_id,
+        (e) => e.type === 'scene.ended' && e.payload.scene_id === scene_id,
+      ),
+      'The scene has just ended.',
+    );
+    const context = assembleContext(worldNarrator, {
       scene_id,
-      world_clock_text: 'The scene has just ended.',
+      world_clock_text: clockText,
       latest_turns: sceneTranscript(storage, scene_id),
       wiki: [],
     });
     const result = await llm.streamCall({
       kind: 'world_agent',
-      characterId: narrator.character_id,
+      characterId: worldNarrator.character_id,
       system: context.stablePrefix,
       prompt: `${context.dynamicTail}\n\n## Instruction\nAs the world agent, note in 1-3 sentences how the world moves on after this scene (weather, schedules, off-screen consequences). Third person, factual.`,
       onTextDelta: (): void => undefined,
@@ -136,9 +151,9 @@ export function createWorldAgentHandler(
     // NARRATION-ONLY transcript — `character` steps never enter the prompt,
     // so speech is excluded by construction, not by instruction. The summary
     // note above reads the whole scene (a summary may mention claims).
-    const wikiContext = assembleContext(narrator, {
+    const wikiContext = assembleContext(worldNarrator, {
       scene_id,
-      world_clock_text: 'The scene has just ended.',
+      world_clock_text: clockText,
       latest_turns: sceneNarrationTranscript(storage, scene_id),
       wiki: [],
     });
@@ -160,7 +175,7 @@ export function createWorldAgentHandler(
     for (const stub of stubs) {
       const entryResult = await llm.streamCall({
         kind: 'world_agent',
-        characterId: narrator.character_id,
+        characterId: worldNarrator.character_id,
         system: wikiContext.stablePrefix,
         prompt: `${wikiContext.dynamicTail}\n\n## Instruction\nWrite the sublocation wiki entry for "${stub.name}" (${stub.sublocation_id}) in 2-4 sentences: what fresh eyes would observe at this place RIGHT NOW, grounded only in the scene's narration and the place's brief ("${stub.description}"). Observable-now state only — never events that happened, never things characters merely said. Third person, present tense.`,
         onTextDelta: (): void => undefined,

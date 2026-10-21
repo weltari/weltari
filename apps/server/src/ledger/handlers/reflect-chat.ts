@@ -30,6 +30,7 @@ import {
   type ValidatedReflectionToolCall,
 } from '../../llm/tools.js';
 import type { FaultPointHook } from '../../engine/fault-points.js';
+import { worldClockLine, worldTimeAt } from '../../engine/world-clock.js';
 import type { Logger } from '../../observability/logger.js';
 import type { LlmClient } from '../../llm/types.js';
 import type { Storage } from '../../storage/db.js';
@@ -146,7 +147,11 @@ export function createReflectChatHandler(
     const context = assembleContext(liveProfile(storage, profile), {
       scene_id: conversation_id,
       heading: 'Conversation',
-      world_clock_text: 'The chat has just ended.',
+      // The range's own game moment: the clock at its last message.
+      world_clock_text: worldClockLine(
+        worldTimeAt(storage, job.world_id, (e) => e.id >= range_end_id),
+        'The chat has just ended.',
+      ),
       latest_turns: rangeTranscript(
         storage,
         conversation_id,
